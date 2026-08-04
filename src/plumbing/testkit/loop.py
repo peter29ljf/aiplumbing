@@ -57,8 +57,26 @@ class ScenarioVerdict:
         return self.verdict == "pass"
 
     @property
+    def persistent_failures(self) -> list[dict[str, Any]]:
+        """Failures that showed up in every failing run.
+
+        A failure that appears once in four is part of the noise, even when it is a hard
+        gate. Judging the scenario on it lets an incidental framework blip mask a genuine
+        agent problem that failed every single time.
+        """
+        failing = [r for r in self.runs if not r.passed]
+        if not failing:
+            return []
+        common = set.intersection(*({f["name"] for f in r.failures} for r in failing))
+        return [f for f in failing[0].failures if f["name"] in common]
+
+    @property
     def source(self) -> str:
-        """harness | framework | agent — from the run doctor would be shown."""
+        """harness | framework | agent, decided by what fails every time."""
+        sources = {f.get("source", "agent") for f in self.persistent_failures}
+        for candidate in ("harness", "framework", "agent"):
+            if candidate in sources:
+                return candidate
         return self.representative.failure_source
 
     @property

@@ -85,7 +85,8 @@ transitions:
     - "Service Completed"
   "Awaiting Appointment Selection":
     - "Appointment Booked"
-    - "Emergency Technician Search" # Customer switched to emergency service
+    - "Deposit Link Sent"           # Customer switched to emergency, which is deposit-first
+    - "Emergency Technician Search"
     - "Needs Assessment"
   "Appointment Booked":
     - "Appointment Rescheduled"

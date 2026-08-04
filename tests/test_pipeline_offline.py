@@ -877,3 +877,60 @@ def test_heal_does_hand_over_a_genuine_agent_failure(tmp_path):
         loop_mod.new_run_dir = original_dir
 
     assert seen["n"] == 1, "doctor should have been offered the agent-class failure"
+
+
+def test_an_incidental_framework_blip_does_not_mask_a_persistent_agent_failure():
+    """The case that exposed this: one run hit an illegal transition, both runs missed a
+    required tool call. Judging on the worst source seen anywhere skipped doctor entirely,
+    leaving the agent problem that failed every single time unaddressed.
+    """
+    from plumbing.testkit.loop import ScenarioVerdict
+    from plumbing.testkit.runner import ScenarioResult
+
+    agent_miss = {"name": "must_call:phone.call_technician", "passed": False,
+                  "detail": "never called", "source": "agent"}
+    gate_blip = {"name": "no_rule_violations", "passed": False,
+                 "detail": "illegal transition", "source": "framework"}
+
+    entry = ScenarioVerdict("s")
+    entry.runs = [
+        ScenarioResult(scenario_id="s", suite="j", description="", passed=False,
+                       checks=[agent_miss, gate_blip]),          # blip only here
+        ScenarioResult(scenario_id="s", suite="j", description="", passed=False,
+                       checks=[agent_miss]),
+    ]
+
+    names = {f["name"] for f in entry.persistent_failures}
+    assert names == {"must_call:phone.call_technician"}
+    assert entry.source == "agent"
+    assert entry.actionable is True      # doctor gets it, as it should
+
+
+def test_a_framework_failure_in_every_run_still_blocks_doctor():
+    """The rule must not become "ignore framework failures" — only "ignore the flaky ones"."""
+    from plumbing.testkit.loop import ScenarioVerdict
+    from plumbing.testkit.runner import ScenarioResult
+
+    gate = {"name": "no_rule_violations", "passed": False,
+            "detail": "illegal transition", "source": "framework"}
+    agent_miss = {"name": "must_call:sms.send", "passed": False,
+                  "detail": "never called", "source": "agent"}
+
+    entry = ScenarioVerdict("s")
+    entry.runs = [
+        ScenarioResult(scenario_id="s", suite="j", description="", passed=False,
+                       checks=[gate, agent_miss]),
+        ScenarioResult(scenario_id="s", suite="j", description="", passed=False,
+                       checks=[gate, agent_miss]),
+    ]
+    assert entry.source == "framework"
+    assert entry.actionable is False
+
+
+def test_switching_from_a_standard_slot_to_emergency_is_allowed():
+    """A customer offered tomorrow who decides they want someone tonight has to reach the
+    deposit, which is where the emergency flow now starts."""
+    world = World(now=WORKDAY)
+    ticket = world.seed_ticket("Awaiting Appointment Selection", "+16045550101")
+    world.transition_ticket(ticket.ticket_id, "Deposit Link Sent")
+    assert ticket.status == "Deposit Link Sent"
