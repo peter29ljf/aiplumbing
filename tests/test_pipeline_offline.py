@@ -934,3 +934,74 @@ def test_switching_from_a_standard_slot_to_emergency_is_allowed():
     ticket = world.seed_ticket("Awaiting Appointment Selection", "+16045550101")
     world.transition_ticket(ticket.ticket_id, "Deposit Link Sent")
     assert ticket.status == "Deposit Link Sent"
+
+
+# ======================================================================
+# Recurrent failures — flaky, but flaky for a reason
+# ======================================================================
+
+
+def _runs(*specs):
+    """Each spec is None for a pass, or a list of failure names for a failure."""
+    from plumbing.testkit.runner import ScenarioResult
+
+    out = []
+    for spec in specs:
+        checks = [] if spec is None else [
+            {"name": n, "passed": False, "detail": "", "source": "agent"} for n in spec
+        ]
+        out.append(ScenarioResult(scenario_id="s", suite="j", description="",
+                                  passed=spec is None, checks=checks))
+    return out
+
+
+def test_an_ambiguous_prompt_is_repairable_even_though_it_sometimes_passes():
+    """The case that forced this: one run phoned the technicians, the next only listed
+    them. Same scenario, same named failure whenever it failed. Refusing to touch it
+    because the pass rate was not zero left a known, located, fixable bug unfixable.
+    """
+    from plumbing.testkit.loop import ScenarioVerdict
+
+    entry = ScenarioVerdict("s")
+    entry.runs = _runs(None, ["must_call:phone.call_technician"])
+    assert entry.verdict == "flaky"
+    assert entry.recurrent is True
+    assert entry.actionable is True
+
+
+def test_noise_is_still_left_alone():
+    """Different failure each time is what noise looks like, and doctor stays away."""
+    from plumbing.testkit.loop import ScenarioVerdict
+
+    entry = ScenarioVerdict("s")
+    entry.runs = _runs(None, ["final_status"], None, ["must_call:sms.send"])
+    assert entry.verdict == "flaky"
+    assert entry.persistent_failures == []      # nothing common to the failing runs
+    assert entry.recurrent is False
+    assert entry.actionable is False
+
+
+def test_a_rare_failure_is_not_repairable_even_with_a_consistent_signature():
+    """Failing one run in four is not enough to act on, however tidy the signature."""
+    from plumbing.testkit.loop import ScenarioVerdict
+
+    entry = ScenarioVerdict("s")
+    entry.runs = _runs(None, None, None, ["must_call:sms.send"])
+    assert entry.recurrent is False
+    assert entry.actionable is False
+
+
+def test_a_recurrent_framework_problem_is_still_not_doctors_to_fix():
+    from plumbing.testkit.loop import ScenarioVerdict
+    from plumbing.testkit.runner import ScenarioResult
+
+    gate = {"name": "no_rule_violations", "passed": False, "detail": "", "source": "framework"}
+    entry = ScenarioVerdict("s")
+    entry.runs = [
+        ScenarioResult(scenario_id="s", suite="j", description="", passed=True),
+        ScenarioResult(scenario_id="s", suite="j", description="", passed=False,
+                       checks=[gate]),
+    ]
+    assert entry.recurrent is True          # consistent, and frequent enough
+    assert entry.source == "framework"
+    assert entry.actionable is False        # but still not a prompt problem

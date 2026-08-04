@@ -80,11 +80,36 @@ class ScenarioVerdict:
         return self.representative.failure_source
 
     @property
+    def recurrent(self) -> bool:
+        """Fails often, and fails the same way each time it fails.
+
+        Not all flakiness is noise. An ambiguous prompt makes the agent flip a coin: one
+        run it phones the technicians, the next it only lists them — same scenario, same
+        named failure whenever it fails. That is a real prompt bug and refusing to touch
+        it because the pass rate is not zero leaves it unfixable forever.
+
+        What separates it from noise is the signature: every failing run failed for the
+        same reason. Noise looks different each time.
+        """
+        if self.verdict != "flaky":
+            return False
+        failing = [r for r in self.runs if not r.passed]
+        return (
+            len(failing) * 2 >= len(self.runs)     # fails at least half the time
+            and bool(self.persistent_failures)     # and always the same way
+        )
+
+    @property
     def actionable(self) -> bool:
-        """Doctor may act only on a scenario that fails every time for a reason a prompt
-        can fix. A framework block cannot be prompted around, and a broken rig is not the
-        agent's fault — handing either over produces a confident, useless edit."""
-        return self.verdict == "fail" and self.source == "agent"
+        """Doctor may act on a failure a prompt could plausibly fix.
+
+        That means it must be an agent-class problem — a framework block cannot be
+        prompted around, and a broken rig is not the agent's fault. Beyond that, either
+        it fails every run, or it fails half of them for an identical reason.
+        """
+        if self.source != "agent":
+            return False
+        return self.verdict == "fail" or self.recurrent
 
     @property
     def representative(self) -> ScenarioResult:
@@ -273,12 +298,22 @@ def heal(
             print(f"  {source}: {len(by_source[source])} ({label})")
             for sid in by_source[source]:
                 print(f"      {sid}")
-    if report.flaky:
+    recurrent = [sid for sid in report.flaky if results[sid].actionable]
+    noise = [sid for sid in report.flaky if not results[sid].actionable]
+    if recurrent:
+        print(f"  recurrent: {len(recurrent)} (fails half the time, always the same way — "
+              f"an ambiguous prompt, doctor can work on these)")
+        for sid in recurrent:
+            print(f"      {sid}  ({results[sid].summary})")
+    if noise:
         print("  Flaky scenarios are NOT sent to doctor — a prompt that was only unlucky")
-        print(f"  must not be rewritten: {report.flaky}")
+        print(f"  must not be rewritten: {noise}")
 
     # ------------------------------------------------------------------
-    for scenario_id in list(report.initial_failures):
+    repairable = report.initial_failures + [
+        sid for sid in report.flaky if results[sid].actionable
+    ]
+    for scenario_id in repairable:
         if not results[scenario_id].actionable:
             print(f"\n=== Skipping {scenario_id} ({results[scenario_id].source}) ===")
             print("  Not something a prompt edit can fix. Left for a human.")
