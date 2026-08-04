@@ -115,41 +115,35 @@ PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only 
 正是 PLAYBOOK 第 10c 条说的那个反面。其中两个直接穿过 `heal()`：一个断言 doctor
 **一次都没被调用**，另一个断言真 agent 失败仍然照常交给它。
 
-### [ ] 3. 场景失败要能一眼看出是谁的锅（仍然值得做）
-
-**改法**：报告里把失败分成三类并分开统计 —— `harness`（模拟器/LLM 故障）、
-`framework`（硬闸、状态机、编排器）、`agent`（prompt 行为）。
-`loop.py` 的 `write_report` 里加分类。
-
-**验收**：`report.md` 顶部出现三类计数，doctor 只对 `agent` 类失败出手。
+### [x] 3c. ~~场景失败要能一眼看出是谁的锅~~ —— 由 3b 实现，重复条目已合并 ✅
 
 ---
 
 ## P1 — 把端到端跑绿
 
-按上面分类修完 P0 之后重跑，再逐条处理剩下的真失败。当前已知的真失败：
+### [ ] 4. 重建一份可信基线 ⬅ **先做这个，其余全部作废重来**
 
-### [x] 4. `journey_small_job_reschedule` ✅ P0-1 修完后自动通过
+**P1 下面原来那几条（4b/4c/4d）都是在测试台不可信的时候判定的，现在全部推翻。**
+后来实测发现它们根本不是真失败：
 
-### [ ] 4b. `journey_warranty_rejected_becomes_paid_work` — 保修被驳回后没建预约
+| 原判定 | 复测 | 结论 |
+|---|---|---|
+| `warranty_rejected_becomes_paid_work` "两轮都失败，是真问题" | **1/4 通过** | flaky |
+| `deposit_payment_fails` "两轮都失败" | **1/4 通过** | flaky |
+| `emergency_nobody_available_refund` "唯一确定的真失败" | **1/2 通过** | flaky |
 
-两轮都失败，是真问题。`calendar.create_appointment` 从未调用 —— 客户已经同意按付费服务做了，
-链路却停在那里。先看 transcript 判断是 warranty→small_job 的交接没发生，还是交接后没建。
+**没有 P0 的多轮判定，这三条都会被送去改 prompt。** 三次毫无根据的修改。
 
-### [ ] 4c. `journey_warranty_approved` — intake 跳过身份验证直奔保修
+**做法**：`--repeat 2`（自带失败确认）跑全量，得到三类清单：稳定通过 / 稳定失败（按 source 分组）/ 抖动。
+只有 `source == agent` 的稳定失败才进入下面的修复列表。
 
-intake prompt 里保修是 Step 3（在"认人"之后），但"保修直接转走"这句被 agent 读成了
-"先于一切"。**没认出客户就评估不了保修**。改 prompt 讲清顺序，doctor 该能修。
+```bash
+PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only --workers 8 --repeat 2
+```
 
-### [ ] 4d. `journey_deposit_payment_fails` — 断言可能太严
+**验收**：拿到分类清单，并据此重写下面的修复项。
 
-场景断言 `no_appointment`，但支付失败后**给客户排一个普通预约其实是合理服务**。
-先看 transcript：如果 agent 是征得客户同意才排的，那是断言写错了；如果是自作主张，才是 agent 的错。
-
-### [ ] 5. （已并入 P0-2）
-
-### [x] 6. `journey_deposit_payment_fails` — 定金链接问题已解决 ✅
-现在只剩状态机缺边（见 P0-2）。
+### [ ] 4b. （待重建基线后填写）
 
 ### [x] 7. `journey_returning_customer_open_appointment` ✅ P0-1 修完后自动通过
 
