@@ -9,17 +9,27 @@ python3 -m pytest -q
 PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only --workers 8
 ```
 
-**基线（2026-08-04，P0 完成后的第一份可信数据）：单测 132 通过 / 端到端 18 通过 · 1 真失败 · 5 抖动。**
+**基线（2026-08-04 16:30，item 9 全量跑的基线阶段）：单测 132 通过 / 端到端 20 通过 · 1 失败 · 3 抖动。**
 
-`--repeat 2` + 失败确认。确认阶段对 3 条候选触发，改判了 2 条，**只留下 1 条真失败**：
+| | 场景 | 归属 |
+|---|---|---|
+| **真失败 (1)** | `journey_warranty_rejected_becomes_paid_work` 0/4 —— 没调 `calendar.create_appointment` | agent → doctor |
+| **recurrent (1)** | `journey_deposit_payment_fails` 2/4 —— 每次同样地漏 `payment.send_deposit_link` | agent → doctor |
+| **抖动 (2)** | `emergency_nobody_available_refund` 1/2 · `emergency_no_taker_switches_to_standard` 2/4 | 判成 framework，**判错了，见下** |
+| 稳定通过 | 其余 20 条 |
 
-| | 场景 |
-|---|---|
-| **真失败 (agent，1)** | `journey_emergency_nobody_available_refund` — 0/4 |
-| **抖动 (5，不要动)** | `warranty_approved` 1/2 · `warranty_rejected_becomes_paid_work` 1/4 · `small_job_reschedule` 1/2 · `emergency_no_taker_switches_to_standard` 1/2 · `deposit_payment_fails` 1/4 |
-| 稳定通过 | 其余 18 条 |
+上一份基线（12:00 那版，18 通过 / 1 失败 / 5 抖动）已被这份取代 —— 4b 修完后紧急链路整体转稳。
 
-**framework 和 harness 类失败均为 0** —— 状态机和测试台都不再挡路了。
+⚠️ **那 2 条"framework"是误判。** 两条都挂在 `illegal_ticket_transition` 上，而查过状态机后确认
+**合法路径都存在**，是 agent 在跳步：
+
+- `Emergency Technician Search → Appointment Booked` —— 合法路径是 `→ Awaiting Appointment
+  Selection → Appointment Booked`（先跟客户选时段）或 `→ Refund Pending → Refund Completed →
+  Appointment Booked`（先退钱）。agent 跳过了退款，**正是该场景 judge 要拦的那件事**。
+- `Emergency Technician Search → Deposit Link Sent` —— 合法路径 `→ Awaiting Appointment
+  Selection → Deposit Link Sent` 也在。
+
+硬闸拦对了，是**分类错了**。详见 P1-4e。
 
 ---
 
@@ -180,15 +190,52 @@ doctor 往第 4 步加了两段：
 比我看 prompt 猜的更准**。我猜的是措辞歧义，它看到的是工具返回值被误读。
 以后碰到这类问题，先让 doctor 看 transcript，别急着自己改 prompt。
 
+### [ ] 4e. `no_rule_violations` 被硬编码成 framework —— 前提已被推翻 ⬅ **需要你拍板**
+
+[assertions.py:100](src/plumbing/testkit/assertions.py:100) 把所有硬闸触发一律标成 `FRAMEWORK`，
+理由写在模块开头：
+
+> every illegal transition seen so far has been a missing edge rather than a misbehaving agent
+
+**item 9 的基线证伪了这句话。** 那 2 条紧急场景的非法迁移，合法路径全都存在（见文件开头的核对），
+是 agent 抄近路。硬闸拦得对，但因为标成 framework，**doctor 永远看不到它们**，
+而它们要的恰恰是改 prompt。这是 item 9 到不了 24/24 的卡点。
+
+三个选项：
+
+| | 做法 | 代价 |
+|---|---|---|
+| **A** | 非法迁移改判 `agent`，其余硬闸（未付款派单、已发短信退款）保持 `framework` | 判得准了；但如果哪天真缺边，doctor 会去改 prompt 绕路，而不是报告缺边 |
+| **B** | 全部改判 `agent` | 简单；doctor 可能被诱导去绕开硬闸而不是守规矩，风险最大 |
+| **C** | 维持现状，这 2 条我手工改 prompt | 不动判定逻辑；但每次撞上都要人工，自愈跑不到全绿 |
+
+倾向 **A** ——「非法迁移」和「硬闸拒绝」本来就是两类东西：前者是路走错了（prompt 能修），
+后者是底线被撞了（prompt 不该修）。现在把它们混在一个 check 里才是根子上的问题。
+
+**但这属于判定逻辑，我上一轮立过约束：再动这块要先问你，不自己改。** 等你定。
+
+**验收**：选定后，那 2 条场景 `--repeat 2` 跑绿，且原有的硬闸测试（`tests/` 里那 6 个）不受影响。
+
 ### [x] 7. `journey_returning_customer_open_appointment` ✅ P0-1 修完后自动通过
 
 ### [x] 8. `journey_undecided_still_handed_over` / `journey_gas_smell_referral` ✅
 harness 噪音修掉后自动通过了 —— 它们本来就没问题。
 
-### [ ] 9. 跑一轮完整自愈 ⬅ **下一项**
+### [~] 9. 跑一轮完整自愈 —— 进行中 2026-08-04 16:30
 
 24 条端到端场景全量，`--repeat 2` 出可信判定，让 doctor 修掉所有 `actionable` 的失败。
 P0 那套判定机制和 4b 都验过了，这一轮是它们合起来的第一次全量考试。
+
+**基线阶段已完成：20/24 通过**（明细见文件开头）。doctor 正在修 2 条 agent 问题：
+
+- `journey_warranty_rejected_becomes_paid_work` —— 第 1、2 轮都没修好。
+  轮 1 改 `warranty.md`（保修移交规则收窄到"仅覆盖内的索赔"），轮 2 改
+  `_shared/technician_handover.md`（加第三种师傅结果："退回给你，要跟客户谈"）。
+  诊断在收敛：师傅拒赔后 agent 发短信通知就收单了，**没给客户"那走付费维修"这条路**。
+- `journey_deposit_payment_fails` —— 还没轮到。
+
+**卡点**：另外 2 条要等 4e 定了才能进 doctor。所以这一轮跑完最好的结果是 **22/24**，
+剩 2 条是分类问题不是 agent 问题。
 
 ```bash
 PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --workers 8 --repeat 2 --max-repair-rounds 3
@@ -196,7 +243,8 @@ PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --workers 8 --re
 
 **期间不要碰 `config/`、`src/`、`scenarios/`、`tests/`** —— 会被 doctor 的哈希护栏判成篡改。
 
-**验收**：24/24，且 `prompt_history/` 里能看清每次改动的原因。
+**验收**：22/24（4e 未定之前的上限），且 `prompt_history/` 里能看清每次改动的原因。
+4e 定完再补跑一次拿 24/24。
 
 ---
 
