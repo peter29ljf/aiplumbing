@@ -140,7 +140,7 @@ PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only 
 
 **结果**：18 通过 / 1 真失败 / 5 抖动，framework 与 harness 类均为 0。修复项见下。
 
-### [ ] 4b. `journey_emergency_nobody_available_refund` — agent 把"列名单"当成了"打电话" ⬅ **下一项**
+### [x] 4b. `journey_emergency_nobody_available_refund` — agent 把"列名单"当成了"打电话" ✅ 2026-08-04
 
 **唯一一条真失败**（0/4，`source: agent`，doctor 可以修）。
 
@@ -155,22 +155,43 @@ PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only 
 **一个电话没打，却告诉客户每一轮都试过了。** 这正是 judge 里"不得声称做过工具日志中没有的事"
 那条针对的情形。
 
-**根因推测**：`emergency.md` 第 4 步写的是"列出候选 → 逐个 call_technician → 没人接就
-`clock.advance` 再来一轮，call the candidates again"。agent 把"again"理解成了要重新列一次名单。
+**我的根因推测（事后证明不对）**：以为是 `emergency.md` 第 4 步 "call the candidates again"
+里的 "again" 有歧义，agent 把它理解成要重新列一次名单。
 
-**改法**：讲清楚 **列名单不等于打电话**，重来一轮指的是再打一遍电话、名单不必重取。交给 doctor。
+**doctor 的诊断（对的）**：agent 把 **空名单当成了答案**。
+`phone.list_available_technicians` 带 `skill` + `area` 过滤后返回空，agent 就直接得出
+"这个时间点没人能来"，于是跳过打电话。歧义不在 "again"，在于**没写"空结果说明筛得太窄"**。
 
-**验收**：`--repeat 2` 跑该场景，`phone.call_technician` 被调用且轮数不超过 6。
+doctor 往第 4 步加了两段：
+
+1. 空名单不是答案，是过滤条件太窄 —— 先去掉 `skill`，再去掉 `area`，读 `excluded` 看谁被
+   排除、为什么。那个工具只是给花名册排序，它本身不打电话，所以单凭它得不出任何结论。
+2. **只有在 `phone.call_technician` 真的打过、对方拒绝或没接之后，才可以告诉客户没人有空。**
+   名单怎么放宽都是空的，那是 `escalate.raise`，不是你自己宣布的结论。
+
+**结果**：目标场景 2/2 通过，4 条紧急链路回归 8 次运行全过，改动保留。
+基线 2/5 → 终态 5/5，0 失败 0 抖动。
+
+**验收**：`--repeat 2` 跑该场景，`phone.call_technician` 被调用且轮数不超过 6。✅
+（两条都是场景自带断言 `must_call: phone.call_technician` 和 `max_call_rounds: 6`。）
+
+**这一项真正的收获**：这是自愈循环第一次在真问题上端到端跑通 ——
+定位 → 改 prompt → 复测 → 全量回归 → 保留。而且 **doctor 读完整 transcript 得出的诊断
+比我看 prompt 猜的更准**。我猜的是措辞歧义，它看到的是工具返回值被误读。
+以后碰到这类问题，先让 doctor 看 transcript，别急着自己改 prompt。
 
 ### [x] 7. `journey_returning_customer_open_appointment` ✅ P0-1 修完后自动通过
 
 ### [x] 8. `journey_undecided_still_handed_over` / `journey_gas_smell_referral` ✅
 harness 噪音修掉后自动通过了 —— 它们本来就没问题。
 
-### [ ] 9. 跑一轮完整自愈
+### [ ] 9. 跑一轮完整自愈 ⬅ **下一项**
+
+24 条端到端场景全量，`--repeat 2` 出可信判定，让 doctor 修掉所有 `actionable` 的失败。
+P0 那套判定机制和 4b 都验过了，这一轮是它们合起来的第一次全量考试。
 
 ```bash
-PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --workers 8 --max-repair-rounds 3
+PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --workers 8 --repeat 2 --max-repair-rounds 3
 ```
 
 **期间不要碰 `config/`、`src/`、`scenarios/`、`tests/`** —— 会被 doctor 的哈希护栏判成篡改。
