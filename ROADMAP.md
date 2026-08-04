@@ -9,14 +9,16 @@ python3 -m pytest -q
 PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only --workers 8
 ```
 
-**基线（2026-08-04，P0-2 部分完成）：单测 114 通过 / 端到端 16-24 与 19-24 之间浮动。**
+**基线（2026-08-04，P0-3 完成后）：单测 123 通过 / 端到端 18 稳定通过 · 2 稳定失败 · 4 抖动。**
 
-⚠️ **通过率现在不可直接比较。** 同一份代码连跑两轮，失败数 5 vs 8，其中只有 4 条两轮都失败。
-**先做 P0-3（多轮判定），否则每一轮迭代都在跟噪音搏斗。**
+现在的数字有意义了，因为每条跑 2 次（判成 fail 的再跑 2 次确认）。**真正要修的只有 2 条**：
 
-两轮都失败的 4 条（真问题）：
-`deposit_payment_fails` · `emergency_cancel_after_confirmation` ·
-`emergency_nobody_available_refund` · `warranty_rejected_becomes_paid_work`
+- `journey_emergency_nobody_available_refund` —— 从不调用 `phone.call_technician`
+- `journey_warranty_rejected_becomes_paid_work` —— 保修被驳回后从不建预约
+
+4 条抖动的（各 1/2）**不要动**，它们不是 prompt 的问题：
+`small_job_reschedule` · `emergency_cancel_after_confirmation` ·
+`emergency_no_taker_switches_to_standard` · `deposit_payment_fails`
 
 ---
 
@@ -55,25 +57,27 @@ PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only 
   两跳路径（→ Awaiting Appointment Selection → Appointment Booked）已经存在，agent 想抄近路。
   **故意不加**：这正是"不许跳过要紧步骤"该拦的。但该场景的断言本身也值得复核，见 P1-4d。
 
-### [ ] 3. 多轮判定，把抖动和真失败分开 ⬅ **现在的最高优先级**
+### [x] 3. 多轮判定，把抖动和真失败分开 ✅ 2026-08-04
 
-**问题**：同一份代码连跑两轮，失败 5 vs 8，只有 4 条重合。单轮结果不足以判断改动是否有效，
-更不能让 doctor 据此改 prompt —— 它会去修一个只是运气不好的场景。
+`loop.py` 加了 `--repeat N`（默认 2），三种判定：全过 `pass` / 全挂 `fail`（交 doctor）/
+有过有挂 `flaky`（**不交 doctor**，报告单列）。
 
-**改法**：`loop.py` 加 `--repeat N`（默认 2）。同一场景跑 N 次：
+三处关键改动，都是防止 doctor 对着噪音动手：
 
-- N 次全过 → 通过
-- N 次全挂 → 真失败，交给 doctor
-- 有过有挂 → 标记 `flaky`，**不交给 doctor**，单独列一节
+1. **doctor 拿到失败的那一次运行**（`representative`）—— 给它碰巧成功的那次，它什么也看不出来
+2. **回归判定改成"从稳定通过变成稳定失败"** —— 原来补丁后某场景偶然挂一次就回滚，会误伤好补丁
+3. **flaky 既不算通过、也不交 doctor**
 
-报告里三类分开统计。这也顺带实现了原来第 3 项想要的"一眼看出是谁的锅"。
+**还加了自适应确认**：判成 `fail` 的场景会再跑 `repeat` 次才作数。因为 repeat=2 时，
+一个真实通过率 50% 的场景有 **25%** 概率被误判成 fail 并送去改 prompt；加了确认降到 **6.2%**，
+而稳定通过的场景一次额外运行都不用付。
 
-**验收**：连跑两轮 `--repeat 2`，两轮认定的"真失败"集合相同。
+**结果**：24 条 → 18 稳定通过 / 2 稳定失败 / 4 抖动。加了 9 个测试。
 
-### [ ] 3b. 失败按来源分类（harness / framework / agent）
+### [ ] 3b. 失败按来源分类（harness / framework / agent）⬅ **下一项**
 
 `no_rule_violations` 和编排器错误属 framework，模拟器故障属 harness，其余属 agent。
-doctor 只对 agent 类出手。
+doctor 只对 agent 类出手。多轮判定已经挡掉了噪音，这一层再挡掉"不是 prompt 能修的"。
 
 ### [ ] 3. 场景失败要能一眼看出是谁的锅（仍然值得做）
 
@@ -224,10 +228,12 @@ for n in cfg['agents']:
 
 **注意事项：**
 
+0. **用 `--repeat 2`（默认）跑验收。** 单轮结果指导不了任何决策。
 1. **一次只做一项。** 这个项目的改动往往要同时落到「配置 + prompt + 状态机 + 场景 + 测试」
    五处，一次改两项很容易互相干扰。
 2. **改完先跑单测再跑端到端。** 单测 3 秒，端到端 15 分钟。
 3. **跑自愈期间不要改任何被保护的文件。**
 4. **端到端有抖动。** 客户模拟器温度 0.9，同一场景两次跑结果可能不同。
    **单次失败不足以判定 prompt 有问题，连续两次才值得动手。**
-5. **P0 没做完之前，不要相信端到端的通过率。**
+5. **只对 `Failing every run` 那一组动手。** `Flaky` 那组不要碰 —— 它们不是 prompt 的问题，
+   改了只会让 prompt 越来越长。

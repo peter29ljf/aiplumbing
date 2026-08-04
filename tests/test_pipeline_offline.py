@@ -8,6 +8,7 @@ which is a separate concern.
 from __future__ import annotations
 
 import json
+import pathlib
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -543,3 +544,146 @@ def test_a_reply_that_is_only_whitespace_does_not_end_the_conversation():
     text, ended, _ = parse_reply("   \n  ")
     assert ended is False
     assert text == "..."
+
+
+# ======================================================================
+# Repeat-based verdicts
+#
+# The customer simulator samples at high temperature, so one run is not evidence: the
+# same code run twice produced five failures and eight, with only four in common. What
+# this logic decides is which failures doctor is allowed to rewrite a prompt for.
+# ======================================================================
+
+
+def _verdict(*passed: bool):
+    from plumbing.testkit.loop import ScenarioVerdict
+    from plumbing.testkit.runner import ScenarioResult
+
+    entry = ScenarioVerdict("s")
+    for ok in passed:
+        entry.runs.append(ScenarioResult(scenario_id="s", suite="j", description="",
+                                         passed=ok))
+    return entry
+
+
+def test_all_runs_passing_is_a_pass():
+    assert _verdict(True, True).verdict == "pass"
+    assert _verdict(True, True).passed is True
+    assert _verdict(True, True).actionable is False
+
+
+def test_all_runs_failing_is_a_real_failure():
+    entry = _verdict(False, False)
+    assert entry.verdict == "fail"
+    assert entry.actionable is True          # doctor may act on this
+
+
+def test_a_mixed_result_is_flaky_and_never_reaches_doctor():
+    """The whole point: a prompt that was only unlucky must not be rewritten."""
+    entry = _verdict(True, False)
+    assert entry.verdict == "flaky"
+    assert entry.passed is False             # not counted as passing
+    assert entry.actionable is False         # but not handed to doctor either
+
+    assert _verdict(False, True).verdict == "flaky"
+    assert _verdict(True, False, True).verdict == "flaky"
+
+
+def test_doctor_reads_a_failing_run_not_a_passing_one():
+    """Handing doctor the run that happened to succeed would tell it nothing."""
+    from plumbing.testkit.runner import ScenarioResult
+    from plumbing.testkit.loop import ScenarioVerdict
+
+    entry = ScenarioVerdict("s")
+    entry.runs.append(ScenarioResult(scenario_id="s", suite="j", description="",
+                                     passed=True, end_reason="the good one"))
+    entry.runs.append(ScenarioResult(scenario_id="s", suite="j", description="",
+                                     passed=False, end_reason="the bad one"))
+    assert entry.representative.end_reason == "the bad one"
+
+
+def test_a_single_run_still_yields_a_usable_verdict():
+    """--repeat 1 keeps working; it simply cannot detect flakiness."""
+    assert _verdict(True).verdict == "pass"
+    assert _verdict(False).verdict == "fail"
+
+
+def test_verdict_summary_reports_the_split():
+    assert _verdict(True, False).summary == "1/2 passed"
+    assert _verdict(False, False, False).summary == "0/3 passed"
+
+
+def test_a_failure_is_confirmed_with_extra_runs_before_it_is_believed():
+    """With repeat=2, a genuinely 50/50 scenario comes out "fail" a quarter of the time —
+    often enough to send doctor after a prompt that was only unlucky. Re-running just the
+    failures costs little, because there are few of them.
+    """
+    from plumbing.testkit import loop as loop_mod
+
+    scenario = {"id": "coinflip", "customer": {}, "expect": {}}
+    calls = {"n": 0}
+
+    def fake_run(spec, llm, *, run_judge=True):
+        from plumbing.testkit.runner import ScenarioResult
+        calls["n"] += 1
+        # Fails the first two runs, passes afterwards — exactly the case repeat=2 misreads
+        return ScenarioResult(scenario_id=spec["id"], suite="j", description="",
+                              passed=calls["n"] > 2)
+
+    original = loop_mod.run_scenario
+    try:
+        loop_mod.run_scenario = fake_run
+        verdicts = loop_mod.run_suite(
+            [scenario], FakeLLM({}), pathlib.Path("/tmp/does-not-matter"),
+            run_judge=False, workers=1, repeat=2,
+        )
+    finally:
+        loop_mod.run_scenario = original
+
+    entry = verdicts["coinflip"]
+    assert calls["n"] == 4, "the failure should have been re-run before being believed"
+    assert entry.verdict == "flaky"      # not "fail"
+    assert entry.actionable is False     # so doctor is never handed it
+
+
+def test_reliably_passing_scenarios_pay_nothing_for_confirmation():
+    from plumbing.testkit import loop as loop_mod
+
+    scenario = {"id": "steady", "customer": {}, "expect": {}}
+    calls = {"n": 0}
+
+    def fake_run(spec, llm, *, run_judge=True):
+        from plumbing.testkit.runner import ScenarioResult
+        calls["n"] += 1
+        return ScenarioResult(scenario_id=spec["id"], suite="j", description="", passed=True)
+
+    original = loop_mod.run_scenario
+    try:
+        loop_mod.run_scenario = fake_run
+        loop_mod.run_suite([scenario], FakeLLM({}), pathlib.Path("/tmp/x"),
+                           run_judge=False, workers=1, repeat=2)
+    finally:
+        loop_mod.run_scenario = original
+
+    assert calls["n"] == 2, "a passing scenario must not be re-run"
+
+
+def test_a_genuine_failure_survives_confirmation():
+    from plumbing.testkit import loop as loop_mod
+
+    scenario = {"id": "broken", "customer": {}, "expect": {}}
+
+    def fake_run(spec, llm, *, run_judge=True):
+        from plumbing.testkit.runner import ScenarioResult
+        return ScenarioResult(scenario_id=spec["id"], suite="j", description="", passed=False)
+
+    original = loop_mod.run_scenario
+    try:
+        loop_mod.run_scenario = fake_run
+        verdicts = loop_mod.run_suite([scenario], FakeLLM({}), pathlib.Path("/tmp/x"),
+                                      run_judge=False, workers=1, repeat=2)
+    finally:
+        loop_mod.run_scenario = original
+
+    assert verdicts["broken"].verdict == "fail"
+    assert verdicts["broken"].actionable is True
