@@ -487,3 +487,59 @@ def test_a_broken_customer_simulator_is_reported_as_a_harness_error():
     checks = assertions.evaluate(scenario, result, world.snapshot(), world.tool_log)
     assert not checks[0].passed
     assert "Run failed" in checks[0].detail
+
+
+# ======================================================================
+# Customer simulator reply parsing
+#
+# Strict JSON at temperature 0.9 across a forty-turn conversation cost a quarter of
+# end-to-end runs. Plain text has nothing to malform — but the parser has to be
+# forgiving about how the model decorates it.
+# ======================================================================
+
+
+@pytest.mark.parametrize(
+    "raw,text,ended",
+    [
+        # The ordinary case: just words
+        ("yeah it's still dripping, about a bucket overnight",
+         "yeah it's still dripping, about a bucket overnight", False),
+        # Marker on its own line, with a reason
+        ("great, thanks — see you Tuesday\n[END] appointment booked",
+         "great, thanks — see you Tuesday", True),
+        # Marker with no reason given
+        ("ok bye\n[END]", "ok bye", True),
+        # Lowercase marker
+        ("that's all\n[end] done", "that's all", True),
+        # Marker tacked onto the end of the sentence instead of its own line
+        ("thanks, bye [END] nothing else needed", "thanks, bye", True),
+        # Model wrapped it in a code fence
+        ("```\nsure, Tuesday works\n```", "sure, Tuesday works", False),
+        # Multi-line message
+        ("first line\nsecond line", "first line\nsecond line", False),
+    ],
+)
+def test_customer_reply_parsing(raw, text, ended):
+    from plumbing.sim.customer import parse_reply
+
+    got_text, got_ended, _ = parse_reply(raw)
+    assert got_text == text
+    assert got_ended is ended
+
+
+def test_ending_with_no_words_still_says_goodbye():
+    """An [END] on its own would otherwise produce an empty customer turn."""
+    from plumbing.sim.customer import parse_reply
+
+    text, ended, reason = parse_reply("[END] got what I needed")
+    assert ended is True
+    assert text.strip()
+    assert reason == "got what I needed"
+
+
+def test_a_reply_that_is_only_whitespace_does_not_end_the_conversation():
+    from plumbing.sim.customer import parse_reply
+
+    text, ended, _ = parse_reply("   \n  ")
+    assert ended is False
+    assert text == "..."

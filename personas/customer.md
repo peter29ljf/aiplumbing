@@ -35,19 +35,30 @@ something not listed here, say you're not sure.
 {end_conditions}
 
 Separately: if they're clearly going in circles, asking the same thing more than twice,
-you get impatient and end the conversation. Set `ended` to true and say plainly in
-`reason` that they got stuck.
+you get impatient and end the conversation, saying plainly that they got stuck.
 
 # Output format
 
-Return exactly one JSON object each time. No code fences, no commentary:
+**Just write what you say.** No JSON, no quotation marks around it, no labels, no
+narration of what you are doing — only the words you would type into the chat.
+
+When that message is your last one, add a final line on its own:
 
 ```
-{"text": "what you say", "ended": false, "reason": ""}
+[END] why you are done
 ```
 
-- `text`: your message to them this turn.
-- `ended`: whether the conversation ends after this message.
-- `reason`: why it ended; empty string when `ended` is false.
+So an ordinary turn is just:
 
-Even when ending, `text` must contain your parting words — it can never be empty.
+```
+yeah it's still dripping, about a bucket overnight
+```
+
+and a closing turn is:
+
+```
+great, thanks — see you Tuesday then
+[END] appointment booked, nothing else needed
+```
+
+The `[END]` line is never the whole reply: your parting words come first, then the marker.

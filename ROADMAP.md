@@ -9,38 +9,36 @@ python3 -m pytest -q
 PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only --workers 8
 ```
 
-**基线（2026-08-04）：单测 99 通过 / 端到端 13-24 通过。**
-11 个失败里 6 个是测试台抖动，不是 agent 问题 —— 所以 P0 是修测试台，不是改 prompt。
+**基线（2026-08-04，P0-1 完成后）：单测 108 通过 / 端到端 19-24 通过。**
+剩下 5 个失败全是真失败（测试台抖动已归零），其中 3 个是状态机缺边 —— 属于框架问题，
+doctor 修不了，要人改 `config/ticket_states.yaml`。
 
 ---
 
 ## P0 — 测试台可信度（不修这个，后面所有结论都不作数）
 
-### [ ] 1. 客户模拟器不再依赖 JSON 输出
+### [x] 1. 客户模拟器不再依赖 JSON 输出 ✅ 2026-08-04
 
-**问题**：6/24 场景死于 `Role 'customer' repeatedly failed to return valid JSON`。
-端到端链路长（30+ 轮），客户模拟器温度 0.9 + json_object 模式，越到后面越容易吐坏。
+改成纯文本 + `[END]` 标记（`personas/customer.md` + `src/plumbing/sim/customer.py`）。
+解析器刻意宽容：标记可能缺失、跟在句尾、被代码围栏包住、或写成小写。
 
-**改法**：改成纯文本 + 结束标记，比 JSON 稳得多：
+**结果**：模拟器故障 **6 → 0**，基线 **13/24 → 19/24**。裁判仍用 `chat_json`（温度 0，很稳）。
+加了 10 个解析测试。
 
-```
-你要说的话就直接写出来。
-如果这句话之后你就结束对话，在最后单独一行写 [END]，并在下一行写结束原因。
-```
+### [ ] 2. 状态机补边（3 个场景失败，doctor 修不了）
 
-`src/plumbing/sim/customer.py` 解析这两个标记即可。保留 `chat_json` 给裁判用（温度 0，很稳）。
+去掉 JSON 依赖后暴露出来的真问题。**这是框架层，agent 怎么改 prompt 都绕不过去**：
 
-**验收**：连跑 24 条 ×2 轮，`ended_by == "error"` 的场景数为 0。
+- `Needs Assessment → ?` —— `journey_emergency_cancel_after_confirmation`
+- `Escalated to Supervisor → ?` —— `journey_deposit_payment_fails`
+- `Refund Pending/Completed → ?` —— `journey_emergency_no_taker_switches_to_standard`
 
-### [ ] 2. 客户模拟器的历史消息要截断
+**改法**：跑这三条看 transcript 里 agent 想去哪个状态，判断该补边还是该改 prompt。
+补边前先问一句"这条迁移在业务上说得通吗"—— 无脑补边会把状态机变成全连通图，就没有约束力了。
 
-**问题**：客户模拟器把整条对话累积在 messages 里，30 轮后上下文很长，是 JSON 出错的诱因之一。
+**验收**：三条通过，且 `no_rule_violations` 不再出现。
 
-**改法**：只保留 system prompt + 最近 N 轮（N=8 左右），中间用一句摘要占位。
-
-**验收**：同上，且单场景 customer 角色的 prompt_tokens 明显下降。
-
-### [ ] 3. 场景失败要能一眼看出是谁的锅
+### [ ] 3. 场景失败要能一眼看出是谁的锅（仍然值得做）
 
 **改法**：报告里把失败分成三类并分开统计 —— `harness`（模拟器/LLM 故障）、
 `framework`（硬闸、状态机、编排器）、`agent`（prompt 行为）。
@@ -54,28 +52,22 @@ PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only 
 
 按上面分类修完 P0 之后重跑，再逐条处理剩下的真失败。当前已知的真失败：
 
-### [ ] 4. `journey_small_job_reschedule` — 改期确认短信没发
+### [x] 4. `journey_small_job_reschedule` ✅ P0-1 修完后自动通过
+
+### [ ] 4b. `journey_warranty_rejected_becomes_paid_work` — 保修被驳回后没建预约
 
 `calendar.reschedule` 没调用。可能是客户在同一通对话里立刻要改期，agent 认为预约刚建好、
 直接改了时间而没走改期工具。**先看 transcript 再决定是 prompt 问题还是场景不合理。**
 
-### [ ] 5. `journey_emergency_cancel_after_confirmation` — 非法状态迁移
+### [ ] 5. （已并入 P0-2）
 
-硬闸报了 `illegal_ticket_transition`。派单确认后取消 → 该走 `Escalated to Supervisor`，
-检查状态机里这条边是否存在（`Emergency Job Dispatched → Escalated to Supervisor`
-应该由 `universal_targets` 覆盖，需确认）。
+### [x] 6. `journey_deposit_payment_fails` — 定金链接问题已解决 ✅
+现在只剩状态机缺边（见 P0-2）。
 
-### [ ] 6. `journey_deposit_payment_fails` — 没发定金链接
+### [x] 7. `journey_returning_customer_open_appointment` ✅ P0-1 修完后自动通过
 
-支付失败场景里 `payment.send_deposit_link` 从未调用。可能 agent 在报价阶段就被客户的
-"卡被拒"带偏了。属于 prompt 问题，交给 doctor。
-
-### [ ] 7. `journey_returning_customer_open_appointment` — 没主动提已有预约
-
-intake 查了 CRM 但没主动提 `open_appointments`。prompt 里有这条要求，doctor 该能修。
-
-### [ ] 8. `journey_undecided_still_handed_over` / `journey_gas_smell_referral`
-失败原因被 harness 噪音盖住了，P0 修完重跑再看。
+### [x] 8. `journey_undecided_still_handed_over` / `journey_gas_smell_referral` ✅
+harness 噪音修掉后自动通过了 —— 它们本来就没问题。
 
 ### [ ] 9. 跑一轮完整自愈
 
