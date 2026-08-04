@@ -2,6 +2,16 @@
 
 No semantic judgement here (that is judge.py's job) — only deterministic checks, so the
 same transcript always produces the same verdict and doctor gets a stable signal.
+
+Every check carries a `source`, answering one question: **could doctor fix this by editing
+a prompt?**
+
+- `harness`   the test rig broke — a simulator or the model failed. Nothing to fix here.
+- `framework` the state machine, a hard gate or the tool permissions blocked something.
+              A human decides whether the rule or the flow is wrong; no prompt can route
+              around it, and every illegal transition seen so far has been a missing edge
+              rather than a misbehaving agent.
+- `agent`     the agent did the wrong thing. This is the only kind doctor should touch.
 """
 
 from __future__ import annotations
@@ -13,14 +23,25 @@ from typing import Any
 from plumbing.orchestrator import ConversationResult
 
 
+HARNESS = "harness"
+FRAMEWORK = "framework"
+AGENT = "agent"
+
+
 @dataclass
 class Check:
     name: str
     passed: bool
     detail: str
+    source: str = AGENT
 
     def as_dict(self) -> dict[str, Any]:
-        return {"name": self.name, "passed": self.passed, "detail": self.detail}
+        return {
+            "name": self.name,
+            "passed": self.passed,
+            "detail": self.detail,
+            "source": self.source,
+        }
 
 
 def evaluate(
@@ -52,7 +73,8 @@ def evaluate(
 
     # ---- Did the run itself survive? ---------------------------------
     if result.ended_by == "error":
-        checks.append(Check("run_completed", False, f"Run failed: {result.error}"))
+        source = HARNESS if "simulator failed" in (result.error or "").lower() else FRAMEWORK
+        checks.append(Check("run_completed", False, f"Run failed: {result.error}", source))
         return checks
     checks.append(Check("run_completed", True, "Run completed"))
 
@@ -63,6 +85,7 @@ def evaluate(
                 False,
                 f"Conversation never closed properly and was force-stopped: {result.end_reason}. "
                 f"The agent either looped or never reached its closing actions.",
+                AGENT,
             )
         )
 
@@ -78,6 +101,7 @@ def evaluate(
                 if not actual
                 else "Rule hard gates fired: "
                 + "; ".join(f"{v['kind']}({v['tool']}) {v['detail'][:80]}" for v in actual),
+                FRAMEWORK,
             )
         )
 

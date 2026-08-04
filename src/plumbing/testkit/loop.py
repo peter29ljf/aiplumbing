@@ -57,9 +57,16 @@ class ScenarioVerdict:
         return self.verdict == "pass"
 
     @property
+    def source(self) -> str:
+        """harness | framework | agent — from the run doctor would be shown."""
+        return self.representative.failure_source
+
+    @property
     def actionable(self) -> bool:
-        """Only a scenario that fails every time is worth acting on."""
-        return self.verdict == "fail"
+        """Doctor may act only on a scenario that fails every time for a reason a prompt
+        can fix. A framework block cannot be prompted around, and a broken rig is not the
+        agent's fault — handing either over produces a confident, useless edit."""
+        return self.verdict == "fail" and self.source == "agent"
 
     @property
     def representative(self) -> ScenarioResult:
@@ -234,12 +241,30 @@ def heal(
     passing = sum(1 for v in results.values() if v.passed)
     print(f"\nBaseline: {passing}/{len(scenarios)} passed, "
           f"{len(report.initial_failures)} failed, {len(report.flaky)} flaky")
+
+    by_source: dict[str, list[str]] = {}
+    for sid in report.initial_failures:
+        by_source.setdefault(results[sid].source, []).append(sid)
+    for source in ("harness", "framework", "agent"):
+        if by_source.get(source):
+            label = {
+                "harness": "the test rig broke — nothing for doctor to fix",
+                "framework": "blocked by a rule or the state machine — needs a human",
+                "agent": "the agent misbehaved — doctor can work on these",
+            }[source]
+            print(f"  {source}: {len(by_source[source])} ({label})")
+            for sid in by_source[source]:
+                print(f"      {sid}")
     if report.flaky:
         print("  Flaky scenarios are NOT sent to doctor — a prompt that was only unlucky")
         print(f"  must not be rewritten: {report.flaky}")
 
     # ------------------------------------------------------------------
     for scenario_id in list(report.initial_failures):
+        if not results[scenario_id].actionable:
+            print(f"\n=== Skipping {scenario_id} ({results[scenario_id].source}) ===")
+            print("  Not something a prompt edit can fix. Left for a human.")
+            continue
         spec = by_id[scenario_id]
         attempts: list[str] = []
         print(f"\n=== Repairing {scenario_id} ===")
@@ -345,7 +370,8 @@ def heal(
     report.flaky = [sid for sid, v in results.items() if v.verdict == "flaky"]
     report.usage = llm.usage.as_dict()
     report.results = {
-        sid: {**v.representative.as_dict(), "verdict": v.verdict, "runs": v.summary}
+        sid: {**v.representative.as_dict(), "verdict": v.verdict, "runs": v.summary,
+              "source": v.source if v.verdict != "pass" else ""}
         for sid, v in results.items()
     }
 
@@ -436,14 +462,35 @@ def write_report(report: LoopReport, run_dir: Path) -> Path:
         lines.append("")
 
     if report.final_failures:
-        lines += ["", "## Still failing every run (needs a human)", ""]
+        grouped: dict[str, list[str]] = {}
         for scenario_id in report.final_failures:
-            result = report.results.get(scenario_id, {})
-            lines.append(f"### {scenario_id}")
-            lines.append("")
-            for failure in result.get("failures", []):
-                lines.append(f"- **{failure['name']}**: {failure['detail']}")
-            lines.append("")
+            grouped.setdefault(
+                report.results.get(scenario_id, {}).get("source", "agent"), []
+            ).append(scenario_id)
+
+        headings = {
+            "harness": ("Test rig failures", "The simulator or the model broke. Nothing "
+                        "here is the agent's doing, and there is no prompt to fix."),
+            "framework": ("Blocked by the framework", "A hard gate, the state machine or a "
+                          "tool permission stopped these. A human decides whether the rule "
+                          "or the flow is wrong — no prompt can route around them, so "
+                          "doctor was not asked to try."),
+            "agent": ("The agent misbehaved", "These are prompt problems, and the only kind "
+                      "doctor is allowed to work on."),
+        }
+        for source in ("harness", "framework", "agent"):
+            if not grouped.get(source):
+                continue
+            title, blurb = headings[source]
+            lines += ["", f"## {title} ({len(grouped[source])})", "", blurb, ""]
+            for scenario_id in grouped[source]:
+                result = report.results.get(scenario_id, {})
+                lines.append(f"### {scenario_id}")
+                lines.append("")
+                for failure in result.get("failures", []):
+                    tag = failure.get("source", "agent")
+                    lines.append(f"- `{tag}` **{failure['name']}**: {failure['detail']}")
+                lines.append("")
 
     path = run_dir / "report.md"
     path.write_text("\n".join(lines), encoding="utf-8")

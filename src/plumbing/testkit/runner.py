@@ -48,6 +48,7 @@ class ScenarioResult:
             {
                 "name": f"judge:{v['id']}",
                 "passed": False,
+                "source": "agent",     # the judge only ever rules on what the agent said
                 "detail": f"{v.get('question', '')} -> {v['reason']} "
                 f"(evidence: {v['evidence'] or 'none'})",
             }
@@ -55,6 +56,20 @@ class ScenarioResult:
             if not v["passed"]
         ]
         return out
+
+    @property
+    def failure_source(self) -> str:
+        """Where this scenario's failures come from, worst first.
+
+        A scenario blocked by the framework may also show agent-looking symptoms — an
+        agent that cannot advance a ticket will miss the calls that follow. Fixing the
+        framework first is the only order that makes sense, so the worst source wins.
+        """
+        sources = {f.get("source", "agent") for f in self.failures}
+        for candidate in ("harness", "framework", "agent"):
+            if candidate in sources:
+                return candidate
+        return "agent"
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -65,6 +80,7 @@ class ScenarioResult:
             "ended_by": self.ended_by,
             "end_reason": self.end_reason,
             "agents_involved": self.agents_involved,
+            "failure_source": self.failure_source if not self.passed else "",
             "checks": self.checks,
             "verdicts": self.verdicts,
             "failures": self.failures,

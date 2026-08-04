@@ -281,6 +281,7 @@ class _ConversationStub:
     ended_by: str = "agent"
     end_reason: str = ""
     error: str = ""
+    agents_involved: list = field(default_factory=list)
 
 
 def test_turn_limit_is_reported_as_failure():
@@ -700,3 +701,179 @@ def test_the_three_counts_add_up_to_the_number_of_scenarios():
     passing = total - len(report.final_failures) - len(report.flaky)
     assert passing == 1
     assert passing + len(report.final_failures) + len(report.flaky) == total
+
+
+# ======================================================================
+# Failure classification
+#
+# One question decides everything here: could doctor fix this by editing a prompt?
+# Handing it anything else produces a confident, useless edit.
+# ======================================================================
+
+
+def _result_with(checks):
+    from plumbing.testkit.runner import ScenarioResult
+
+    return ScenarioResult(scenario_id="s", suite="j", description="", passed=False,
+                          checks=checks)
+
+
+def test_a_broken_simulator_is_harness_not_agent():
+    from plumbing.testkit import assertions
+
+    scenario = {"id": "x", "customer": {}, "expect": {}}
+    result = _ConversationStub(ended_by="error",
+                               error="Customer simulator failed: bad reply")
+    checks = assertions.evaluate(scenario, result, World(now=WORKDAY).snapshot(), [])
+    assert checks[0].source == "harness"
+
+
+def test_a_crash_is_framework_not_harness():
+    from plumbing.testkit import assertions
+
+    scenario = {"id": "x", "customer": {}, "expect": {}}
+    result = _ConversationStub(ended_by="error", error="KeyError: 'ticket_id'")
+    checks = assertions.evaluate(scenario, result, World(now=WORKDAY).snapshot(), [])
+    assert checks[0].source == "framework"
+
+
+def test_a_fired_hard_gate_is_framework():
+    """Every illegal transition seen so far has been a missing edge, not a rogue agent."""
+    from plumbing.testkit import assertions
+
+    world = World(now=WORKDAY)
+    world.record_violation("illegal_ticket_transition", "cannot go there", "ticket.update_status")
+    checks = assertions.evaluate({"id": "x", "customer": {}, "expect": {}},
+                                 _ConversationStub(), world.snapshot(), [])
+    gate = next(c for c in checks if c.name == "no_rule_violations")
+    assert gate.passed is False
+    assert gate.source == "framework"
+
+
+def test_an_ordinary_expectation_miss_is_the_agent():
+    from plumbing.testkit import assertions
+
+    checks = assertions.evaluate(
+        {"id": "x", "customer": {}, "expect": {"must_call": ["sms.send"]}},
+        _ConversationStub(), World(now=WORKDAY).snapshot(), [])
+    miss = next(c for c in checks if c.name.startswith("must_call"))
+    assert miss.passed is False
+    assert miss.source == "agent"
+
+
+def test_doctor_is_only_offered_agent_failures():
+    from plumbing.testkit.loop import ScenarioVerdict
+
+    def verdict_for(source_check):
+        entry = ScenarioVerdict("s")
+        entry.runs = [_result_with([source_check]), _result_with([source_check])]
+        return entry
+
+    framework = {"name": "no_rule_violations", "passed": False,
+                 "detail": "gate fired", "source": "framework"}
+    agent = {"name": "must_call:sms.send", "passed": False,
+             "detail": "never called", "source": "agent"}
+    harness = {"name": "run_completed", "passed": False,
+               "detail": "simulator failed", "source": "harness"}
+
+    assert verdict_for(agent).actionable is True
+    assert verdict_for(framework).actionable is False
+    assert verdict_for(harness).actionable is False
+
+
+def test_the_worst_source_wins_when_a_scenario_has_several():
+    """A framework block also makes the agent miss everything that came after it.
+    Fixing the framework first is the only order that makes sense."""
+    from plumbing.testkit.loop import ScenarioVerdict
+
+    entry = ScenarioVerdict("s")
+    mixed = _result_with([
+        {"name": "must_call:sms.send", "passed": False, "detail": "", "source": "agent"},
+        {"name": "no_rule_violations", "passed": False, "detail": "", "source": "framework"},
+    ])
+    entry.runs = [mixed, mixed]
+    assert entry.source == "framework"
+    assert entry.actionable is False
+
+
+def test_heal_skips_framework_failures_and_never_calls_doctor(capsys, tmp_path):
+    """End-to-end through heal(): a framework-blocked scenario must reach the report
+    without doctor being consulted.
+
+    Waiting for the live suite to produce a framework failure on demand is hoping for a
+    coincidence; stubbing one makes the check deterministic.
+    """
+    from plumbing.testkit import doctor as doctor_mod
+    from plumbing.testkit import loop as loop_mod
+    from plumbing.testkit.runner import ScenarioResult
+
+    scenario = {"id": "blocked", "suite": "j", "customer": {}, "expect": {}}
+    doctor_calls = {"n": 0}
+
+    def fake_run(spec, llm, *, run_judge=True):
+        return ScenarioResult(
+            scenario_id=spec["id"], suite="j", description="", passed=False,
+            checks=[{"name": "no_rule_violations", "passed": False,
+                     "source": "framework", "detail": "illegal_ticket_transition"}],
+        )
+
+    def fake_propose(*args, **kwargs):
+        doctor_calls["n"] += 1
+        raise AssertionError("doctor was asked to fix a framework failure")
+
+    original_run, original_propose = loop_mod.run_scenario, doctor_mod.propose
+    original_dir = loop_mod.new_run_dir
+    try:
+        loop_mod.run_scenario = fake_run
+        doctor_mod.propose = fake_propose
+        loop_mod.new_run_dir = lambda label="run": tmp_path / label
+        report = loop_mod.heal([scenario], suite="j", max_repair_rounds=2,
+                               run_judge=False, regression=False, workers=1, repeat=2)
+    finally:
+        loop_mod.run_scenario = original_run
+        doctor_mod.propose = original_propose
+        loop_mod.new_run_dir = original_dir
+
+    assert doctor_calls["n"] == 0
+    assert report.final_failures == ["blocked"]
+
+    out = capsys.readouterr().out
+    assert "framework: 1" in out
+    assert "Skipping blocked (framework)" in out
+    assert "Not something a prompt edit can fix" in out
+
+
+def test_heal_does_hand_over_a_genuine_agent_failure(tmp_path):
+    """The other half: classification must not block doctor from real work."""
+    from plumbing.testkit import doctor as doctor_mod
+    from plumbing.testkit import loop as loop_mod
+    from plumbing.testkit.runner import ScenarioResult
+
+    scenario = {"id": "misbehaving", "suite": "j", "customer": {}, "expect": {}}
+    seen = {"n": 0}
+
+    def fake_run(spec, llm, *, run_judge=True):
+        return ScenarioResult(
+            scenario_id=spec["id"], suite="j", description="", passed=False,
+            checks=[{"name": "must_call:sms.send", "passed": False,
+                     "source": "agent", "detail": "never called"}],
+        )
+
+    def fake_propose(*args, **kwargs):
+        seen["n"] += 1
+        return None            # no usable patch; enough to prove it was consulted
+
+    original_run, original_propose = loop_mod.run_scenario, doctor_mod.propose
+    original_dir = loop_mod.new_run_dir
+    try:
+        loop_mod.run_scenario = fake_run
+        doctor_mod.propose = fake_propose
+        loop_mod.new_run_dir = lambda label="run": tmp_path / label
+        loop_mod.heal([scenario], suite="j", max_repair_rounds=1,
+                      run_judge=False, regression=False, workers=1, repeat=2)
+    finally:
+        loop_mod.run_scenario = original_run
+        doctor_mod.propose = original_propose
+        loop_mod.new_run_dir = original_dir
+
+    assert seen["n"] == 1, "doctor should have been offered the agent-class failure"

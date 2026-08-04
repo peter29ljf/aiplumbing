@@ -26,7 +26,10 @@ PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only 
 
 ---
 
-## P0 — 测试台可信度（不修这个，后面所有结论都不作数）
+## P0 — 测试台可信度 ✅ 全部完成
+
+三项都做完了：模拟器不再吐坏 JSON、多轮判定挡掉抖动、失败按来源分类挡掉"不是 prompt 能修的"。
+**现在可以相信端到端的结论了**，也可以放心让 doctor 跑。
 
 ### [x] 1. 客户模拟器不再依赖 JSON 输出 ✅ 2026-08-04
 
@@ -92,10 +95,25 @@ PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only 
 顺带修了一个真 bug：报告把 flaky 算进了 passing，导致 "4 passing, 0 failing, 3 flaky (of 4)"
 加起来是 7。
 
-### [ ] 3b. 失败按来源分类（harness / framework / agent）
+### [x] 3b. 失败按来源分类（harness / framework / agent）✅ 2026-08-04
 
-`no_rule_violations` 和编排器错误属 framework，模拟器故障属 harness，其余属 agent。
-doctor 只对 agent 类出手。多轮判定已经挡掉了噪音，这一层再挡掉"不是 prompt 能修的"。
+每个断言带一个 `source`，只回答一个问题：**doctor 能不能靠改 prompt 修好它？**
+
+| 来源 | 含义 | doctor |
+|---|---|---|
+| `harness` | 模拟器或模型坏了 | 不碰 |
+| `framework` | 硬闸/状态机/工具权限拦的 | 不碰，需要人判断是规则错还是流程错 |
+| `agent` | agent 做错了事 | **只修这类** |
+
+一个场景同时有多类失败时**取最严重的**——被框架卡住的 agent 后面该调的工具自然都调不成，
+先修框架是唯一说得通的顺序。
+
+`heal()` 遇到非 agent 类会打印 `Skipping X (framework) — Not something a prompt edit can fix`
+并跳过；报告按来源分三节，每节写明谁该负责。
+
+**验收用确定性测试完成**（8 个），因为等真实套件恰好产生 framework 失败是靠运气 ——
+正是 PLAYBOOK 第 10c 条说的那个反面。其中两个直接穿过 `heal()`：一个断言 doctor
+**一次都没被调用**，另一个断言真 agent 失败仍然照常交给它。
 
 ### [ ] 3. 场景失败要能一眼看出是谁的锅（仍然值得做）
 
