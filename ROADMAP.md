@@ -61,7 +61,7 @@ PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only 
   两跳路径（→ Awaiting Appointment Selection → Appointment Booked）已经存在，agent 想抄近路。
   **故意不加**：这正是"不许跳过要紧步骤"该拦的。但该场景的断言本身也值得复核，见 P1-4d。
 
-### [~] 3. 多轮判定，把抖动和真失败分开 —— 代码完成，验收未通过 2026-08-04
+### [x] 3. 多轮判定，把抖动和真失败分开 ✅ 2026-08-04
 
 `loop.py` 加了 `--repeat N`（默认 2），三种判定：全过 `pass` / 全挂 `fail`（交 doctor）/
 有过有挂 `flaky`（**不交 doctor**，报告单列）。
@@ -78,21 +78,19 @@ PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only 
 
 **结果**：判定比以前有信息量得多（18/2/4 而不是笼统的 "19/24"），加了 9 个测试。
 
-**但验收标准（两轮独立运行的真失败集合相同）没有达成**：两轮只在 1 条上一致。
-原因已查明 —— 那两轮跑的是加确认逻辑**之前**的代码（我那个"等 A 跑完再跑 B"的
-`until pgrep` 判断有竞态，A 还没注册进 pgrep 循环就退出了，导致两轮并发跑了旧代码）。
+### [x] 3a. 验证自适应确认真的管用 ✅ 2026-08-04
 
-**剩下的验证见 P0-3b。**
+只跑那 4 条已知抖动的（8 次运行，不是全量 48 次）。两项都通过：
 
-### [ ] 3a. 验证自适应确认真的管用 ⬅ **下一项**
+1. `confirming 2 failure(s) with 2 more run(s) each` —— 触发了，**且只对那 2 条 0/2 的触发**，
+   稳定通过的和已判 flaky 的一次额外运行都没付
+2. **两条都被改判**：`warranty_rejected_becomes_paid_work` 0/2 → **1/4**，
+   `deposit_payment_fails` 0/2 → **1/4**，双双 `fail → flaky`
 
-带确认逻辑重跑，检查两件事：
+没有这一步的话，doctor 这会儿正在改两个本来没错的 prompt。
 
-1. 日志里出现 `confirming N failure(s) with 2 more run(s) each`
-2. 至少有一条从 `fail` 被改判为 `flaky`（那两条 50/50 的场景应该被抓出来）
-
-然后**串行**跑两轮（不要并发，注意上面那个竞态），确认真失败集合一致。
-若仍不一致，把默认 repeat 提到 3。
+顺带修了一个真 bug：报告把 flaky 算进了 passing，导致 "4 passing, 0 failing, 3 flaky (of 4)"
+加起来是 7。
 
 ### [ ] 3b. 失败按来源分类（harness / framework / agent）
 

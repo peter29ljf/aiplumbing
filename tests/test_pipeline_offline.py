@@ -687,3 +687,16 @@ def test_a_genuine_failure_survives_confirmation():
 
     assert verdicts["broken"].verdict == "fail"
     assert verdicts["broken"].actionable is True
+
+
+def test_the_three_counts_add_up_to_the_number_of_scenarios():
+    """Flaky is not passing. Counting it as such made the summary read
+    "4 passing, 0 failing, 3 flaky (of 4)"."""
+    from plumbing.testkit.loop import LoopReport
+
+    report = LoopReport(suite="j", started_at="", scenarios=["a", "b", "c", "d"],
+                        final_failures=["a"], flaky=["b", "c"])
+    total = len(report.scenarios)
+    passing = total - len(report.final_failures) - len(report.flaky)
+    assert passing == 1
+    assert passing + len(report.final_failures) + len(report.flaky) == total

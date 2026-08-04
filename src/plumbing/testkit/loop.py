@@ -357,7 +357,7 @@ def heal(
 def write_report(report: LoopReport, run_dir: Path) -> Path:
     run_dir.mkdir(parents=True, exist_ok=True)
     total = len(report.scenarios)
-    passed = total - len(report.final_failures)
+    passed = total - len(report.final_failures) - len(report.flaky)
 
     lines = [
         f"# Self-healing run report - {report.suite}",
@@ -470,7 +470,7 @@ def write_report(report: LoopReport, run_dir: Path) -> Path:
 
 def print_summary(report: LoopReport, run_dir: Path) -> None:
     total = len(report.scenarios)
-    passed = total - len(report.final_failures)
+    passed = total - len(report.final_failures) - len(report.flaky)
     print("\n" + "=" * 60)
     print(f"Final: {passed} passing, {len(report.final_failures)} failing, "
           f"{len(report.flaky)} flaky (of {total}, {report.repeat}x each)")
