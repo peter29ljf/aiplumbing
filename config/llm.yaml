@@ -1,0 +1,68 @@
+# DeepSeek access configuration (OpenAI-compatible API).
+# The API key does NOT live here — it is read from .env / the DEEPSEEK_API_KEY
+# environment variable.
+#
+# If a model id returns 404, run `python3 scripts/check_llm.py` to list the
+# real available ids, then update this file.
+
+provider:
+  base_url: "https://api.deepseek.com/v1"
+  api_key_env: "DEEPSEEK_API_KEY"
+  timeout_seconds: 120
+  max_retries: 3
+
+# Model settings per role. All point at the same flash model; to give doctor or
+# judge a stronger model, change it here only — no code changes required.
+roles:
+  agent:                                  # Business agents (intake / small_job / ...)
+    model: "deepseek-v4-flash"
+    temperature: 0.3
+    max_tokens: 2000
+  customer:                               # Simulated customer
+    model: "deepseek-v4-flash"
+    temperature: 0.9                      # High temperature -> varied wording, real pressure-testing
+    max_tokens: 500
+  technician:                             # Simulated technician (on-site staff)
+    model: "deepseek-v4-flash"
+    temperature: 0.7
+    max_tokens: 400
+  supervisor:                             # Simulated supervisor
+    model: "deepseek-v4-flash"
+    temperature: 0.5
+    max_tokens: 500
+  judge:                                  # LLM judge (rule-compliance verdicts)
+    model: "deepseek-v4-flash"
+    temperature: 0.0                      # Verdicts must be stable
+    max_tokens: 1500
+  doctor:                                 # Only used when doctor_backend.kind = "openai"
+    model: "deepseek-v4-flash"
+    temperature: 0.4
+    max_tokens: 8000
+
+# Which engine rewrites agent prompts when a scenario fails.
+#
+#   claude_cli - shell out to the Claude Code CLI with permission checks bypassed, so a
+#                strong model can read the repo and edit prompt files directly. Guards are
+#                enforced afterwards: every protected file is hashed before and after, and
+#                the whole attempt is discarded if anything outside agents/ was touched.
+#   openai     - one-shot JSON patch from the `doctor` role above (no repo access).
+doctor_backend:
+  kind: "claude_cli"
+  model: "claude-opus-5"
+  timeout_seconds: 900
+  extra_args: []
+
+# Per-scenario ceilings, so a stuck agent cannot burn tokens indefinitely
+limits:
+  # A full journey runs intake -> a service agent -> waiting on the technician -> closing,
+  # so it needs considerably more room than a single-agent test.
+  max_conversation_turns: 45              # Customer <-> agent exchanges
+  max_tool_calls_per_turn: 15             # Consecutive tool calls within one turn
+  max_handoffs: 5                         # Agent handoffs within one scenario
+  # Turns the agent gets after the customer leaves, to finish the ticket.
+  max_wrapup_turns: 8
+  # A scheduled follow-up wakes the agent back up, as a real scheduler would.
+  max_followup_firings: 3
+  # Scenarios are independent, so they parallelise cleanly. Raise this to cut wall
+  # clock time; lower it if the provider rate-limits you.
+  parallel_scenarios: 5

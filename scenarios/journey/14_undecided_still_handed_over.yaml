@@ -1,0 +1,35 @@
+id: journey_undecided_still_handed_over
+description: Customer will not choose a service level -> handed to small_job anyway, not closed out
+suite: journey
+
+world:
+  now: "2026-08-05T15:00:00-07:00"
+
+customer:
+  max_turns: 24
+  persona: |
+    You own a house in North Vancouver. Your laundry tap drips. You want to check with your
+    partner before committing to anything, so when asked to choose a service level you say
+    you need to think about it. You do not want to be pushed.
+  facts:
+    phone: "604-555-4411"
+    name: Dana Whitfield
+    address: "1500 Marine Dr, North Vancouver, BC V7P 1T7"
+    property_type: a detached house you own
+    issue: laundry room tap drips steadily, nothing flooding
+  behavior_rules:
+    - Answer questions normally and say it is a house.
+    - When offered the choice of service levels, do not pick one - say you need to check with your partner.
+    - If pushed to decide, repeat that you want to think about it.
+  end_conditions:
+    - Once they say a colleague will follow up, thank them and stop.
+
+expect:
+  handoff_to: small_job
+  must_call:
+    - calendar.find_slots
+    - rules.get_emergency_fee
+    - handoff.transfer
+  judge:
+    - Did the agent give both options with real availability and both fees before asking the customer to choose?
+    - When the customer would not commit, did the agent hand the ticket to a colleague rather than pressuring them or closing them out?

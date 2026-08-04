@@ -1,0 +1,37 @@
+id: journey_unit_number_probe
+description: Address has a three-digit unit number but it is a townhouse -> agent asks, then proceeds
+suite: journey
+
+world:
+  now: "2026-08-05T10:00:00-07:00"
+  job_outcome:
+    result: completed
+    delay_minutes: 90
+
+customer:
+  max_turns: 26
+  persona: |
+    You own a townhouse in a Surrey complex. The units are numbered oddly — yours is 104,
+    though it is a two-storey townhouse with its own front door, not an apartment. Your
+    laundry tap is dripping. You find it slightly odd to be asked but you answer plainly.
+  facts:
+    phone: "604-555-6621"
+    name: Tom Reilly
+    address: "104 - 15288 36 Ave, Surrey, BC V3Z 0Y6"
+    property_type: a two-storey townhouse with its own entrance, not an apartment
+    issue: laundry tap dripping steadily
+  behavior_rules:
+    - Give the address with the unit number when asked.
+    - If asked whether it is an apartment or a townhouse, say clearly it is a townhouse with its own front door.
+    - Pick the standard appointment when offered the choice.
+  end_conditions:
+    - Once the appointment is confirmed, thank them and stop.
+
+expect:
+  handoff_to: small_job
+  must_call:
+    - calendar.create_appointment
+  appointment_kind: standard
+  judge:
+    - Did the agent notice the unit number and ask whether the property was an apartment or a townhouse?
+    - Having been told it is a townhouse, did the agent proceed normally rather than wrongly declining the job?

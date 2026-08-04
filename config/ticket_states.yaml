@@ -1,0 +1,148 @@
+# Ticket state machine.
+#
+# ticket.update_status validates every transition against `transitions`, and
+# illegal jumps are rejected with an error the agent can read and correct.
+# This keeps the process enforceable without hard-coding it into Python.
+
+initial: "New Inquiry"
+
+# Terminal states: no transitions out
+terminal:
+  - "Closed"
+
+states:
+  - "New Inquiry"
+  - "Phone Verified"
+  - "Customer Identified"
+  - "Needs Assessment"
+  - "General Consultation"
+  - "Awaiting Appointment Selection"
+  - "Appointment Booked"
+  - "Appointment Rescheduled"
+  - "Appointment Cancelled"
+  - "Emergency Technician Search"
+  - "Emergency Technician Confirmed"
+  - "Deposit Link Sent"
+  - "Deposit Paid"
+  - "Emergency Job Dispatched"
+  - "Technician En Route"
+  - "Technician On Site"
+  - "Inspection Completed"
+  - "Quote Sent"
+  - "Quote Accepted"
+  - "Quote Rejected"
+  - "Large Project Documents Requested"
+  - "Large Project Documents Received"
+  - "Large Project Under Review"
+  - "Warranty Eligibility Review"
+  - "Warranty Technician Review"
+  - "Warranty Booked"
+  - "Escalated to Supervisor"
+  - "Service Completed"
+  - "Refund Pending"
+  - "Refund Completed"
+  - "Closed"
+
+# Reachable from any state (exception and closure exits)
+universal_targets:
+  - "Escalated to Supervisor"
+  - "Closed"
+
+transitions:
+  "New Inquiry":
+    - "Phone Verified"
+    - "General Consultation"        # Customer declined to give a phone number
+  "Phone Verified":
+    - "Customer Identified"
+  "Customer Identified":
+    - "Needs Assessment"
+    - "Warranty Eligibility Review"
+    - "General Consultation"
+  "General Consultation":
+    - "Phone Verified"              # Customer changed their mind and gave a number
+    - "Needs Assessment"
+  "Needs Assessment":
+    - "Awaiting Appointment Selection"
+    - "Appointment Booked"           # intake hands off here; small_job books directly
+    - "Deposit Link Sent"            # emergency takes the deposit before searching
+    - "Emergency Technician Search"
+    - "Large Project Documents Requested"
+    - "General Consultation"
+  "Warranty Eligibility Review":
+    - "Warranty Technician Review"  # Record checks out -> the original technician decides
+    - "Needs Assessment"            # Not eligible on the record -> handle as a new service
+  "Warranty Technician Review":
+    - "Warranty Booked"             # Technician approved the claim
+    - "Service Completed"           # Technician approved, attended and reported back
+    - "Needs Assessment"            # Technician says it is not warranty work
+    - "Emergency Technician Search" # Approved but urgent
+  "Warranty Booked":
+    - "Appointment Rescheduled"
+    - "Appointment Cancelled"
+    - "Technician En Route"
+    - "Service Completed"
+  "Awaiting Appointment Selection":
+    - "Appointment Booked"
+    - "Emergency Technician Search" # Customer switched to emergency service
+    - "Needs Assessment"
+  "Appointment Booked":
+    - "Appointment Rescheduled"
+    - "Appointment Cancelled"
+    - "Technician En Route"
+    - "Service Completed"            # technician reports back without a live status feed
+  "Appointment Rescheduled":
+    - "Appointment Rescheduled"
+    - "Appointment Cancelled"
+    - "Technician En Route"
+    - "Service Completed"
+  "Appointment Cancelled":
+    - "Awaiting Appointment Selection"
+  "Deposit Link Sent":
+    - "Deposit Paid"
+    - "Refund Pending"                   # Customer changed their mind before paying
+  "Deposit Paid":
+    - "Emergency Technician Search"      # The deposit is what pays to start the search
+    - "Emergency Job Dispatched"
+    - "Refund Pending"
+  "Emergency Technician Search":
+    - "Emergency Technician Confirmed"
+    - "Awaiting Appointment Selection"   # 1 hour with no taker -> offer standard booking
+    - "Refund Pending"                   # ...or refund and stop
+  "Emergency Technician Confirmed":
+    - "Emergency Job Dispatched"
+  "Emergency Job Dispatched":
+    - "Technician En Route"
+    - "Service Completed"                # technician reports back directly
+    - "Refund Pending"                   # Cancelled before departure
+  "Technician En Route":
+    - "Technician On Site"
+    - "Refund Pending"
+  "Technician On Site":
+    - "Inspection Completed"
+  "Inspection Completed":
+    - "Quote Sent"
+    - "Large Project Documents Requested" # Large-job scope discovered on site
+    - "Service Completed"
+  "Quote Sent":
+    - "Quote Accepted"
+    - "Quote Rejected"
+  "Quote Accepted":
+    - "Appointment Booked"
+    - "Service Completed"
+  "Quote Rejected": []
+  "Large Project Documents Requested":
+    - "Large Project Documents Received"
+  "Large Project Documents Received":
+    - "Large Project Under Review"
+  "Large Project Under Review":
+    - "Quote Sent"
+  "Escalated to Supervisor":
+    - "Refund Pending"
+    - "Service Completed"
+    - "Refund Completed"
+  "Service Completed": []
+  "Refund Pending":
+    - "Refund Completed"
+    - "Escalated to Supervisor"
+  "Refund Completed": []
+  "Closed": []

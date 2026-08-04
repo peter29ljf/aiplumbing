@@ -1,0 +1,52 @@
+id: journey_emergency_nobody_available_refund
+description: Deposit taken, nobody accepts within the hour -> customer stops -> automatic refund
+suite: journey
+
+world:
+  now: "2026-08-05T21:00:00-07:00"
+  payment:
+    default_outcome: success
+  technicians:
+    t_wang: { policy: decline, decline_reason: "on another emergency across town" }
+    t_li:   { policy: decline, decline_reason: "already committed tonight" }
+    t_chen: { policy: no_answer }
+    t_zhao: { on_duty: false }
+
+customer:
+  max_turns: 30
+  persona: |
+    You are Rachel Okafor and you own a house in Surrey. Your only toilet is completely
+    blocked and will not flush. You want someone tonight and you are willing to pay the
+    deposit. If it turns out nobody can come, you would rather have your money back and
+    sort it out tomorrow yourself.
+  facts:
+    phone: "778-555-9012"
+    name: Rachel Okafor
+    address: "13450 104 Ave, Surrey, BC V3T 1V8"
+    property_type: a detached house you own
+    issue: the only toilet is completely blocked and will not flush
+  behavior_rules:
+    - Say it is a house when asked about the property.
+    - Choose emergency service and agree to the deposit; confirm you have paid it.
+    - If told nobody is available, say you do not want to keep waiting and ask for your money back.
+  end_conditions:
+    - Once you are told the refund has been issued, thank them and stop.
+
+expect:
+  final_status_in: ["Refund Completed", "Closed", "Refund Pending"]
+  handoff_to: emergency
+  must_call:
+    - payment.send_deposit_link
+    - phone.call_technician
+    - payment.refund_deposit
+    - sms.send
+  must_not_call:
+    - calendar.create_appointment
+  max_call_rounds: 6
+  payment_status: refunded
+  sms_purposes_include:
+    - thanks_closing
+  judge:
+    - Did the agent stop searching at the limit rather than phoning technicians indefinitely?
+    - Did the agent offer the refund itself once the customer said they did not want to wait, rather than making them ask for it?
+    - Did the agent avoid using a standard appointment as a way of not refunding the deposit?

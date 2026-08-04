@@ -1,0 +1,81 @@
+# Tool catalogue — implementation maturity for every tool in the system.
+#
+# Status meanings:
+#   live     Wired to a real backend system. Actions have real-world effects.
+#   mocked   Implemented as a simulator. Safe for testing; nothing leaves the process.
+#   planned  Specified but not built. Not registered, not callable, not grantable
+#            to an agent. Listed here so the roadmap is visible in one place.
+#
+# Every registered tool defaults to `mocked` (phase 1 is a full simulation).
+# Mark a tool `live` here once its real adapter is wired up — no code change needed.
+
+# ===========================================================================
+# MASTER SWITCH for real service calls.
+#
+# While this is false, every tool runs against the simulator no matter what its
+# status says below. Real adapters exist in src/plumbing/integrations/ and are
+# fully wired, but they cannot be reached until this is true.
+#
+# Turning it on means real text messages, real emails and real card charges,
+# billed to the accounts in .env. Do not turn it on until every agent suite
+# passes end to end.
+# ===========================================================================
+live_tools_enabled: false
+
+statuses: {}
+  # Example, once the real SMS gateway is connected:
+  # sms.send: live
+
+# NOT YET WIRED TO ANY AGENT
+#
+# These namespaces are implemented, tested and visible in the console, but no agent's
+# allow-list includes them yet:
+#   technician.get_job_outcome   the technician's report back after attending
+#   quote.*                      formal large-project quotes
+#   schedule.*                   the 24 / 48 / 72 hour quote follow-ups
+# Granting them is a separate, deliberate step per agent.
+
+# Tools that are specified but not yet implemented. These appear in the console's
+# Tools tab as roadmap items and cannot be granted to an agent.
+planned:
+  - name: "crm.merge_duplicates"
+    description: >-
+      Merge duplicate customer records created from different phone number formats.
+    note: "Needs a dedupe rule set and an audit trail before it can be built."
+
+  - name: "calendar.find_emergency_window"
+    description: >-
+      Find the soonest window an on-call technician could realistically arrive,
+      accounting for travel time between jobs.
+    note: "Requires travel-time estimation, which the simulated world does not model yet."
+
+  - name: "payment.charge_balance"
+    description: >-
+      Charge the remaining call-out fee or repair balance after the deposit is applied.
+    note: "Phase 2, alongside the small_job on-site settlement flow."
+
+  - name: "payment.issue_partial_refund"
+    description: >-
+      Issue a partial refund under supervisor approval, for disputes settled part-way.
+    note: "Blocked on the supervisor approval workflow; must never be agent-initiated."
+
+  - name: "email.watch_thread"
+    description: >-
+      Watch a customer's email thread for further replies after the first, so late
+      attachments attach themselves to the right job without anyone chasing.
+    note: "Needs the Gmail push/watch subscription; the adapter exists but is not wired."
+
+  - name: "media.analyse_photo"
+    description: >-
+      Run vision analysis on customer photos to help size the job before dispatch.
+    note: "Exploratory. Would need a strict confidence threshold before affecting triage."
+
+  - name: "technician.get_live_location"
+    description: >-
+      Get a dispatched technician's live location and revised ETA.
+    note: "Needs the field app; also determines whether a deposit can still be refunded."
+
+  - name: "review.request_feedback"
+    description: >-
+      Send a review request after a job is completed and marked satisfactory.
+    note: "Must never fire on escalated or disputed tickets."

@@ -1,0 +1,39 @@
+# One end-to-end customer journey for {{BUSINESS_NAME}}.
+#
+# Start at the entry agent and run the whole chain. Per-agent tests all passing while the
+# joined-up flow is broken is the normal failure mode — see PLAYBOOK section 11.
+
+id: journey_TODO
+description: TODO — one line, what this journey proves
+suite: journey
+
+world:
+  now: "2026-08-05T10:00:00-07:00"    # pick a time that exercises the branch you mean
+  # Outcomes that assertions depend on are fixed here; only the wording is generated.
+  # staff:      { s_one: { policy: decline, decline_reason: "..." } }
+  # payment:    { default_outcome: success }   # success | fail | pending
+  # job_outcome: { result: completed, delay_minutes: 90 }   # completed | declined
+
+customer:
+  max_turns: 26
+  persona: |
+    TODO: who they are, what has happened, what they want, and their temperament.
+  facts:
+    phone: ""
+    name: ""
+    address: ""
+  behavior_rules:
+    - TODO: what they say first, what they withhold, what they insist on
+  end_conditions:
+    - TODO: what has to be true before they say goodbye
+
+expect:
+  final_status_in: []          # or final_status
+  handoff_to: ""
+  must_call: []                # prefix with "agent:" to scope, e.g. intake:calendar.find_slots
+  must_not_call: []
+  sms_purposes_include: []
+  judge:
+    # Semantic checks the hard assertions cannot see. Four base checks are built in
+    # (language, invented prices, internal leakage, FABRICATED ACTIONS).
+    - TODO: what would "handled badly but technically compliant" look like here?

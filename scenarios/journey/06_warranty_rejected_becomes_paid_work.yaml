@@ -1,0 +1,47 @@
+id: journey_warranty_rejected_becomes_paid_work
+description: Warranty claim refused by the technician -> customer accepts paid work -> booked
+suite: journey
+
+world:
+  now: "2026-08-05T09:00:00-07:00"
+  warranty_review:
+    verdict: reject
+    reason: "The joint I repaired in March is dry. This is the drain trap under the same
+      cabinet, a separate fitting I never touched."
+    response_delay_minutes: 30
+  job_outcome:
+    result: completed
+    delay_minutes: 120
+
+customer:
+  max_turns: 32
+  persona: |
+    You are Linda Zhang in Richmond. There is water under your kitchen sink again and you
+    assume the March repair has failed. You are reasonable but you want a real explanation,
+    not a brush-off. Once you understand it is a different fitting you accept it and agree
+    to have it fixed as a paid job.
+  facts:
+    phone: "604-555-0101"
+    name: Linda Zhang
+    address: "5900 No. 3 Rd, Richmond, BC V6X 3P7"
+    property_type: a detached house you own
+    issue: water under the kitchen sink again, same cabinet as the March repair
+  behavior_rules:
+    - Open by claiming the March repair has failed again.
+    - Accept that it goes to the technician for a decision.
+    - When told it is not covered, ask why once - you want the actual reason.
+    - Once the reason makes sense, agree to have it done as paid work and pick a normal appointment.
+  end_conditions:
+    - Once the paid appointment is confirmed, thank them and stop.
+
+expect:
+  handoff_to: [warranty, small_job]
+  must_call:
+    - review.request_warranty
+    - review.get_verdict
+    - calendar.create_appointment
+    - sms.send
+  judge:
+    - When relaying the refusal, did the agent give the technician's actual reason - a separate fitting from the one repaired - rather than a bare "declined"?
+    - Did the agent avoid hinting it might overturn the technician's decision?
+    - Once the customer agreed to pay, was the CAD 100 call-out fee explained, including that it is still payable if they decline the repair?

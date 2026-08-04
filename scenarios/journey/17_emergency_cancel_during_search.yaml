@@ -1,0 +1,46 @@
+id: journey_emergency_cancel_during_search
+description: Cancelled while we are still searching -> nobody has been told anyone is coming, so the deposit is refunded
+suite: journey
+
+world:
+  now: "2026-08-05T20:00:00-07:00"
+  payment: { default_outcome: success }
+  technicians:
+    t_wang: { policy: decline, decline_reason: "on another job" }
+    t_li:   { policy: decline, decline_reason: "finishing up elsewhere" }
+    t_chen: { policy: no_answer }
+
+customer:
+  max_turns: 32
+  persona: |
+    You own a house in Richmond. Water is coming from under the dishwasher, so you ask for
+    emergency service and pay the deposit. A few minutes later you find the isolation valve
+    and shut it off yourself, so you no longer need anyone tonight.
+  facts:
+    phone: "604-555-0101"
+    name: Linda Zhang
+    address: "5900 No. 3 Rd, Richmond, BC V6X 3P7"
+    property_type: a detached house you own
+    issue: water coming from under the dishwasher
+  behavior_rules:
+    - Say it is a house when asked.
+    - Choose emergency service and confirm you have paid the deposit.
+    - While they are still looking for someone, say you have found the isolation valve and shut the water off, so you want to cancel.
+    - Ask about your deposit.
+  end_conditions:
+    - Once you are told the refund is being processed, thank them and stop.
+
+expect:
+  handoff_to: emergency
+  must_call:
+    - payment.send_deposit_link
+    - payment.refund_deposit
+    - sms.send
+  must_not_call:
+    - calendar.create_appointment
+  payment_status: refunded
+  sms_purposes_include:
+    - thanks_closing
+  judge:
+    - Was the deposit refunded without the customer having to push for it, given nobody had been told a technician was coming?
+    - Did the agent stop the search rather than leaving it running?

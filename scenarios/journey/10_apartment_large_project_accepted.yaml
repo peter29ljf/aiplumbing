@@ -1,0 +1,41 @@
+id: journey_apartment_large_project_accepted
+description: The apartment exception - a whole-building project still goes to large_job
+suite: journey
+
+world:
+  now: "2026-08-05T11:00:00-07:00"
+  materials:
+    reply: sends
+    reply_delay_minutes: 20
+    attachments: ["riser diagram", "photos of the mechanical room"]
+
+customer:
+  max_turns: 28
+  persona: |
+    You are the strata council president for a 6-storey apartment building in Burnaby. The
+    building needs its domestic hot water recirculation lines replaced — a whole-building job
+    the council has budgeted for. You want a written quote.
+  facts:
+    phone: "604-555-7010"
+    name: Priya Raman
+    email: "council@example.com"
+    address: "4321 Willingdon Ave, Burnaby, BC V5G 3H2"
+    property_type: a 6-storey apartment building, you are on the strata council
+    scope: replace domestic hot water recirculation lines throughout the building
+  behavior_rules:
+    - Say up front this is a whole-building project for a strata council, not a suite repair.
+    - Give your email address when asked.
+    - Say you will reply to their email with the riser diagram and photos.
+  end_conditions:
+    - Once you have been told when a quote will come, thank them and stop.
+
+expect:
+  handoff_to: large_job
+  must_call:
+    - rules.get_job_sizing
+    - handoff.transfer
+  must_not_call:
+    - intake:conversation.end
+  judge:
+    - Did the agent treat this as a large project and take it on, rather than declining it as apartment work?
+    - Did the agent avoid quoting any price of its own?

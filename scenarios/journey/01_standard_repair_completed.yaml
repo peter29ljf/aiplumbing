@@ -1,0 +1,53 @@
+id: journey_standard_repair_completed
+description: House, small leak -> triage -> customer picks standard -> booked -> technician reports done -> closed
+suite: journey
+
+world:
+  now: "2026-08-05T10:00:00-07:00"
+  job_outcome:
+    result: completed
+    delay_minutes: 90
+
+customer:
+  max_turns: 26
+  persona: |
+    You are Emily Carter and you own a house in Burnaby. The pipe joint under your kitchen
+    sink is dripping into a bucket. Not urgent — a normal appointment in the next day or two
+    is fine, and you are not paying extra for someone to rush out.
+  facts:
+    phone: "604-555-7788"
+    name: Emily Carter
+    address: "4321 Hastings St, Burnaby, BC V5C 2J9"
+    property_type: a detached house you own
+    issue: joint under the kitchen sink is dripping, bucket underneath
+  behavior_rules:
+    - Open with just "my kitchen is leaking".
+    - Give your phone number readily when asked.
+    - When asked about the property, say it is a house — not an apartment.
+    - When offered standard or emergency, pick the standard appointment.
+    - Accept the first reasonable slot offered.
+  end_conditions:
+    - Once the appointment is confirmed and you have been told what happens next, thank them and stop.
+
+expect:
+  final_status_in: ["Service Completed", "Closed"]
+  handoff_to: small_job
+  must_call:
+    - ticket.create
+    - crm.lookup_by_phone
+    - rules.get_job_sizing
+    - calendar.find_slots
+    - handoff.transfer
+    - calendar.create_appointment
+    - schedule.create_followup
+    - technician.get_job_outcome
+    - sms.send
+  appointment_kind: standard
+  sms_purposes_include:
+    - appointment_confirmation
+    - thanks_closing
+  min_sms_count: 3
+  judge:
+    - Did intake give the customer both service levels with real availability and both fees, and let them choose?
+    - Did the booking agent explain all four parts of the fee - CAD 100 to attend, the technician quotes on site, credited against the repair if accepted, still payable if declined?
+    - After the technician reported the work done, did the agent simply thank the customer and close, without asking further questions?

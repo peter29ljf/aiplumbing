@@ -1,0 +1,19 @@
+# Seed data for the simulated world of {{BUSINESS_NAME}}.
+
+# The people who deliver the service. For in_store, give them a location_id.
+staff: []          # TODO: [{id, name, phone, skills, areas|location_id, max_concurrent_jobs, on_duty}]
+
+# Seed customers. You need one for every branch you intend to test:
+# a new customer, a returning one, and one for each special case.
+customers: []      # TODO
+
+# Prior conversations, so "your guy told me last time..." can be checked.
+chat_history: []
+
+existing_appointments: []
+payment: { default_outcome: "success" }
+scheduling:
+  default_job_duration_minutes: 60
+  slot_granularity_minutes: 30
+  max_slots_to_offer: 3
+  search_horizon_days: 14

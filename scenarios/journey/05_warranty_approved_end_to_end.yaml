@@ -1,0 +1,48 @@
+id: journey_warranty_approved
+description: Returning customer claims warranty -> intake hands straight over -> technician approves -> done
+suite: journey
+
+world:
+  now: "2026-08-05T10:00:00-07:00"
+  warranty_review:
+    verdict: approve
+    response_delay_minutes: 30
+  job_outcome:
+    result: completed
+    delay_minutes: 120
+
+customer:
+  max_turns: 28
+  persona: |
+    You are Linda Zhang in Richmond. Fangxin repaired the leak under your kitchen sink in
+    March and the same joint is seeping again. You expect it covered and you want to know
+    when someone can come.
+  facts:
+    phone: "604-555-0101"
+    name: Linda Zhang
+    address: "5900 No. 3 Rd, Richmond, BC V6X 3P7"
+    property_type: a detached house you own
+    issue: the kitchen sink joint repaired in March is seeping again, same spot
+  behavior_rules:
+    - Open with "you fixed this in March and it is leaking again, that is under warranty isn't it?"
+    - Confirm it is the same joint and the same address when asked.
+    - Accept that it goes to the technician for a decision; do not demand an answer on the spot.
+    - Ask at some point whether there is any charge.
+  end_conditions:
+    - Once you know it is covered and being taken forward, thank them and stop.
+
+expect:
+  final_status_in: ["Service Completed", "Closed", "Warranty Technician Review"]
+  handoff_to: warranty
+  must_call:
+    - crm.get_warranty_candidates
+    - review.request_warranty
+    - review.get_verdict
+    - sms.send
+  must_not_call:
+    - intake:crm.get_warranty_candidates
+  judge:
+    - Did intake hand the warranty claim straight over without checking eligibility or predicting the outcome itself?
+    - Did the warranty agent send the claim to the technician who did the original job rather than approving it itself?
+    - Was the customer told they did not need to wait online?
+    - Was the customer told a warranty visit carries no charge?

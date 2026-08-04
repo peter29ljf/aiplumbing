@@ -1,0 +1,38 @@
+id: journey_small_job_cancel
+description: Booked, then cancelled -> free, no interrogation, closed cleanly
+suite: journey
+
+world:
+  now: "2026-08-05T09:00:00-07:00"
+
+customer:
+  max_turns: 28
+  persona: |
+    You own a townhouse in Vancouver. You book someone for a dripping tap, then your
+    brother-in-law offers to look at it first, so you cancel. You feel slightly awkward
+    about cancelling.
+  facts:
+    phone: "604-555-3344"
+    name: Greg Watson
+    address: "1290 Broadway W, Vancouver, BC V6H 1G6"
+    property_type: a townhouse you own
+    issue: bathroom tap dripping
+  behavior_rules:
+    - Say it is a townhouse when asked.
+    - Choose the standard appointment and accept a slot.
+    - Once confirmed, say your brother-in-law will look at it first and you want to cancel.
+    - Ask if there is a cancellation fee.
+  end_conditions:
+    - Once the cancellation is confirmed, thank them and stop.
+
+expect:
+  final_status_in: ["Appointment Cancelled", "Closed"]
+  must_call:
+    - calendar.create_appointment
+    - calendar.cancel
+    - sms.send
+  sms_purposes_include:
+    - thanks_closing
+  judge:
+    - Was the customer told cancelling is free?
+    - Did the agent avoid pressing them for a justification or trying to talk them out of it?

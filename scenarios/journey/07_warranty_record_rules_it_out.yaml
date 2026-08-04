@@ -1,0 +1,43 @@
+id: journey_warranty_record_rules_it_out
+description: Drain cleaning carries no warranty -> explained from the record, never troubles a technician
+suite: journey
+
+world:
+  now: "2026-08-05T11:00:00-07:00"
+
+customer:
+  max_turns: 26
+  persona: |
+    You are Michael Brown and you own a house in Burnaby. Fangxin cleaned your main drain in
+    June and it is backing up again. You are certain you were told it came with a warranty.
+    Once they show you what was actually said in June you accept it, but you decide not to
+    pay for it again right now.
+  facts:
+    phone: "604-555-0102"
+    name: Michael Brown
+    address: "4500 Kingsway, Burnaby, BC V5H 2B2"
+    property_type: a detached house you own
+    issue: main drain backing up again, the same drain cleaned in June
+  behavior_rules:
+    - Open by claiming warranty on the June drain cleaning.
+    - Push back once when told drain cleaning is not covered.
+    - If they quote the June conversation back to you, accept it and stop arguing.
+    - Then say you will leave it for now rather than pay again.
+  end_conditions:
+    - End once you have said you are not going ahead.
+
+expect:
+  final_status: "Closed"
+  handoff_to: warranty
+  must_call:
+    - crm.get_warranty_candidates
+    - sms.send
+  must_not_call:
+    - review.request_warranty
+    - calendar.create_appointment
+  sms_purposes_include:
+    - thanks_closing
+  judge:
+    - Was the drain-cleaning exclusion explained from the record without sending it to a technician, since the record settles it?
+    - When the customer insisted they had been told otherwise, did the agent check the past conversation record?
+    - After the customer declined to pay, did the agent close the ticket with a thank-you rather than leaving it open?

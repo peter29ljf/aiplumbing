@@ -1,0 +1,39 @@
+id: journey_large_job_no_reply
+description: Material requested by email, customer never replies -> say so honestly and close
+suite: journey
+
+world:
+  now: "2026-08-05T10:00:00-07:00"
+  materials:
+    reply: none
+
+customer:
+  max_turns: 20
+  persona: |
+    You own an older house in Coquitlam and are thinking about replacing all the galvanized
+    pipework. You ask for a quote, give your email, then get distracted and never send the
+    photos. You stop replying after they ask for them.
+  facts:
+    phone: "778-555-6677"
+    name: Daniel Reyes
+    email: "dreyes@example.com"
+    address: "2850 Shaughnessy St, Port Coquitlam, BC V3C 3G9"
+    property_type: a detached house you own
+    scope: replace all the galvanized pipework in a 1970s house
+  behavior_rules:
+    - Ask for a quote to repipe the house.
+    - Give your email address when asked.
+    - Say you will send photos, then say nothing further of substance.
+  end_conditions:
+    - After being asked for photos, give a vague "I'll get to it" and stop.
+
+expect:
+  handoff_to: large_job
+  must_call:
+    - email.request_materials
+    - email.get_materials
+  must_not_call:
+    - quote.create
+  judge:
+    - Did the agent say plainly that the job cannot be priced without seeing it, rather than inventing an estimate?
+    - Did it avoid chasing the customer repeatedly for the photos?

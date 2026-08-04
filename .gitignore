@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+runs/*/
+!runs/.gitkeep
+.DS_Store
+
+# Runtime state, not source
+runs/live.json
+.claude/

@@ -1,0 +1,25 @@
+# Agent registry for {{BUSINESS_NAME}}.
+# Adding an agent = a block here + a prompt file. No code changes.
+#
+# Split by the SERVICE TYPE a customer would recognise, not by function.
+# The tools list is your main lever on prompt length — fewer tools, shorter prompt.
+
+entry_agent: intake
+
+agents:
+  intake:
+    description: "TODO: reception and triage — greet, identify, assess, route"
+    shared: [core_rules, tool_protocol, handoff]
+    prompt: intake.md
+    tools:
+      - "clock.*"
+      - "rules.*"
+      - "crm.*"
+      - "sms.send"
+      - "ticket.*"
+      - "escalate.raise"
+      - "handoff.transfer"
+      - "conversation.end"
+    handoff_to: []          # TODO: the agents you create below
+
+  # TODO: one block per service type. Copy the shape above.

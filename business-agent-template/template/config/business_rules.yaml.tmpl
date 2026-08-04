@@ -1,0 +1,75 @@
+# ==========================================================================
+# {{BUSINESS_NAME}} — business rules.
+#
+# The single source of truth for every price, time window and eligibility rule.
+# Agents may only read these through rules.* tools and repeat them verbatim.
+# The self-healing loop is forbidden from editing this file.
+#
+# Work through docs/CHECKLIST.md sections 1-4 to fill this in.
+# ==========================================================================
+
+company:
+  name: "{{BUSINESS_NAME}}"
+  timezone: "America/Vancouver"        # TODO
+  currency: "CAD"                      # TODO
+  language: "en"
+  phone: ""                            # TODO
+  website: ""                          # TODO
+  service_region: ""                   # TODO
+
+  # Facts the agent may state. Served by rules.get_company_info so it quotes them
+  # rather than improvising credentials. TODO: fill in — customers ask about these.
+  profile:
+    tagline: ""
+    credentials: []                    # licences, insurance, registrations
+    services: []                       # [{id, name, detail}]
+    how_a_job_runs: []                 # the customer-visible steps
+
+# How service is delivered. Decides which tool groups get registered.
+service_delivery: "{{DELIVERY}}"       # on_site | in_store | both
+
+# Only needed for in_store / both.
+locations: []                          # [{id, name, address, capacity}]
+
+# ---------------------------- Time --------------------------------------
+schedule:
+  working_days: [0, 1, 2, 3, 4, 5]     # 0=Mon ... 6=Sun. TODO
+  working_hours: { start: "09:00", end: "17:00" }   # TODO
+  night_starts_at: "18:00"             # only if you price by time band
+  sunday_policy: "closed"              # closed | emergency_only | normal
+  holiday_policy: "closed"
+  # TODO: your jurisdiction's statutory holidays. These differ by province/state —
+  # do not copy another region's list.
+  public_holidays: []
+
+# ---------------------------- Money -------------------------------------
+pricing:
+  # TODO. For each fee answer: how much, when charged, what it offsets,
+  # refundable until when.
+  standard_inspection_fee: { amount: 0, currency: "CAD", qualifier: "starting at" }
+  fee_offset:
+    accepted_quote: ""
+    rejected_quote: ""
+
+# ---------------------------- What we will not take ----------------------
+service_policy:
+  # The most commonly missed section, and the most expensive to miss.
+  # Each reason is read aloud to the customer, so write whole sentences.
+  excluded_property_types: []   # [{id, name, applies_to, reason, exception}]
+  decline_guidance: >-
+    TODO: say we cannot help and why, briefly and without hedging. No offer of an
+    exception, no hint that a manager could overturn it.
+
+# ---------------------------- After a human takes over -------------------
+technician_handover:
+  followup_after_hours: 24
+  by_flow: {}                          # per-flow overrides
+  note: >-
+    Once a job is with a person, the agent stops managing it and waits.
+
+# ---------------------------- Escalation ---------------------------------
+escalation:
+  triggers: []                         # TODO: what must a human decide?
+  ai_must_not:
+    - "Accept liability, promise compensation, or refund outside the rules"
+    - "Make the final call in place of a supervisor"

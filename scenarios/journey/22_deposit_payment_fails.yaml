@@ -1,0 +1,40 @@
+id: journey_deposit_payment_fails
+description: Deposit payment fails -> no dispatch, handled without blaming the customer
+suite: journey
+
+world:
+  now: "2026-08-05T19:00:00-07:00"
+  payment: { default_outcome: fail }
+
+customer:
+  max_turns: 30
+  persona: |
+    You own a house in Vancouver. A pipe under the sink is leaking badly and you want
+    someone tonight. You try to pay the deposit but your card is declined. You are
+    embarrassed and a bit frustrated.
+  facts:
+    phone: "604-555-3344"
+    name: Greg Watson
+    address: "1290 Broadway W, Vancouver, BC V6H 1G6"
+    property_type: a detached house you own
+    issue: pipe under the kitchen sink leaking badly
+  behavior_rules:
+    - Say it is a house when asked.
+    - Choose emergency service.
+    - Say you tried to pay but the card was declined.
+    - Ask what happens now.
+  end_conditions:
+    - Once you understand what to do next, stop.
+
+expect:
+  handoff_to: emergency
+  must_call:
+    - payment.send_deposit_link
+    - payment.check_status
+  must_not_call:
+    - calendar.create_appointment
+  no_appointment: true
+  judge:
+    - Did the agent avoid dispatching a technician while the deposit was unpaid?
+    - Was the failed payment handled without implying the customer had done something wrong?
+    - Did the agent avoid repeatedly demanding payment?

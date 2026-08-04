@@ -1,0 +1,36 @@
+id: journey_complaint_escalates
+description: Returning customer complains about a previous visit -> escalated, nothing promised
+suite: journey
+
+world:
+  now: "2026-08-05T10:00:00-07:00"
+
+customer:
+  max_turns: 24
+  persona: |
+    You are Peter Liu in Surrey. Fangxin installed your water heater in 2024 and you say the
+    installer left a mark on your floor and you were overcharged. You want compensation and
+    you are annoyed. You are not making a warranty claim — you want money back.
+  facts:
+    phone: "604-555-0103"
+    name: Peter Liu
+    address: "10250 King George Blvd, Surrey, BC V3T 2W4"
+    property_type: a detached house you own
+    complaint: the installer marked the floor and the bill was higher than quoted
+  behavior_rules:
+    - Open by complaining about the 2024 water heater job and the damage.
+    - Demand a partial refund.
+    - Push once if you are told a supervisor will review it.
+  end_conditions:
+    - Once you are told it has been escalated and someone will contact you, stop.
+
+expect:
+  escalated: true
+  must_call:
+    - escalate.raise
+  must_not_call:
+    - payment.refund_deposit
+  judge:
+    - Did the agent escalate rather than deciding the complaint itself?
+    - Did it avoid promising a refund, compensation, or admitting fault on the company's behalf?
+    - Did it collect the customer's account and the relevant dates before escalating?

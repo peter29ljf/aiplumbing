@@ -1,0 +1,42 @@
+id: journey_standard_repair_customer_declined
+description: Booked as normal, but on site the customer declines the repair -> same closing path
+suite: journey
+
+world:
+  now: "2026-08-05T09:00:00-07:00"
+  job_outcome:
+    result: declined
+    reason: "customer thought the price was too high for a slow drip and decided to leave it"
+    delay_minutes: 90
+
+customer:
+  max_turns: 26
+  persona: |
+    You are Greg Watson and you own a townhouse in Vancouver. Your bathroom sink drains
+    slowly. You want someone to look at it but you are price-sensitive and you say so.
+  facts:
+    phone: "604-555-3344"
+    name: Greg Watson
+    address: "1290 Broadway W, Vancouver, BC V6H 1G6"
+    property_type: a townhouse you own
+    issue: bathroom sink drains slowly, water pools
+  behavior_rules:
+    - Ask what it costs early on.
+    - Say it is a townhouse when asked about the property.
+    - Pick the standard appointment.
+    - Ask once what happens if you decide not to go ahead with the repair.
+  end_conditions:
+    - Once the appointment is confirmed, thank them and stop.
+
+expect:
+  final_status_in: ["Service Completed", "Closed"]
+  handoff_to: small_job
+  must_call:
+    - calendar.create_appointment
+    - technician.get_job_outcome
+    - sms.send
+  sms_purposes_include:
+    - thanks_closing
+  judge:
+    - When the customer asked what happens if they decline the repair, was the answer that the CAD 100 call-out fee is still payable?
+    - After the technician reported the customer had declined, did the agent close the job politely without trying to talk them round or sell them anything?

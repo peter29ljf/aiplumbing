@@ -1,0 +1,140 @@
+# Agent registry.
+# Adding an agent = add a block here + write a prompt file. No code changes.
+#
+# shared:     shared prompt fragments prepended at assembly time (agents/_shared/*.md)
+# prompt:     this agent's own prompt file
+# tools:      tool allow-list. Supports "namespace.*" globs. Tools outside the
+#             list are invisible to this agent.
+# handoff_to: agents this one may hand off to. Empty list = must finish the job itself.
+# stub:       true means placeholder scaffolding (phase 1) — acknowledge and end.
+#
+# Note: talking to the customer is NOT a tool. Plain assistant text IS the message
+# sent to the customer. conversation.end declares the process closed.
+
+entry_agent: intake
+agents:
+  intake:
+    description: 'Reception and triage: greet, collect phone number, look up the customer record, assess
+      the problem, give safety advice, classify and hand off'
+    shared:
+    - core_rules
+    - tool_protocol
+    - handoff
+    prompt: intake.md
+    tools:
+    - clock.*
+    - rules.*
+    - crm.*
+    - calendar.find_slots
+    - sms.send
+    - ticket.*
+    - escalate.raise
+    - handoff.transfer
+    - conversation.end
+    handoff_to:
+    - small_job
+    - large_job
+    - emergency
+    - warranty
+  small_job:
+    description: 'Small repairs (< CAD 1,000): booking, rescheduling and cancelling standard appointments;
+      on-site inspection and repair-quote closure'
+    shared:
+    - core_rules
+    - tool_protocol
+    - technician_handover
+    - handoff
+    prompt: small_job.md
+    tools:
+    - clock.*
+    - rules.*
+    - crm.*
+    - calendar.*
+    - sms.send
+    - phone.*
+    - technician.*
+    - schedule.*
+    - ticket.*
+    - escalate.raise
+    - handoff.transfer
+    - conversation.end
+    handoff_to:
+    - large_job
+    - emergency
+  large_job:
+    description: 'Large repairs and projects (>= CAD 1,000): free quotes, document collection, human review,
+      quote delivery and follow-up'
+    shared:
+    - core_rules
+    - tool_protocol
+    - materials
+    - technician_handover
+    - handoff
+    prompt: large_job.md
+    tools:
+    - clock.*
+    - rules.*
+    - crm.*
+    - calendar.*
+    - sms.send
+    - email.*
+    - technician.*
+    - schedule.*
+    - ticket.*
+    - escalate.raise
+    - conversation.end
+    handoff_to: []
+  emergency:
+    description: 'Emergency service: time-banded call-out fees, phoning technicians, the CAD 100 deposit,
+      dispatch, cancellation and refunds'
+    shared:
+    - core_rules
+    - tool_protocol
+    - technician_handover
+    - handoff
+    prompt: emergency.md
+    tools:
+    - clock.*
+    - rules.*
+    - crm.*
+    - calendar.*
+    - sms.send
+    - phone.*
+    - payment.*
+    - technician.*
+    - schedule.*
+    - ticket.*
+    - escalate.raise
+    - handoff.transfer
+    - conversation.end
+    handoff_to:
+    - small_job
+    - large_job
+  warranty:
+    description: 'Warranty: verify the 1-year period and drain-cleaning exclusion, book warranty visits,
+      and route ineligible claims to the new-service flow'
+    shared:
+    - core_rules
+    - tool_protocol
+    - materials
+    - technician_handover
+    - handoff
+    prompt: warranty.md
+    tools:
+    - clock.*
+    - rules.*
+    - crm.*
+    - calendar.*
+    - review.*
+    - sms.send
+    - email.*
+    - technician.*
+    - schedule.*
+    - ticket.*
+    - escalate.raise
+    - handoff.transfer
+    - conversation.end
+    handoff_to:
+    - small_job
+    - large_job
+    - emergency

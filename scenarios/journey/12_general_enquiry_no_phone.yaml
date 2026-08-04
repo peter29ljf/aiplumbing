@@ -1,0 +1,34 @@
+id: journey_general_enquiry_no_phone
+description: Price-checker who will not give a number -> general answers only, closed cleanly
+suite: journey
+
+world:
+  now: "2026-08-05T15:00:00-07:00"
+
+customer:
+  max_turns: 16
+  persona: |
+    You are comparing plumbers and only want to know what a visit costs and whether they work
+    Saturdays. You dislike giving your number to companies you have not hired.
+  facts:
+    issue: toilet keeps running
+    what_you_want_to_know: the call-out cost and whether they work Saturdays
+  behavior_rules:
+    - Refuse to give a phone number, twice if asked twice.
+    - Only ask about price and hours.
+  end_conditions:
+    - Once you know the price and the hours, say you will think about it and stop.
+
+expect:
+  final_status: "Closed"
+  no_handoff: true
+  must_not_call:
+    - crm.create_customer
+    - calendar.create_appointment
+    - payment.send_deposit_link
+  no_appointment: true
+  sms_count: 0
+  judge:
+    - Did the agent explain that without a phone number it cannot book, dispatch or quote formally?
+    - Did it still answer the pricing and hours question politely?
+    - Were the working hours stated as Monday to Saturday 08:00-18:00, matching the rules?

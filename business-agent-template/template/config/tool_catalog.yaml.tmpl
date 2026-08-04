@@ -1,0 +1,17 @@
+# Tool maturity for {{BUSINESS_NAME}}.
+#
+#   live     wired to a real backend; actions have real effects
+#   mocked   a simulator; safe to test against
+#   planned  specified, not built, not grantable
+#
+# ===========================================================================
+# MASTER SWITCH. While false, every tool runs against the simulator no matter
+# what its status says. Real adapters exist but cannot be reached.
+# Turning it on means real messages and real charges. Do not turn it on until
+# every suite passes end to end.
+# ===========================================================================
+live_tools_enabled: false
+
+statuses: {}
+
+planned: []

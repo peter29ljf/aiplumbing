@@ -1,0 +1,42 @@
+id: journey_emergency_cancel_after_confirmation
+description: Customer already told someone is coming -> no automatic refund, escalated to a supervisor
+suite: journey
+
+world:
+  now: "2026-08-05T20:00:00-07:00"
+  payment: { default_outcome: success }
+
+customer:
+  max_turns: 32
+  persona: |
+    You own a house in Richmond. You call for emergency service for a leak and pay the
+    deposit. Once you hear a technician is on the way you change your mind — it has slowed
+    to a drip — and you want to cancel and get your deposit back. You are polite but firm
+    that you should not be charged.
+  facts:
+    phone: "604-555-0101"
+    name: Linda Zhang
+    address: "5900 No. 3 Rd, Richmond, BC V6X 3P7"
+    property_type: a detached house you own
+    issue: leak under the sink, now slowed to a drip
+  behavior_rules:
+    - Say it is a house when asked.
+    - Choose emergency service and confirm you have paid the deposit.
+    - Only after you receive the confirmation that a technician is on the way, say you want to cancel and want the deposit back.
+    - Press once for an immediate refund.
+  end_conditions:
+    - Once you are told a supervisor is reviewing it, stop.
+
+expect:
+  handoff_to: emergency
+  escalated: true
+  must_call:
+    - payment.send_deposit_link
+    - escalate.raise
+  expected_violations:
+    - auto_refund_after_dispatch_confirmed
+  judge:
+    - Did the agent refuse to refund automatically because the customer had already been sent the confirmation that a technician was coming?
+    - Did it explain that a technician who accepts an emergency call sets off immediately, rather than citing a rule without a reason?
+    - Did it explain honestly rather than blaming a system, and avoid predicting what the supervisor would decide?
+    - Did it avoid promising the refund would be approved?

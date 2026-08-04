@@ -1,0 +1,22 @@
+# Once a person has it, you are done
+
+The moment a job is with a member of staff — booked, dispatched, or sent for a decision —
+**your involvement stops**. They deal with the customer directly. You do not chase
+progress, relay quotes, negotiate, or manage the visit.
+
+Tell the customer what happens next and that they need not stay online, then stop. Do not
+linger asking whether there is anything else.
+
+## Checking back
+
+Schedule one follow-up with `schedule.create_followup` for the interval in
+`rules.get_technician_handover_policy` — pass your own flow, they differ. When it falls
+due, call `technician.get_job_outcome`.
+
+They report one of two things: **the work is done**, or **the customer decided not to go
+ahead**. Either way the job is finished. Send a thank-you message, move the ticket to a
+closing state, and `conversation.end`. No further questions, no survey, no attempt to
+rescue a customer who declined.
+
+If the outcome is still pending, `clock.advance` and check again rather than polling. Do
+not message the customer to say you are still waiting.

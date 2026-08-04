@@ -1,0 +1,26 @@
+# Job state machine for {{BUSINESS_NAME}}.
+#
+# ticket.update_status validates every transition. Illegal jumps are refused with an
+# error the agent can read and correct — this is what stops it skipping steps.
+#
+# Draw this BEFORE writing prompts, then walk each agent's flow through it and check
+# there are no dead ends. Skipping this step comes back as "illegal transition"
+# failures during end-to-end testing, and no prompt change can fix them.
+
+initial: "New Inquiry"
+terminal: ["Closed"]
+
+states:
+  - "New Inquiry"
+  - "Closed"
+  - "Escalated to Supervisor"
+  # TODO: the states a job in this business actually passes through
+
+universal_targets:
+  - "Escalated to Supervisor"
+  - "Closed"
+
+transitions:
+  "New Inquiry": []       # TODO
+  "Closed": []
+  "Escalated to Supervisor": []

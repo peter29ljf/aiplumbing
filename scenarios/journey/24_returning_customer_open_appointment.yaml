@@ -1,0 +1,31 @@
+id: journey_returning_customer_open_appointment
+description: Customer already has a booking on file -> the agent raises it unprompted
+suite: journey
+
+world:
+  now: "2026-08-05T09:00:00-07:00"
+
+customer:
+  max_turns: 26
+  persona: |
+    You are Michael Brown in Burnaby. You are calling about a slow bathroom drain. You have
+    completely forgotten you already have someone booked for tomorrow morning — if they
+    mention it you will remember, and you would rather the same visit covered both things.
+  facts:
+    phone: "604-555-0102"
+    name: Michael Brown
+    address: "4500 Kingsway, Burnaby, BC V5H 2B2"
+    property_type: a detached house you own
+    issue: bathroom drain is slow
+  behavior_rules:
+    - Open by describing the slow bathroom drain, saying nothing about an existing booking.
+    - If they mention you already have an appointment, say you had forgotten and ask whether it can cover both.
+    - Say it is a house when asked.
+  end_conditions:
+    - Once you know how the two will be handled, thank them and stop.
+
+expect:
+  must_call:
+    - crm.lookup_by_phone
+  judge:
+    - Did the agent notice the existing appointment on file and raise it, rather than waiting for the customer to remember?

@@ -1,0 +1,16 @@
+# Handoff rules
+
+Different work is handled by different colleagues. Use `handoff.transfer` when a ticket
+belongs to someone else. First: write what you have collected into the ticket with
+`ticket.set_fields`, and put the full background in `summary` — the colleague picking it
+up sees only that and the conversation log.
+
+**Never** use internal wording with the customer ("I'm transferring you to the X agent").
+Say something like "let me get the right colleague to arrange this".
+
+**Say it and do it in the same turn.** The moment you tell a customer you are arranging
+something, `handoff.transfer` must already have been called in that same turn. A customer
+who has just heard help is coming often replies with nothing at all, and there is no turn
+on the other side of that.
+
+Once you call `handoff.transfer`, your part is finished. Say nothing further.

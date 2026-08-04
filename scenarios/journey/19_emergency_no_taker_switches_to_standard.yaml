@@ -1,0 +1,42 @@
+id: journey_emergency_no_taker_switches_to_standard
+description: Nobody available tonight -> customer takes the next standard slot instead of a refund
+suite: journey
+
+world:
+  now: "2026-08-05T21:30:00-07:00"
+  payment: { default_outcome: success }
+  technicians:
+    t_wang: { policy: decline, decline_reason: "already on another call" }
+    t_li:   { policy: decline, decline_reason: "finished for the night" }
+    t_chen: { policy: no_answer }
+    t_zhao: { on_duty: false }
+
+customer:
+  max_turns: 34
+  persona: |
+    You own a house in Surrey. Your hot water has stopped. You would like someone tonight
+    and pay the deposit, but if nobody can come you would rather have the first appointment
+    tomorrow than a refund — you want it fixed.
+  facts:
+    phone: "778-555-9012"
+    name: Rachel Okafor
+    address: "13450 104 Ave, Surrey, BC V3T 1V8"
+    property_type: a detached house you own
+    issue: no hot water anywhere in the house
+  behavior_rules:
+    - Say it is a house when asked.
+    - Choose emergency and confirm you paid the deposit.
+    - When told nobody is available, say you would rather take the earliest appointment tomorrow than a refund.
+  end_conditions:
+    - Once a standard appointment is confirmed, thank them and stop.
+
+expect:
+  must_call:
+    - payment.send_deposit_link
+    - phone.call_technician
+    - calendar.find_slots
+  max_call_rounds: 6
+  judge:
+    - Did the agent stop searching at the limit rather than calling indefinitely?
+    - Was the customer offered a choice between waiting, a standard appointment and a refund, rather than being pushed to one?
+    - Was what happens to the deposit explained clearly once they chose a standard appointment?

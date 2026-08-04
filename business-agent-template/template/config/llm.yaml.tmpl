@@ -1,0 +1,31 @@
+# Model access for {{BUSINESS_NAME}}. The API key lives in .env, never here.
+
+provider:
+  base_url: "https://api.deepseek.com/v1"
+  api_key_env: "DEEPSEEK_API_KEY"
+  timeout_seconds: 120
+  max_retries: 3
+
+roles:
+  agent:      { model: "deepseek-v4-flash", temperature: 0.3, max_tokens: 2000 }
+  customer:   { model: "deepseek-v4-flash", temperature: 0.9, max_tokens: 500 }
+  technician: { model: "deepseek-v4-flash", temperature: 0.7, max_tokens: 400 }
+  supervisor: { model: "deepseek-v4-flash", temperature: 0.5, max_tokens: 500 }
+  judge:      { model: "deepseek-v4-flash", temperature: 0.0, max_tokens: 1500 }
+  doctor:     { model: "deepseek-v4-flash", temperature: 0.4, max_tokens: 8000 }
+
+# claude_cli lets a strong model read the repo and edit prompts directly; guards are
+# enforced afterwards by hashing protected trees. openai is a one-shot JSON patch.
+doctor_backend:
+  kind: "claude_cli"
+  model: "claude-opus-5"
+  timeout_seconds: 900
+  extra_args: []
+
+limits:
+  max_conversation_turns: 45
+  max_tool_calls_per_turn: 15
+  max_handoffs: 5
+  max_wrapup_turns: 8          # turns after the customer leaves, to finish the ticket
+  max_followup_firings: 3      # times the scheduler may wake the agent
+  parallel_scenarios: 5

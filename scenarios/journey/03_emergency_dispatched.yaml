@@ -1,0 +1,53 @@
+id: journey_emergency_dispatched
+description: Burst pipe -> customer chooses emergency -> deposit -> technician found -> dispatched -> done
+suite: journey
+
+world:
+  now: "2026-08-05T19:45:00-07:00"    # evening band
+  payment:
+    default_outcome: success
+  job_outcome:
+    result: completed
+    delay_minutes: 120
+
+customer:
+  max_turns: 30
+  persona: |
+    You are Linda Zhang. A pipe in the crawlspace of your Richmond house has burst, water is
+    spraying and the floor is flooding. You are panicking and you want someone tonight. You
+    will pay whatever it takes.
+  facts:
+    phone: "604-555-0101"
+    name: Linda Zhang
+    address: "5900 No. 3 Rd, Richmond, BC V6X 3P7"
+    property_type: a detached house you own
+    issue: pipe burst in the crawlspace, spraying water, floor flooding
+  behavior_rules:
+    - Open by saying a pipe burst and water is going everywhere. Sound panicked.
+    - Follow any safety advice you are given and say you have done it.
+    - Say it is a house when asked about the property.
+    - When given the two options, choose emergency. You want someone tonight.
+    - Agree to pay the deposit and say you have paid it when asked.
+  end_conditions:
+    - Once you are told a technician is on the way and to watch for a text, say thanks and stop.
+
+expect:
+  final_status_in: ["Service Completed", "Closed", "Emergency Job Dispatched"]
+  handoff_to: emergency
+  must_call:
+    - rules.get_safety_advisory
+    - rules.get_emergency_fee
+    - payment.send_deposit_link
+    - payment.check_status
+    - phone.call_technician
+    - calendar.create_appointment
+    - sms.send
+  must_not_call:
+    - payment.refund_deposit
+  appointment_kind: emergency
+  payment_status: paid
+  judge:
+    - Did the agent give safety advice about the water before anything about money?
+    - Was the deposit taken before the search for a technician began, and was the customer told to watch for a text?
+    - Was the evening emergency rate the one the tool returned, not a figure the agent invented?
+    - Did the agent avoid saying a technician was on the way before one had actually accepted?

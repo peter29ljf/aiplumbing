@@ -1,0 +1,52 @@
+id: journey_large_project_quote
+description: Commercial repipe -> large_job collects material by email -> technician notified -> two working days
+suite: journey
+
+world:
+  now: "2026-08-05T10:30:00-07:00"
+  materials:
+    reply: sends
+    reply_delay_minutes: 20
+    attachments:
+      - "photos of the second floor riser and valves"
+      - "building floor plan PDF"
+    customer_note: "Plans attached, let me know if you need access arranged."
+  job_outcome:
+    result: completed
+    delay_minutes: 2880
+
+customer:
+  max_turns: 30
+  persona: |
+    You manage a small office building in downtown Vancouver. The galvanized supply piping on
+    the second floor needs replacing — about 20 units. You want a written quote for budgeting
+    and you have floor plans.
+  facts:
+    phone: "604-555-0104"
+    name: Sarah Chen
+    email: "schen@example.com"
+    address: "1055 W Georgia St, Vancouver, BC V6E 3P3"
+    property_type: a commercial office building you manage
+    scope: replace galvanized supply piping on the entire second floor, about 20 units
+    documents: building floor plans available
+  behavior_rules:
+    - State up front it is a commercial building and a full-floor repipe.
+    - Give your email address when asked.
+    - Say you will reply to their email with the plans and photos.
+    - Ask when you can expect the quote.
+  end_conditions:
+    - Once you have been told when the quote will come, thank them and stop.
+
+expect:
+  handoff_to: large_job
+  must_call:
+    - rules.get_job_sizing
+    - email.request_materials
+    - email.get_materials
+    - sms.send
+  must_not_call:
+    - large_job:calendar.create_appointment
+  judge:
+    - Did the agent collect an email address and ask for material by email, saying specifically what it wanted to see?
+    - Was the customer told to expect the quote in about two working days, in working days rather than a vague "soon"?
+    - Did the agent avoid quoting any price or range of its own?
