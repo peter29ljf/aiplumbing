@@ -9,20 +9,17 @@ python3 -m pytest -q
 PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only --workers 8
 ```
 
-**基线（2026-08-04）：单测 123 通过 / 端到端约 18 稳定通过 · 2 稳定失败 · 4 抖动。**
+**基线（2026-08-04，P0 完成后的第一份可信数据）：单测 132 通过 / 端到端 18 通过 · 1 真失败 · 5 抖动。**
 
-**唯一两轮都认定的真失败：`journey_emergency_nobody_available_refund`**（从不调用
-`phone.call_technician`）。其余都在 fail 和 flaky 之间摇摆，先别动。
+`--repeat 2` + 失败确认。确认阶段对 3 条候选触发，改判了 2 条，**只留下 1 条真失败**：
 
-⚠️ **repeat=2 本身还不够**。实测两轮独立运行给出了不同的"真失败"集合：
+| | 场景 |
+|---|---|
+| **真失败 (agent，1)** | `journey_emergency_nobody_available_refund` — 0/4 |
+| **抖动 (5，不要动)** | `warranty_approved` 1/2 · `warranty_rejected_becomes_paid_work` 1/4 · `small_job_reschedule` 1/2 · `emergency_no_taker_switches_to_standard` 1/2 · `deposit_payment_fails` 1/4 |
+| 稳定通过 | 其余 18 条 |
 
-| 场景 | Run A | Run B |
-|---|---|---|
-| `warranty_rejected_becomes_paid_work` | **fail (0/2)** | flaky (1/2) |
-| `deposit_payment_fails` | flaky (1/2) | **fail (0/2)** |
-
-正是 25% 误判率预测的样子。自适应确认（判成 fail 的再跑 2 次）已经写好并有单测，
-**但还没有端到端验证过** —— 见 P0-3b。
+**framework 和 harness 类失败均为 0** —— 状态机和测试台都不再挡路了。
 
 ---
 
@@ -121,7 +118,7 @@ PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only 
 
 ## P1 — 把端到端跑绿
 
-### [ ] 4. 重建一份可信基线 ⬅ **先做这个，其余全部作废重来**
+### [x] 4. 重建一份可信基线 ✅ 2026-08-04
 
 **P1 下面原来那几条（4b/4c/4d）都是在测试台不可信的时候判定的，现在全部推翻。**
 后来实测发现它们根本不是真失败：
@@ -141,9 +138,29 @@ PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only 
 PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only --workers 8 --repeat 2
 ```
 
-**验收**：拿到分类清单，并据此重写下面的修复项。
+**结果**：18 通过 / 1 真失败 / 5 抖动，framework 与 harness 类均为 0。修复项见下。
 
-### [ ] 4b. （待重建基线后填写）
+### [ ] 4b. `journey_emergency_nobody_available_refund` — agent 把"列名单"当成了"打电话" ⬅ **下一项**
+
+**唯一一条真失败**（0/4，`source: agent`，doctor 可以修）。
+
+它做的事：`phone.list_available_technicians` 调了 **8 次**，每次之间 `clock.advance` —— 
+轮询节奏完全正确，6 轮以上、间隔也对。但 **`phone.call_technician` 一次都没调用**。
+
+然后对客户说：
+
+> "after a full hour of searching, we weren't able to find a technician available in
+> Surrey tonight. **We tried every round and no one was free to take the job.**"
+
+**一个电话没打，却告诉客户每一轮都试过了。** 这正是 judge 里"不得声称做过工具日志中没有的事"
+那条针对的情形。
+
+**根因推测**：`emergency.md` 第 4 步写的是"列出候选 → 逐个 call_technician → 没人接就
+`clock.advance` 再来一轮，call the candidates again"。agent 把"again"理解成了要重新列一次名单。
+
+**改法**：讲清楚 **列名单不等于打电话**，重来一轮指的是再打一遍电话、名单不必重取。交给 doctor。
+
+**验收**：`--repeat 2` 跑该场景，`phone.call_technician` 被调用且轮数不超过 6。
 
 ### [x] 7. `journey_returning_customer_open_appointment` ✅ P0-1 修完后自动通过
 
