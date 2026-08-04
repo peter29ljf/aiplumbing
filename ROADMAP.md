@@ -9,9 +9,14 @@ python3 -m pytest -q
 PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only --workers 8
 ```
 
-**基线（2026-08-04，P0-1 完成后）：单测 108 通过 / 端到端 19-24 通过。**
-剩下 5 个失败全是真失败（测试台抖动已归零），其中 3 个是状态机缺边 —— 属于框架问题，
-doctor 修不了，要人改 `config/ticket_states.yaml`。
+**基线（2026-08-04，P0-2 部分完成）：单测 114 通过 / 端到端 16-24 与 19-24 之间浮动。**
+
+⚠️ **通过率现在不可直接比较。** 同一份代码连跑两轮，失败数 5 vs 8，其中只有 4 条两轮都失败。
+**先做 P0-3（多轮判定），否则每一轮迭代都在跟噪音搏斗。**
+
+两轮都失败的 4 条（真问题）：
+`deposit_payment_fails` · `emergency_cancel_after_confirmation` ·
+`emergency_nobody_available_refund` · `warranty_rejected_becomes_paid_work`
 
 ---
 
@@ -25,18 +30,50 @@ doctor 修不了，要人改 `config/ticket_states.yaml`。
 **结果**：模拟器故障 **6 → 0**，基线 **13/24 → 19/24**。裁判仍用 `chat_json`（温度 0，很稳）。
 加了 10 个解析测试。
 
-### [ ] 2. 状态机补边（3 个场景失败，doctor 修不了）
+### [~] 2. 状态机补边 —— 部分完成 2026-08-04
 
-去掉 JSON 依赖后暴露出来的真问题。**这是框架层，agent 怎么改 prompt 都绕不过去**：
+补了 7 条边，**每条在配置里写了为什么**（`config/ticket_states.yaml`）：
 
-- `Needs Assessment → ?` —— `journey_emergency_cancel_after_confirmation`
-- `Escalated to Supervisor → ?` —— `journey_deposit_payment_fails`
-- `Refund Pending/Completed → ?` —— `journey_emergency_no_taker_switches_to_standard`
+- `Needs Assessment → Warranty Eligibility Review` —— 客户想起保修是随时的，不只在第一句
+- `Warranty Technician Review → Deposit Link Sent` —— 批准的保修也可能很急，而紧急是先收定金
+- `Escalated to Supervisor → {Deposit Link Sent, Awaiting Appointment Selection, Needs Assessment}`
+  —— 主管处理完，活要能接着走。**只开具名的几条**：让升级能通向任意状态，状态机就没有意义了
+- `Refund Completed → {Awaiting Appointment Selection, Appointment Booked}`
+  —— "今晚没人，钱退你，明天来行吗"是失败搜索的正常结局，不是例外
 
-**改法**：跑这三条看 transcript 里 agent 想去哪个状态，判断该补边还是该改 prompt。
-补边前先问一句"这条迁移在业务上说得通吗"—— 无脑补边会把状态机变成全连通图，就没有约束力了。
+加了 6 个测试，其中一个专门验证**补边没有把该关的闸打开**（跳过付款派单、没发链接就标已付、
+保修没经人工审核就预约，全都仍然被拒）。
 
-**验收**：三条通过，且 `no_rule_violations` 不再出现。
+**结果**：`illegal_ticket_transition` 3 → 2，`emergency_no_taker_switches_to_standard` 通过。
+
+**剩下的 2 条不是状态机的问题**，各自归位到下面：
+
+- `New Inquiry → Warranty Eligibility Review`（`warranty_approved`）—— 客户开口就提保修，
+  agent 还没验证电话就想跳去保修评估。**这条边不该加**：没认出客户就没法评估保修。
+  是 intake prompt 的歧义（"保修直接转走"被读成了"先于一切"），→ 见 P1-4c，doctor 该能修。
+- `Escalated to Supervisor → Appointment Booked`（`deposit_payment_fails`）——
+  两跳路径（→ Awaiting Appointment Selection → Appointment Booked）已经存在，agent 想抄近路。
+  **故意不加**：这正是"不许跳过要紧步骤"该拦的。但该场景的断言本身也值得复核，见 P1-4d。
+
+### [ ] 3. 多轮判定，把抖动和真失败分开 ⬅ **现在的最高优先级**
+
+**问题**：同一份代码连跑两轮，失败 5 vs 8，只有 4 条重合。单轮结果不足以判断改动是否有效，
+更不能让 doctor 据此改 prompt —— 它会去修一个只是运气不好的场景。
+
+**改法**：`loop.py` 加 `--repeat N`（默认 2）。同一场景跑 N 次：
+
+- N 次全过 → 通过
+- N 次全挂 → 真失败，交给 doctor
+- 有过有挂 → 标记 `flaky`，**不交给 doctor**，单独列一节
+
+报告里三类分开统计。这也顺带实现了原来第 3 项想要的"一眼看出是谁的锅"。
+
+**验收**：连跑两轮 `--repeat 2`，两轮认定的"真失败"集合相同。
+
+### [ ] 3b. 失败按来源分类（harness / framework / agent）
+
+`no_rule_violations` 和编排器错误属 framework，模拟器故障属 harness，其余属 agent。
+doctor 只对 agent 类出手。
 
 ### [ ] 3. 场景失败要能一眼看出是谁的锅（仍然值得做）
 
@@ -56,8 +93,18 @@ doctor 修不了，要人改 `config/ticket_states.yaml`。
 
 ### [ ] 4b. `journey_warranty_rejected_becomes_paid_work` — 保修被驳回后没建预约
 
-`calendar.reschedule` 没调用。可能是客户在同一通对话里立刻要改期，agent 认为预约刚建好、
-直接改了时间而没走改期工具。**先看 transcript 再决定是 prompt 问题还是场景不合理。**
+两轮都失败，是真问题。`calendar.create_appointment` 从未调用 —— 客户已经同意按付费服务做了，
+链路却停在那里。先看 transcript 判断是 warranty→small_job 的交接没发生，还是交接后没建。
+
+### [ ] 4c. `journey_warranty_approved` — intake 跳过身份验证直奔保修
+
+intake prompt 里保修是 Step 3（在"认人"之后），但"保修直接转走"这句被 agent 读成了
+"先于一切"。**没认出客户就评估不了保修**。改 prompt 讲清顺序，doctor 该能修。
+
+### [ ] 4d. `journey_deposit_payment_fails` — 断言可能太严
+
+场景断言 `no_appointment`，但支付失败后**给客户排一个普通预约其实是合理服务**。
+先看 transcript：如果 agent 是征得客户同意才排的，那是断言写错了；如果是自作主张，才是 agent 的错。
 
 ### [ ] 5. （已并入 P0-2）
 

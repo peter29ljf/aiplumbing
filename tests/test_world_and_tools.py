@@ -1142,3 +1142,75 @@ def test_every_prompt_state_reference_is_a_real_state():
         # Backticked Title Case phrases are how prompts name ticket states
         for quoted in re.findall(r"`([A-Z][A-Za-z]+(?: [A-Z][A-Za-z]+)+)`", prompt):
             assert quoted in valid, f"{agent} names unknown state {quoted!r}"
+
+
+# ======================================================================
+# Recovery paths through the state machine
+#
+# The state machine exists to stop the agent skipping steps that matter — taking money
+# before confirming, dispatching before payment. It is not there to enforce one canonical
+# route, and blocking a legitimate recovery just strands the job.
+# ======================================================================
+
+
+def test_warranty_can_be_raised_mid_assessment():
+    """Customers mention warranty when it occurs to them, not only in their first sentence."""
+    world = make_world()
+    ticket = world.seed_ticket("Needs Assessment", "+16045550101")
+    world.transition_ticket(ticket.ticket_id, "Warranty Eligibility Review")
+    assert ticket.status == "Warranty Eligibility Review"
+
+
+def test_an_urgent_approved_warranty_claim_reaches_the_emergency_flow():
+    """Covered work that has failed badly still needs someone tonight, and emergency
+    takes the deposit first."""
+    world = make_world()
+    ticket = world.seed_ticket("Warranty Technician Review", "+16045550101")
+    world.transition_ticket(ticket.ticket_id, "Deposit Link Sent")
+    world.transition_ticket(ticket.ticket_id, "Deposit Paid")
+    assert ticket.status == "Deposit Paid"
+
+
+def test_a_supervisor_can_put_a_job_back_on_its_feet():
+    world = make_world()
+    ticket = world.seed_ticket("Escalated to Supervisor", "+16045550101")
+    world.transition_ticket(ticket.ticket_id, "Deposit Link Sent")
+    assert ticket.status == "Deposit Link Sent"
+
+
+def test_escalation_still_cannot_reach_just_anything():
+    """Named resumptions only. If an escalation could reach any state, the machine would
+    stop meaning anything — an agent in trouble would simply escalate and carry on."""
+    world = make_world()
+    ticket = world.seed_ticket("Escalated to Supervisor", "+16045550101")
+    with pytest.raises(ToolRejection):
+        world.transition_ticket(ticket.ticket_id, "Emergency Job Dispatched")
+
+
+def test_a_refunded_emergency_can_become_a_normal_booking():
+    """"Nobody can come tonight, have your deposit back — shall I book you tomorrow?"
+    is the ordinary ending of a failed search, not an exception."""
+    world = make_world()
+    ticket = world.seed_ticket("Refund Completed", "+16045550101")
+    world.transition_ticket(ticket.ticket_id, "Appointment Booked")
+    assert ticket.status == "Appointment Booked"
+
+
+def test_the_gates_that_matter_are_still_shut():
+    """Adding recovery edges must not have opened the ones guarding money and dispatch."""
+    world = make_world()
+
+    # Cannot dispatch straight from triage, skipping payment
+    ticket = world.seed_ticket("Needs Assessment", "+16045550101")
+    with pytest.raises(ToolRejection):
+        world.transition_ticket(ticket.ticket_id, "Emergency Job Dispatched")
+
+    # Cannot mark a deposit paid without having sent a link
+    other = world.seed_ticket("Needs Assessment", "+16045550101")
+    with pytest.raises(ToolRejection):
+        world.transition_ticket(other.ticket_id, "Deposit Paid")
+
+    # Warranty still cannot be booked without a human ruling on it
+    third = world.seed_ticket("Warranty Eligibility Review", "+16045550101")
+    with pytest.raises(ToolRejection):
+        world.transition_ticket(third.ticket_id, "Warranty Booked")

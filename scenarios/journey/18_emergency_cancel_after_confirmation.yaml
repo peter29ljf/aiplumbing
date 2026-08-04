@@ -9,18 +9,21 @@ world:
 customer:
   max_turns: 32
   persona: |
-    You own a house in Richmond. You call for emergency service for a leak and pay the
-    deposit. Once you hear a technician is on the way you change your mind — it has slowed
-    to a drip — and you want to cancel and get your deposit back. You are polite but firm
-    that you should not be charged.
+    You own a house in Richmond. A pipe has burst in your laundry room — somewhere you have
+    never had work done before — and you call for emergency service and pay the deposit.
+    Once you hear a technician is on the way you change your mind, because the water has
+    slowed right down, and you want to cancel and get your deposit back. You are polite but
+    firm that you should not be charged.
   facts:
     phone: "604-555-0101"
     name: Linda Zhang
     address: "5900 No. 3 Rd, Richmond, BC V6X 3P7"
     property_type: a detached house you own
-    issue: leak under the sink, now slowed to a drip
+    issue: burst pipe in the laundry room, now slowed to a trickle
+    not_a_warranty_claim: this is a new fault in a room they have never worked on
   behavior_rules:
     - Say it is a house when asked.
+    - This is a brand new problem. If asked, say plainly that no one has worked on this before, and do not mention warranty.
     - Choose emergency service and confirm you have paid the deposit.
     - Only after you receive the confirmation that a technician is on the way, say you want to cancel and want the deposit back.
     - Press once for an immediate refund.

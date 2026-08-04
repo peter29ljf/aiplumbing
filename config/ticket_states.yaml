@@ -67,6 +67,7 @@ transitions:
     - "Deposit Link Sent"            # emergency takes the deposit before searching
     - "Emergency Technician Search"
     - "Large Project Documents Requested"
+    - "Warranty Eligibility Review"  # customers mention warranty mid-assessment, not only up front
     - "General Consultation"
   "Warranty Eligibility Review":
     - "Warranty Technician Review"  # Record checks out -> the original technician decides
@@ -75,7 +76,8 @@ transitions:
     - "Warranty Booked"             # Technician approved the claim
     - "Service Completed"           # Technician approved, attended and reported back
     - "Needs Assessment"            # Technician says it is not warranty work
-    - "Emergency Technician Search" # Approved but urgent
+    - "Deposit Link Sent"           # Approved but urgent -> emergency, which is deposit-first
+    - "Emergency Technician Search"
   "Warranty Booked":
     - "Appointment Rescheduled"
     - "Appointment Cancelled"
@@ -140,9 +142,18 @@ transitions:
     - "Refund Pending"
     - "Service Completed"
     - "Refund Completed"
+    # A supervisor resolves the problem and the job resumes. Named resumptions only:
+    # letting an escalation reach any state at all would empty the state machine of meaning.
+    - "Deposit Link Sent"              # payment problem sorted, try again
+    - "Awaiting Appointment Selection" # dispute settled, back to picking a slot
+    - "Needs Assessment"               # reopened as ordinary work
   "Service Completed": []
   "Refund Pending":
     - "Refund Completed"
     - "Escalated to Supervisor"
-  "Refund Completed": []
+  "Refund Completed":
+    # "Nobody can come tonight, have your deposit back — shall I book you in tomorrow?"
+    # is the normal ending of a failed emergency search, so the job continues.
+    - "Awaiting Appointment Selection"
+    - "Appointment Booked"
   "Closed": []
