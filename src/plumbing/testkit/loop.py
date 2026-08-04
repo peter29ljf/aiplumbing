@@ -131,10 +131,19 @@ def run_suite(
     }
     lock = threading.Lock()
 
+    done = {"n": 0}
+
     def record(spec: dict[str, Any], attempt: int, result: ScenarioResult) -> None:
         with lock:
             verdicts[spec["id"]].runs.append(result)
             save_result(result, run_dir / (f"attempt-{attempt + 1}" if repeat > 1 else ""))
+            # Report each run as it lands. Verdicts only make sense once every repeat of a
+            # scenario is in, but a suite that prints nothing for twenty minutes is
+            # indistinguishable from one that has hung.
+            done["n"] += 1
+            tag = f"{spec['id']} #{attempt + 1}" if repeat > 1 else spec["id"]
+            print(f"  {prefix}[{done['n']}/{len(jobs)}] "
+                  f"{'ok  ' if result.passed else 'FAIL'} {tag}", flush=True)
 
     note = f", {repeat}x each" if repeat > 1 else ""
     print(f"  {prefix}running {len(scenarios)} scenarios{note}, {workers} at a time ...",
@@ -181,6 +190,7 @@ def run_suite(
                     except Exception:  # noqa: BLE001
                         pass
 
+    print(f"  {prefix}--- verdicts ---", flush=True)
     for scenario_id in [s["id"] for s in scenarios]:
         entry = verdicts[scenario_id]
         if not entry.runs:

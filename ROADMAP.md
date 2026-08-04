@@ -9,16 +9,20 @@ python3 -m pytest -q
 PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only --workers 8
 ```
 
-**基线（2026-08-04，P0-3 完成后）：单测 123 通过 / 端到端 18 稳定通过 · 2 稳定失败 · 4 抖动。**
+**基线（2026-08-04）：单测 123 通过 / 端到端约 18 稳定通过 · 2 稳定失败 · 4 抖动。**
 
-现在的数字有意义了，因为每条跑 2 次（判成 fail 的再跑 2 次确认）。**真正要修的只有 2 条**：
+**唯一两轮都认定的真失败：`journey_emergency_nobody_available_refund`**（从不调用
+`phone.call_technician`）。其余都在 fail 和 flaky 之间摇摆，先别动。
 
-- `journey_emergency_nobody_available_refund` —— 从不调用 `phone.call_technician`
-- `journey_warranty_rejected_becomes_paid_work` —— 保修被驳回后从不建预约
+⚠️ **repeat=2 本身还不够**。实测两轮独立运行给出了不同的"真失败"集合：
 
-4 条抖动的（各 1/2）**不要动**，它们不是 prompt 的问题：
-`small_job_reschedule` · `emergency_cancel_after_confirmation` ·
-`emergency_no_taker_switches_to_standard` · `deposit_payment_fails`
+| 场景 | Run A | Run B |
+|---|---|---|
+| `warranty_rejected_becomes_paid_work` | **fail (0/2)** | flaky (1/2) |
+| `deposit_payment_fails` | flaky (1/2) | **fail (0/2)** |
+
+正是 25% 误判率预测的样子。自适应确认（判成 fail 的再跑 2 次）已经写好并有单测，
+**但还没有端到端验证过** —— 见 P0-3b。
 
 ---
 
@@ -57,7 +61,7 @@ PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only 
   两跳路径（→ Awaiting Appointment Selection → Appointment Booked）已经存在，agent 想抄近路。
   **故意不加**：这正是"不许跳过要紧步骤"该拦的。但该场景的断言本身也值得复核，见 P1-4d。
 
-### [x] 3. 多轮判定，把抖动和真失败分开 ✅ 2026-08-04
+### [~] 3. 多轮判定，把抖动和真失败分开 —— 代码完成，验收未通过 2026-08-04
 
 `loop.py` 加了 `--repeat N`（默认 2），三种判定：全过 `pass` / 全挂 `fail`（交 doctor）/
 有过有挂 `flaky`（**不交 doctor**，报告单列）。
@@ -72,9 +76,25 @@ PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --baseline-only 
 一个真实通过率 50% 的场景有 **25%** 概率被误判成 fail 并送去改 prompt；加了确认降到 **6.2%**，
 而稳定通过的场景一次额外运行都不用付。
 
-**结果**：24 条 → 18 稳定通过 / 2 稳定失败 / 4 抖动。加了 9 个测试。
+**结果**：判定比以前有信息量得多（18/2/4 而不是笼统的 "19/24"），加了 9 个测试。
 
-### [ ] 3b. 失败按来源分类（harness / framework / agent）⬅ **下一项**
+**但验收标准（两轮独立运行的真失败集合相同）没有达成**：两轮只在 1 条上一致。
+原因已查明 —— 那两轮跑的是加确认逻辑**之前**的代码（我那个"等 A 跑完再跑 B"的
+`until pgrep` 判断有竞态，A 还没注册进 pgrep 循环就退出了，导致两轮并发跑了旧代码）。
+
+**剩下的验证见 P0-3b。**
+
+### [ ] 3a. 验证自适应确认真的管用 ⬅ **下一项**
+
+带确认逻辑重跑，检查两件事：
+
+1. 日志里出现 `confirming N failure(s) with 2 more run(s) each`
+2. 至少有一条从 `fail` 被改判为 `flaky`（那两条 50/50 的场景应该被抓出来）
+
+然后**串行**跑两轮（不要并发，注意上面那个竞态），确认真失败集合一致。
+若仍不一致，把默认 repeat 提到 3。
+
+### [ ] 3b. 失败按来源分类（harness / framework / agent）
 
 `no_rule_violations` 和编排器错误属 framework，模拟器故障属 harness，其余属 agent。
 doctor 只对 agent 类出手。多轮判定已经挡掉了噪音，这一层再挡掉"不是 prompt 能修的"。
