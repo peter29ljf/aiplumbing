@@ -12,6 +12,7 @@ import os
 import random
 import threading
 import time
+import urllib.parse
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -211,7 +212,14 @@ class LLM:
                 last_error = exc
                 if attempt >= retries or _is_fatal(exc):
                     break
-                time.sleep(min(2**attempt + random.random(), 20))
+                # A connection problem is usually a blip in the local network or the
+                # resolver, and it outlasts a couple of quick retries more often than a
+                # rate limit does. Waiting a little longer costs nothing when the
+                # alternative is failing the customer's turn outright.
+                backoff = 2**attempt + random.random()
+                if _is_connection_problem(exc):
+                    backoff = min(backoff * 2 + 1, 30)
+                time.sleep(min(backoff, 30))
                 continue
 
             if response.usage:
@@ -224,6 +232,18 @@ class LLM:
                     miss,
                 )
             return response.choices[0].message
+
+        if last_error is not None and _is_connection_problem(last_error):
+            host = urllib.parse.urlsplit(str(self.client.base_url)).netloc
+            raise LLMError(
+                f"Role '{role}' could not reach {host}: {last_error}\n"
+                f"The request never got there, so this is not the model, the key or the "
+                f"prompt. Retried {retries + 1} time(s) over about "
+                f"{2 ** retries} seconds and the name or the socket was down for all of "
+                f"them.\n"
+                f"Check this machine's own connection first — `python3 scripts/check_llm.py` "
+                f"will say whether it can reach the provider at all."
+            ) from last_error
 
         raise LLMError(
             f"Role '{role}' failed calling model '{settings['model']}': {last_error}\n"
@@ -301,6 +321,25 @@ def _is_fatal(exc: Exception) -> bool:
     """Auth errors and missing models will never succeed on retry."""
     status = getattr(exc, "status_code", None)
     return status in (400, 401, 403, 404)
+
+
+def _is_connection_problem(exc: Exception) -> bool:
+    """The request never reached the provider: DNS, TLS, a refused or reset socket.
+
+    Worth telling apart from everything else because the remedy is somewhere else
+    entirely — nothing about the model, the key or the prompt will change it, and the
+    message that used to come back sent people to check whether the model still existed.
+    """
+    if getattr(exc, "status_code", None) is not None:
+        return False
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return any(
+        clue in text
+        for clue in (
+            "connection", "nodename nor servname", "name or service not known",
+            "temporary failure in name resolution", "getaddrinfo", "ssl", "timed out",
+        )
+    )
 
 
 def _extract_json(text: str) -> dict[str, Any] | None:
