@@ -86,6 +86,8 @@ class Agent:
                 )
                 result.tool_calls.append(call.function.name)
                 livestatus.record_tool(self.spec.name, call.function.name)
+                if ctx.progress is not None:
+                    ctx.progress(call.function.name)
                 messages.append(
                     {
                         "role": "tool",

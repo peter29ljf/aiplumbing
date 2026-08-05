@@ -32,6 +32,7 @@ import time
 import uuid
 import urllib.parse
 from collections import defaultdict, deque
+from pathlib import Path
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -71,11 +72,40 @@ _SMS_ROUTES = {"/sms", "/twilio/sms"}
 _VOICE_ROUTES = {"/voice", "/twilio/voice"}
 
 
+# What to show a customer while the agent is working. A minute of three dots looks the
+# same as a system that has died; this is the difference between waiting and wondering.
+# Anything not named here falls back to the generic line — a missing entry should never
+# leak a tool name onto a customer's screen.
+DOING = {
+    "crm.lookup_by_phone": "Looking up your details",
+    "crm.create_customer": "Setting up your record",
+    "crm.update_customer": "Saving your details",
+    "crm.get_warranty_candidates": "Checking what we've done for you before",
+    "calendar.find_slots": "Checking the calendar",
+    "calendar.create_appointment": "Booking that in",
+    "calendar.reschedule": "Moving your appointment",
+    "calendar.cancel": "Cancelling that appointment",
+    "rules.get_standard_service_fee": "Checking what the visit costs",
+    "rules.get_emergency_fee": "Checking the emergency rate",
+    "rules.get_job_sizing": "Working out what's involved",
+    "rules.get_safety_advisory": "Checking the safety guidance",
+    "rules.check_service_eligibility": "Checking we can take this on",
+    "rules.get_schedule_policy": "Checking our working hours",
+    "sms.send": "Sending your confirmation",
+    "email.send": "Sending that email",
+    "email.request_materials": "Sending you a note about the photos",
+    "escalate.raise": "Passing this to the technician",
+    "handoff.transfer": "Bringing in a colleague",
+}
+DOING_FALLBACK = "Just a moment"
+
+
 @dataclass
 class _Pending:
     """One turn being worked on. Read from the HTTP thread, written by the worker."""
 
     done: bool = False
+    doing: str = ""
     reply: str | None = None
     error: str | None = None
     # Texts that arrived while this turn was running. Chat cannot produce these (the
@@ -219,6 +249,9 @@ class Inbound:
     def _run_turn(self, session_id: str, phone: str, text: str, work: _Pending) -> None:
         try:
             conversation = self.sessions.get(channel="chat", phone=phone, session_id=session_id)
+            conversation.ctx.progress = lambda tool: setattr(
+                work, "doing", DOING.get(tool, DOING_FALLBACK)
+            )
             work.reply = conversation.say(text)
         except Exception as exc:  # noqa: BLE001
             # The customer gets an apology, not a stack trace, and the type is kept so the
@@ -243,7 +276,7 @@ class Inbound:
             if work is None:
                 return 200, {"status": "idle"}
             if not work.done:
-                return 200, {"status": "working"}
+                return 200, {"status": "working", "doing": work.doing or DOING_FALLBACK}
             # Handed over once, then forgotten — otherwise a reply is delivered twice when
             # two polls cross in flight.
             del self._pending[session_id]
@@ -653,8 +686,29 @@ def make_handler(
             self.end_headers()
 
         def do_GET(self) -> None:  # noqa: N802
-            if self.path == "/health":
+            route = urllib.parse.urlsplit(self.path).path.rstrip("/") or "/"
+            if route == "/health":
                 self._send(200, b'{"ok":true}', "application/json")
+            elif route == "/chat/widget.js":
+                # Served from here rather than copied into the marketing page, so the chat
+                # can be fixed without touching the site and the version customers are
+                # running is the one in git. Cached briefly for the same reason.
+                widget = Path(__file__).parent / "static" / "widget.js"
+                try:
+                    body = widget.read_bytes()
+                except OSError:
+                    self._send(404, b"not found", "text/plain")
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/javascript; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "public, max-age=300")
+                allowed = self._allow_origin()
+                if allowed:
+                    self.send_header("Access-Control-Allow-Origin", allowed)
+                    self.send_header("Vary", "Origin")
+                self.end_headers()
+                self.wfile.write(body)
             else:
                 self._send(404, b"not found", "text/plain")
 

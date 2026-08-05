@@ -14,12 +14,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from plumbing.live.server import Inbound, RateLimiter, valid_phone  # noqa: E402
 
 
+class FakeCtx:
+    """Only what the server touches. `progress` is how the widget is told what is
+    happening while the agent works."""
+
+    progress = None
+
+
 class FakeConversation:
     def __init__(self):
         self.said: list[str] = []
         self.channel = ""
         self.phone = ""
         self.closed = False
+        self.ctx = FakeCtx()
 
     def say(self, text: str) -> str:
         self.said.append(text)
@@ -665,3 +673,78 @@ def test_both_spellings_of_the_twilio_webhook_are_accepted(base_url: str):
         with urllib.request.urlopen(request) as response:  # noqa: S310
             assert response.status == 200, path
             assert b"<Response>" in response.read(), path
+
+
+def test_the_widget_is_told_what_the_agent_is_doing(inbound: Inbound):
+    """A minute of three dots looks the same as a system that has died."""
+    from plumbing.live.server import DOING
+
+    session_id = inbound.chat_new({"phone": "604-721-8629"})[1]["session_id"]
+    conversation = inbound.sessions.get(channel="chat", phone="604-721-8629",
+                                        session_id=session_id)
+    started, release = threading.Event(), threading.Event()
+
+    def slow(text: str) -> str:
+        conversation.ctx.progress("calendar.find_slots")
+        started.set()
+        release.wait(5)
+        return "echo: " + text
+
+    conversation.say = slow
+    inbound.chat_message({"session_id": session_id, "text": "when can you come?"})
+    started.wait(5)
+
+    _, polled = inbound.chat_poll({"session_id": session_id})
+    release.set()
+
+    assert polled["status"] == "working"
+    assert polled["doing"] == DOING["calendar.find_slots"]
+
+
+def test_a_tool_with_no_wording_does_not_leak_its_name_to_the_customer(inbound: Inbound):
+    from plumbing.live.server import DOING_FALLBACK
+
+    session_id = inbound.chat_new({"phone": "604-721-8629"})[1]["session_id"]
+    conversation = inbound.sessions.get(channel="chat", phone="604-721-8629",
+                                        session_id=session_id)
+    started, release = threading.Event(), threading.Event()
+
+    def slow(text: str) -> str:
+        conversation.ctx.progress("ticket.set_fields")     # deliberately not in DOING
+        started.set()
+        release.wait(5)
+        return "echo: " + text
+
+    conversation.say = slow
+    inbound.chat_message({"session_id": session_id, "text": "hello"})
+    started.wait(5)
+
+    _, polled = inbound.chat_poll({"session_id": session_id})
+    release.set()
+
+    assert polled["doing"] == DOING_FALLBACK
+    assert "ticket" not in polled["doing"]
+
+
+def test_every_phrase_reads_like_something_a_person_would_say():
+    """These go on a customer's screen. A tool name showing through is the failure."""
+    from plumbing.live.server import DOING, DOING_FALLBACK
+
+    for tool, phrase in DOING.items():
+        assert phrase[0].isupper(), tool
+        assert "." not in phrase and "_" not in phrase, tool
+    assert DOING_FALLBACK
+
+
+def test_the_widget_is_served_by_the_app(base_url: str):
+    """It was being edited in place on the server with scp, so the version customers ran
+    existed nowhere else and no change to it was reviewable."""
+    import urllib.request
+
+    with urllib.request.urlopen(f"{base_url}/chat/widget.js") as response:  # noqa: S310
+        body = response.read().decode()
+        assert response.status == 200
+        assert "javascript" in response.headers["Content-Type"]
+        assert "max-age" in response.headers.get("Cache-Control", "")
+
+    assert "/chat/new" in body and "/chat/poll" in body
