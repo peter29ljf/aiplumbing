@@ -162,3 +162,65 @@ def test_events_are_append_only_and_keep_their_order(store: SqliteStore):
     events = store.events("TK-0001")
     assert [e["kind"] for e in events] == ["ticket_created", "apartment_declined"]
     assert events[1]["payload"]["unit"] == "1204"
+
+
+# ---- World with a store ----------------------------------------------
+
+
+def _empty_world(store, now="2026-08-05T10:00:00-07:00"):
+    from plumbing.world import World
+
+    return World(now, seed={"technicians": [], "customers": []}, store=store)
+
+
+def test_a_customer_is_recognised_when_they_call_back_days_later(tmp_path: Path):
+    """The whole reason the store exists. Two Worlds, one database."""
+    from plumbing.world import Customer
+
+    path = tmp_path / "prod.db"
+    first = _empty_world(SqliteStore(path))
+    first.save_customer(Customer(phone="+16047218629", name="Linda Zhang",
+                                 address="5900 No. 3 Rd", is_new=True))
+
+    later = _empty_world(SqliteStore(path), now="2026-08-09T09:00:00-07:00")
+    found = later.find_customer("604-721-8629")
+    assert found is not None and found.name == "Linda Zhang"
+    assert found.address == "5900 No. 3 Rd"
+
+
+def test_a_ticket_is_still_open_the_next_day(tmp_path: Path):
+    path = tmp_path / "prod.db"
+    first = _empty_world(SqliteStore(path))
+    ticket = first.create_ticket("+16047218629")
+    first.transition_ticket(ticket.ticket_id, "Phone Verified")
+
+    store = SqliteStore(path)
+    still_open = store.open_tickets("6047218629")
+    assert [(t["ticket_id"], t["status"]) for t in still_open] == [(ticket.ticket_id, "Phone Verified")]
+
+
+def test_ticket_numbers_do_not_restart_in_a_new_process(tmp_path: Path):
+    """Two customers must never be handed the same ticket number."""
+    path = tmp_path / "prod.db"
+    assert _empty_world(SqliteStore(path)).create_ticket("+16045550001").ticket_id == "TK-0001"
+    assert _empty_world(SqliteStore(path)).create_ticket("+16045550002").ticket_id == "TK-0002"
+
+
+def test_every_status_change_lands_in_the_audit_log(tmp_path: Path):
+    """When a booking is wrong the question is what happened in what order."""
+    store = SqliteStore(tmp_path / "prod.db")
+    world = _empty_world(store)
+    ticket = world.create_ticket("+16047218629")
+    world.transition_ticket(ticket.ticket_id, "Phone Verified")
+    world.transition_ticket(ticket.ticket_id, "Customer Identified")
+
+    kinds = [e["kind"] for e in store.events(ticket.ticket_id)]
+    assert kinds == ["ticket_created", "status_changed", "status_changed"]
+
+
+def test_a_world_without_a_store_is_untouched(tmp_path: Path):
+    """The no-store path is what all the scenarios run against; it must not change."""
+    world = _empty_world(None)
+    ticket = world.create_ticket("+16047218629")
+    assert ticket.ticket_id == "TK-0001"
+    assert world.find_customer("+16047218629") is None

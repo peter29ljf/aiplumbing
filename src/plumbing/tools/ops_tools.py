@@ -143,6 +143,7 @@ def calendar_reschedule(
     old = appointment.start.isoformat()
     appointment.start = when
     appointment.status = "rescheduled"
+    world._persist_appointment(appointment, "appointment_rescheduled")
     return {
         "appointment_id": appointment_id,
         "old_start": old,
@@ -172,6 +173,7 @@ def calendar_cancel(ctx: ToolContext, appointment_id: str, reason: str = "") -> 
     if appointment.status == "cancelled":
         raise ToolRejection("This appointment has already been cancelled.")
     appointment.status = "cancelled"
+    world._persist_appointment(appointment, "appointment_cancelled")
     if appointment.technician_id and appointment.technician_id in world.technicians:
         tech = world.technicians[appointment.technician_id]
         tech.active_jobs = max(0, tech.active_jobs - 1)

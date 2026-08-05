@@ -250,7 +250,7 @@ def crm_lookup(ctx: ToolContext, phone: str) -> dict[str, Any]:
         )
     world = ctx.world
     key = normalize_phone(phone)
-    customer = world.customers.get(key)
+    customer = world.find_customer(key)
 
     ticket = world.active_ticket()
     if ticket and not ticket.customer_phone:
@@ -343,13 +343,13 @@ def crm_create_customer(
         raise ToolRejection(f"'{phone}' is not a valid phone number; cannot create a record.")
     world = ctx.world
     key = normalize_phone(phone)
-    if key in world.customers:
+    if world.find_customer(key) is not None:
         return {
             "created": False,
             "phone": key,
             "message": "This customer already has a record; no need to create another.",
         }
-    world.customers[key] = Customer(
+    world.save_customer(Customer(
         phone=key,
         name=name,
         address=address,
@@ -357,7 +357,7 @@ def crm_create_customer(
         property_type=property_type,
         area=_infer_area(world, address),
         is_new=True,
-    )
+    ))
     return {"created": True, "phone": key, "name": name, "address": address}
 
 
@@ -385,7 +385,7 @@ def crm_create_customer(
 def crm_update_customer(ctx: ToolContext, phone: str, **updates: Any) -> dict[str, Any]:
     if not is_valid_phone(phone):
         raise ToolRejection(f"'{phone}' is not a valid phone number.")
-    customer = ctx.world.customers.get(normalize_phone(phone))
+    customer = ctx.world.find_customer(phone)
     if not customer:
         raise ToolRejection(
             f"No customer record found for {phone}. For a new customer, call "
@@ -399,6 +399,7 @@ def crm_update_customer(ctx: ToolContext, phone: str, **updates: Any) -> dict[st
             changed[field_name] = value
     if not changed:
         raise ToolRejection("No fields supplied to update.")
+    ctx.world.save_customer(customer)
     return {"phone": customer.phone, "updated": changed}
 
 

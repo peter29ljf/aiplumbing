@@ -136,7 +136,13 @@ class World:
         now: str | datetime,
         seed: dict[str, Any] | None = None,
         overrides: dict[str, Any] | None = None,
+        store: Any = None,
     ) -> None:
+        # Optional durable backing. Without one this is the in-memory world every scenario
+        # runs against; with one, customers and tickets are read from and written back to
+        # the database so they outlive the conversation. Every write-through is guarded by
+        # `if self.store`, so the no-store path is byte-for-byte what it always was.
+        self.store = store
         self.rules = config.business_rules()
         self.states_cfg = config.ticket_states()
         self.seed = seed or config.world_seed()
@@ -341,6 +347,10 @@ class World:
     # Tickets
     # ------------------------------------------------------------------
     def next_id(self, prefix: str) -> str:
+        # The in-memory counter restarts at 1 every process. In production that hands two
+        # different customers the same ticket number, so the database decides instead.
+        if self.store is not None:
+            return self.store.next_id(prefix)
         self._counters[prefix] = self._counters.get(prefix, 0) + 1
         return f"{prefix}-{self._counters[prefix]:04d}"
 
@@ -356,6 +366,7 @@ class World:
         self.tickets[ticket.ticket_id] = ticket
         if not self.active_ticket_id:
             self.active_ticket_id = ticket.ticket_id
+        self._persist_ticket(ticket, "ticket_created")
         return ticket
 
     def seed_ticket(
@@ -414,7 +425,63 @@ class World:
         ticket.history.append(
             {"at": self._now.isoformat(), "status": target, "note": note}
         )
+        self._persist_ticket(ticket, "status_changed", detail=target)
         return ticket
+
+    def find_customer(self, phone: str) -> "Customer | None":
+        """Memory first, then the database — and hydrate, so later reads are local.
+
+        Without a store this is exactly the old dictionary lookup against the seed. With
+        one, a customer who called last month is found, which is the single thing the
+        whole persistence layer exists for.
+        """
+        key = normalize_phone(phone)
+        found = self.customers.get(key)
+        if found is not None or self.store is None:
+            return found
+        row = self.store.find_customer(key)
+        if row is None:
+            return None
+        customer = Customer(
+            phone=row["phone"], name=row.get("name", ""), email=row.get("email", ""),
+            address=row.get("address", ""), area=row.get("area", ""),
+            property_type=row.get("property_type", ""),
+            jobs=[Job(
+                job_id=j["job_id"], service_type=j.get("service_type", ""),
+                service_name=j.get("service_name", ""), address=j.get("address", ""),
+                completed_at=j.get("completed_at"), technician_id=j.get("technician_id"),
+                status=j.get("status", "completed"), amount=j.get("amount"),
+                warranty_excluded=bool(j.get("warranty_excluded")),
+            ) for j in row.get("jobs", [])],
+        )
+        self.customers[normalize_phone(row["phone"])] = customer
+        return customer
+
+    def save_customer(self, customer: "Customer") -> None:
+        self.customers[normalize_phone(customer.phone)] = customer
+        if self.store is None:
+            return
+        self.store.upsert_customer(
+            customer.phone, name=customer.name, email=customer.email,
+            address=customer.address, area=customer.area,
+            property_type=customer.property_type,
+        )
+
+    def _persist_ticket(self, ticket: Ticket, event: str, detail: str = "") -> None:
+        if self.store is None:
+            return
+        self.store.save_ticket(ticket)
+        self.store.add_event(event, ticket_id=ticket.ticket_id, detail=detail)
+
+    def _persist_appointment(self, appointment: Appointment, event: str) -> None:
+        if self.store is None:
+            return
+        self.store.save_appointment(appointment)
+        self.store.add_event(
+            event, ticket_id=appointment.ticket_id, detail=appointment.appointment_id,
+            kind=appointment.kind, start=appointment.start.isoformat(),
+            technician_id=appointment.technician_id,
+        )
 
     # ------------------------------------------------------------------
     # Calendar
@@ -545,6 +612,7 @@ class World:
             description=description,
         )
         self.appointments.append(appointment)
+        self._persist_appointment(appointment, "appointment_booked")
         if technician_id and technician_id in self.technicians:
             tech = self.technicians[technician_id]
             tech.active_jobs += 1
