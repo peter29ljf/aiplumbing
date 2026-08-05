@@ -115,6 +115,11 @@ transitions:
   "Emergency Technician Confirmed":
     - "Emergency Job Dispatched"
   "Emergency Job Dispatched":
+    # Refund Pending is reachable from here, and whether it becomes an automatic refund
+    # or a supervisor review is not this state's business. The cut-off is the confirmation
+    # message reaching the customer, which the agent sends *after* setting this status —
+    # payment.refund_deposit checks that message, not the ticket status, and refuses once
+    # it has gone. Do not read this state as "past the cut-off".
     - "Technician En Route"
     - "Service Completed"                # technician reports back directly
     - "Refund Pending"                   # Cancelled before departure

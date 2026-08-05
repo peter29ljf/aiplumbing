@@ -96,10 +96,13 @@ booking a call-out for something that needs a quote. If they now want someone im
 hand off to `emergency`.
 
 **If you had already booked them, cancel that appointment before you hand over.**
-`calendar.cancel`, tell the technician, then `ticket.update_status` → `Appointment Cancelled`
-→ `Awaiting Appointment Selection`. Two reasons: a booking nobody cancels sends a technician
-to a job that is not happening, and the ticket cannot reach the next flow's opening state
-from `Appointment Booked` — the state machine will stop whoever picks it up.
+`calendar.cancel`, tell the technician, then walk the ticket back:
+`Appointment Cancelled` → `Awaiting Appointment Selection` → `Needs Assessment`.
+
+Two reasons for the walk. A booking nobody cancels sends a technician to a job that is not
+happening. And `Needs Assessment` is the only state both of the flows you might hand to can
+open from — stop short of it and the colleague picking the ticket up is blocked on their
+very first status change, with nothing in their own instructions telling them why.
 
 ## Complaints and disputes
 

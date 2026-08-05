@@ -109,10 +109,17 @@ the `emergency` interval, and close the ticket on the technician's report.
 
 1. Text the customer: we could not get anyone out tonight, and ask whether they want us to
    keep trying or would rather stop.
-2. **They want to stop** → `payment.refund_deposit` (nobody was dispatched, so this is
-   automatic and immediate) → confirm the refund by message → `thanks_closing` → `Closed` →
-   `conversation.end`. Do not make them ask for the refund. Offer the next standard
-   appointment if they want it, but do not use it to avoid refunding them.
+2. **They want to stop** → `ticket.update_status` → `Refund Pending`, then
+   `payment.refund_deposit` (nobody was dispatched, so this is automatic and immediate),
+   confirm the refund by message, and `Refund Completed`. The pending state is not
+   ceremony — it is where the ticket sits if the refund itself fails. Do not make them ask
+   for the refund, and do not offer a standard appointment as a way of not refunding them.
+
+   Then ask whether they would like the next standard appointment instead. **Refund first,
+   offer second** — in that order the offer is a kindness rather than a bargain.
+   - **Yes** → hand off to `small_job`. Do not close: `Refund Completed` still leads to
+     booking, and a ticket you have already closed does not.
+   - **No** → `thanks_closing` → `Closed` → `conversation.end`.
 3. **They want to keep waiting** → say when you will next try, and go round again within the
    limits. If the window is exhausted, say so honestly rather than searching forever.
 

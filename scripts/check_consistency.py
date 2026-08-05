@@ -231,6 +231,14 @@ def main() -> int:
     findings = verify(result.get("findings") or [], files)
     report(findings)
 
+    u = llm.usage.as_dict()
+    print(
+        f"\ntokens: input {u.get('prompt_tokens', 0):,} / output "
+        f"{u.get('completion_tokens', 0):,}"
+        + (f"; cache hits {u.get('cache_hit_tokens', 0):,} "
+           f"({u.get('cache_hit_rate', 0):.0%})" if u.get("cache_hit_tokens") else "")
+    )
+
     if args.json:
         Path(args.json).write_text(json.dumps(findings, indent=2, ensure_ascii=False))
         print(f"written to {args.json}")

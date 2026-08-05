@@ -89,6 +89,12 @@ wrong is worse than no answer at all.
 Record what they have told you with `ticket.set_fields`, move the ticket to
 `Warranty Eligibility Review`, and transfer. That is the whole of your part.
 
+**You still need their phone number first.** A warranty claim is looked up against their
+service record, so without a number there is nothing for the warranty desk to check —
+the core rules put warranty on the list of things you cannot arrange without one. If they
+will not give it, say plainly that we cannot check a warranty without finding their record,
+and treat it as a general enquiry.
+
 This comes before the property-type filter: if we did the original work there, the claim is
 looked at regardless of the building.
 

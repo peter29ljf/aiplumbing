@@ -95,6 +95,10 @@ pricing:
   emergency_inspection_fee:
     currency: "CAD"
     qualifier: "starting at"
+    # Tiers are matched in this order, first match wins. A statutory holiday falling on a
+    # weekday matches both sunday_or_holiday and workday_business_hours, so the holiday
+    # tier is listed as taking precedence: the day being a holiday is what sets the rate.
+    tier_precedence: ["sunday_or_holiday", "night_after_18", "workday_business_hours", "workday_offhours_before_18"]
     tiers:
       - id: "workday_business_hours"
         amount: 200
