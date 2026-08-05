@@ -103,27 +103,102 @@ def test_one_session_being_throttled_does_not_throttle_another(inbound: Inbound)
 # ---- sms: the carrier vouches for the number -------------------------
 
 
-def test_sms_answers_with_twiml(inbound: Inbound):
+@pytest.fixture()
+def sent(inbound: Inbound, monkeypatch):
+    """Everything the worker texts back out, instead of reaching Twilio."""
+    outbox: list[tuple[str, str]] = []
+    monkeypatch.setattr(inbound, "_send_sms", lambda to, body: outbox.append((to, body)))
+    return outbox
+
+
+def _drain(inbound: Inbound, phone: str, timeout: float = 5.0) -> None:
+    from plumbing.world import normalize_phone
+
+    key = f"sms:{normalize_phone(phone)}"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        work = inbound._pending.get(key)
+        if work is not None and work.done:
+            return
+        time.sleep(0.01)
+    raise AssertionError("the worker never finished")
+
+
+def test_twilio_is_answered_at_once_and_the_reply_follows(inbound: Inbound, sent):
+    """Twilio wants TwiML within fifteen seconds and the agent takes minutes. The reply
+    cannot ride back on this response, so it goes out as a new message."""
     code, xml = inbound.sms({"From": "+16047218629", "Body": "tap is dripping"})
+
     assert code == 200
-    assert "<Message>echo: tap is dripping</Message>" in xml
+    assert "<Message>" not in xml           # nothing to say yet, and that is the point
+
+    _drain(inbound, "+16047218629")
+    assert sent == [("+16047218629", "echo: tap is dripping")]
 
 
-def test_sms_uses_the_number_as_the_identity(inbound: Inbound):
+def test_sms_uses_the_number_as_the_identity(inbound: Inbound, sent):
     inbound.sms({"From": "+16047218629", "Body": "hello"})
+    _drain(inbound, "+16047218629")
+
     assert inbound.sessions.calls[-1] == {
         "channel": "sms", "phone": "+16047218629", "session_id": ""
     }
 
 
-def test_an_empty_text_is_answered_with_silence_not_a_crash(inbound: Inbound):
+def test_an_empty_text_is_answered_with_silence_not_a_crash(inbound: Inbound, sent):
     code, xml = inbound.sms({"From": "+16047218629", "Body": ""})
+
     assert code == 200 and "<Message>" not in xml
+    assert sent == []
+
+
+def test_a_second_text_arriving_mid_thought_is_answered_too(inbound: Inbound, sent):
+    """A phone has no manners: people send a second line while the first is unanswered.
+    Dropping it loses what they said; running it concurrently interleaves two turns into
+    one message list."""
+    conversation = inbound.sessions.get(channel="sms", phone="+16047218629")
+    started, release = threading.Event(), threading.Event()
+
+    def slow(text: str) -> str:
+        if not started.is_set():
+            started.set()
+            release.wait(5)
+        return "echo: " + text
+
+    conversation.say = slow
+
+    inbound.sms({"From": "+16047218629", "Body": "first"})
+    started.wait(5)
+    inbound.sms({"From": "+16047218629", "Body": "and also this"})
+    release.set()
+    _drain(inbound, "+16047218629")
+
+    assert [body for _, body in sent] == ["echo: first", "echo: and also this"]
+
+
+def test_a_worker_that_blows_up_still_says_something(inbound: Inbound, sent):
+    """Otherwise the customer's text is simply never answered and nothing anywhere says so."""
+    conversation = inbound.sessions.get(channel="sms", phone="+16047218629")
+
+    def explode(text: str) -> str:
+        raise RuntimeError("the model fell over")
+
+    conversation.say = explode
+    inbound.sms({"From": "+16047218629", "Body": "hello"})
+    _drain(inbound, "+16047218629")
+
+    assert len(sent) == 1
+    assert "went wrong" in sent[0][1]
 
 
 def test_a_reply_containing_xml_cannot_break_the_response(inbound: Inbound):
-    """A customer typing a tag must not be able to reshape the TwiML we return."""
-    code, xml = inbound.sms({"From": "+1604", "Body": "</Message><Hangup/>"})
+    """A customer typing a tag must not be able to reshape the TwiML we return. The
+    acknowledgement carries no text now, but _twiml is still what answers the voice
+    endpoint, where the agent's words do go into the markup."""
+    from plumbing.live.server import _twiml
+
+    xml = _twiml("</Message><Hangup/>")
+
     assert "<Hangup/>" not in xml
     assert "&lt;/Message&gt;" in xml
 
@@ -575,3 +650,18 @@ def test_polling_a_session_nobody_has_written_to_is_idle_not_an_error(inbound: I
 
     assert code == 200
     assert body == {"status": "idle"}
+
+
+def test_both_spellings_of_the_twilio_webhook_are_accepted(base_url: str):
+    """The numbers were inherited pointing at /twilio/sms while the server served /sms.
+    Inbound texts were a 404 and nothing on this side said so — the sender simply got no
+    answer. The console and the code are edited by different hands on different days."""
+    import urllib.parse
+    import urllib.request
+
+    for path in ("/sms", "/twilio/sms", "/voice", "/twilio/voice"):
+        data = urllib.parse.urlencode({"From": "+16047218629", "Body": "hi"}).encode()
+        request = urllib.request.Request(f"{base_url}{path}", data=data, method="POST")
+        with urllib.request.urlopen(request) as response:  # noqa: S310
+            assert response.status == 200, path
+            assert b"<Response>" in response.read(), path

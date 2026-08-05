@@ -32,12 +32,13 @@ import time
 import uuid
 import urllib.parse
 from collections import defaultdict, deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from xml.sax.saxutils import escape
 
 from plumbing.live.sessions import SessionStore
+from plumbing.world import normalize_phone
 
 MAX_MESSAGE_CHARS = 1000
 CHAT_MESSAGES_PER_MINUTE = 12
@@ -61,6 +62,14 @@ _CHAT_ROUTES = {
     "/chat/poll": "chat_poll",
 }
 
+# Twilio's webhooks are configured in Twilio's console, not here, and the numbers were
+# inherited already pointing at /twilio/sms and /twilio/voice. Inbound texts were a 404
+# and nothing on this side said so — the sender simply got no answer. Both spellings are
+# accepted, because the console and the code are edited by different hands on different
+# days and the one that gets forgotten should not be the one that takes texts.
+_SMS_ROUTES = {"/sms", "/twilio/sms"}
+_VOICE_ROUTES = {"/voice", "/twilio/voice"}
+
 
 @dataclass
 class _Pending:
@@ -69,6 +78,9 @@ class _Pending:
     done: bool = False
     reply: str | None = None
     error: str | None = None
+    # Texts that arrived while this turn was running. Chat cannot produce these (the
+    # widget refuses to send while it is waiting); a phone has no such manners.
+    queued: list[str] = field(default_factory=list)
 
 
 class RateLimiter:
@@ -269,13 +281,74 @@ class Inbound:
 
     # ---- SMS ---------------------------------------------------------
     def sms(self, form: dict[str, str]) -> tuple[int, str]:
-        """Twilio posts a form and expects TwiML back."""
+        """Twilio posts a form and wants TwiML back **within fifteen seconds**.
+
+        The agent takes considerably longer than that — measured between two and four
+        minutes on a first turn — so the reply cannot ride back on this response. Twilio
+        would have given up long before, and the customer would be left with a text that
+        was never answered.
+
+        So this acknowledges with empty TwiML and the answer goes out as a new outbound
+        message when it is ready. To the customer that is indistinguishable from a person
+        who took a minute to reply, which is what they expect from a text.
+        """
         phone = (form.get("From") or "").strip()
         text = (form.get("Body") or "").strip()
         if not phone or not text:
             return 200, _twiml("")
-        conversation = self.sessions.get(channel="sms", phone=phone)
-        return 200, _twiml(conversation.say(text[:MAX_MESSAGE_CHARS]))
+
+        key = f"sms:{normalize_phone(phone)}"
+        with self._lock:
+            running = self._pending.get(key)
+            if running is not None and not running.done:
+                # They sent a second text while we were working on the first. Both are
+                # theirs and both matter, so it is queued rather than dropped — but not
+                # run concurrently, because one conversation has one message list.
+                running.queued.append(text[:MAX_MESSAGE_CHARS])
+                return 200, _twiml("")
+            work = _Pending()
+            self._pending[key] = work
+
+        threading.Thread(
+            target=self._run_sms, args=(phone, text[:MAX_MESSAGE_CHARS], work), daemon=True
+        ).start()
+        return 200, _twiml("")
+
+    def _run_sms(self, phone: str, text: str, work: _Pending) -> None:
+        """Answer a text, then send the answer as a text. Drains anything that arrived
+        while we were thinking, so a customer who sends two lines gets both considered."""
+        try:
+            conversation = self.sessions.get(channel="sms", phone=phone)
+            pending: str | None = text
+            while pending is not None:
+                reply = conversation.say(pending)
+                if reply:
+                    self._send_sms(phone, reply)
+                with self._lock:
+                    pending = work.queued.pop(0) if work.queued else None
+                    if pending is None:
+                        work.done = True
+        except Exception as exc:  # noqa: BLE001
+            work.error = type(exc).__name__
+            self._send_sms(
+                phone,
+                "Sorry — something went wrong at our end. Please try again, or call us.",
+            )
+        finally:
+            work.done = True
+
+    def _send_sms(self, phone: str, body: str) -> None:
+        """Never raises. A notification that fails must not take the conversation with it."""
+        from plumbing.integrations import is_live  # noqa: PLC0415
+
+        if not is_live("sms.send"):
+            return
+        try:
+            from plumbing.integrations import twilio_sms  # noqa: PLC0415
+
+            twilio_sms.send_sms(phone, body)
+        except Exception:  # noqa: BLE001, S110
+            pass
 
     # ---- voice -------------------------------------------------------
     def voice(self, form: dict[str, str]) -> tuple[int, str]:
@@ -596,7 +669,7 @@ def make_handler(
                     handler = getattr(inbound, _CHAT_ROUTES[route])
                     code, data = handler(payload, ip=self._client_ip())
                     self._send(code, json.dumps(data).encode(), "application/json")
-                elif self.path.startswith("/sms"):
+                elif route in _SMS_ROUTES:
                     form = _parse_form(self._body())
                     code, xml = inbound.sms(form)
                     self._send(code, xml.encode(), "application/xml")
@@ -607,7 +680,7 @@ def make_handler(
                         secret=self.headers.get("X-Telegram-Bot-Api-Secret-Token", ""),
                     )
                     self._send(code, json.dumps(data).encode(), "application/json")
-                elif self.path.startswith("/voice"):
+                elif route in _VOICE_ROUTES:
                     form = _parse_form(self._body())
                     code, xml = inbound.voice(form)
                     self._send(code, xml.encode(), "application/xml")
