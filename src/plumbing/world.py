@@ -477,9 +477,12 @@ class World:
         if self.store is None:
             return
         self.store.save_appointment(appointment)
+        # `kind` is add_event's own first parameter, so the appointment's kind travels
+        # under a different name. Passing both collided and only ever fired when a store
+        # was attached, which is why the whole suite stayed green over it.
         self.store.add_event(
             event, ticket_id=appointment.ticket_id, detail=appointment.appointment_id,
-            kind=appointment.kind, start=appointment.start.isoformat(),
+            appointment_kind=appointment.kind, start=appointment.start.isoformat(),
             technician_id=appointment.technician_id,
         )
 

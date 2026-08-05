@@ -46,6 +46,51 @@ def calendar_find_slots(
     }
 
 
+def _calendar_event_id(world: Any, appointment: Any) -> str:
+    if world.store is None:
+        return ""
+    with world.store.connect() as conn:
+        row = conn.execute(
+            "SELECT calendar_event_id FROM appointments WHERE appointment_id = ?",
+            (appointment.appointment_id,),
+        ).fetchone()
+    return (row["calendar_event_id"] if row else "") or ""
+
+
+def _sync_calendar_move(world: Any, appointment: Any) -> None:
+    """Move the real entry too. A reschedule that only moves ours is a double booking."""
+    if not is_live("calendar.reschedule"):
+        return
+    from plumbing.integrations import google_calendar  # noqa: PLC0415
+
+    try:
+        google_calendar.move_event(
+            _calendar_event_id(world, appointment),
+            start=appointment.start,
+            duration_minutes=appointment.duration_minutes,
+        )
+    except LiveToolUnavailable as exc:
+        raise ToolRejection(
+            f"The calendar entry could not be moved, so the technician still has the old "
+            f"time: {exc}. Do not confirm the new time to the customer."
+        ) from exc
+
+
+def _sync_calendar_delete(world: Any, appointment: Any) -> None:
+    """Remove the real entry, or a technician drives to a job that is not happening."""
+    if not is_live("calendar.cancel"):
+        return
+    from plumbing.integrations import google_calendar  # noqa: PLC0415
+
+    try:
+        google_calendar.delete_event(_calendar_event_id(world, appointment))
+    except LiveToolUnavailable as exc:
+        raise ToolRejection(
+            f"The booking is cancelled here but could not be removed from the calendar: "
+            f"{exc}. Tell a supervisor so nobody is sent out."
+        ) from exc
+
+
 @tool(
     "calendar.create_appointment",
     "Create a calendar appointment. kind is standard (scheduled), warranty, emergency "
@@ -98,6 +143,33 @@ def calendar_create(
         description=description,
     )
     tech = world.technicians.get(technician_id) if technician_id else None
+
+    # Real diary, when the calendar is live. The internal record is created first so the
+    # hard gates run — an apartment booking must be refused before anyone touches Google.
+    # If the diary write then fails, the internal booking is rolled back rather than left
+    # behind: an agent that says "you are booked" over an entry no technician can see is
+    # worse than an agent that says it could not book.
+    if is_live("calendar.create_appointment"):
+        from plumbing.integrations import google_calendar  # noqa: PLC0415
+
+        try:
+            event_id = google_calendar.create_event(
+                start=appointment.start,
+                duration_minutes=appointment.duration_minutes,
+                summary=f"{kind.title()} — {description[:60]}",
+                description=f"Ticket {ticket_id}. Customer {phone}.",
+                location=address,
+            )
+        except LiveToolUnavailable as exc:
+            appointment.status = "cancelled"
+            world._persist_appointment(appointment, "appointment_calendar_failed")
+            raise ToolRejection(
+                f"The booking could not be written to the calendar, so it is not confirmed: "
+                f"{exc}. Do not tell the customer it is booked. Escalate instead."
+            ) from exc
+        if world.store is not None:
+            world.store.save_appointment(appointment, calendar_event_id=event_id)
+
     return {
         "appointment_id": appointment.appointment_id,
         "kind": kind,
@@ -144,6 +216,7 @@ def calendar_reschedule(
     appointment.start = when
     appointment.status = "rescheduled"
     world._persist_appointment(appointment, "appointment_rescheduled")
+    _sync_calendar_move(world, appointment)
     return {
         "appointment_id": appointment_id,
         "old_start": old,
@@ -174,6 +247,7 @@ def calendar_cancel(ctx: ToolContext, appointment_id: str, reason: str = "") -> 
         raise ToolRejection("This appointment has already been cancelled.")
     appointment.status = "cancelled"
     world._persist_appointment(appointment, "appointment_cancelled")
+    _sync_calendar_delete(world, appointment)
     if appointment.technician_id and appointment.technician_id in world.technicians:
         tech = world.technicians[appointment.technician_id]
         tech.active_jobs = max(0, tech.active_jobs - 1)

@@ -22,7 +22,13 @@
 # ===========================================================================
 live_tools_enabled: false
 
-statuses: {}
+statuses:
+  # Written and gated, not switched on. Turning these to `live` puts entries in a diary a
+  # technician drives to, so they go on together with GOOGLE_CALENDAR_ID and a service
+  # account, and only once the internal calendar has been reconciled with the real one.
+  # calendar.create_appointment: live
+  # calendar.reschedule: live
+  # calendar.cancel: live {}
   # Example, once the real SMS gateway is connected:
   # sms.send: live
 

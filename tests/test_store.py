@@ -224,3 +224,85 @@ def test_a_world_without_a_store_is_untouched(tmp_path: Path):
     ticket = world.create_ticket("+16047218629")
     assert ticket.ticket_id == "TK-0001"
     assert world.find_customer("+16047218629") is None
+
+
+# ---- the real calendar -----------------------------------------------
+
+
+def _book_via_tool(world, **over):
+    from plumbing.tools.ops_tools import calendar_create
+    from plumbing.tools.registry import ToolContext
+
+    ticket = world.create_ticket("+16047218629")
+    args = {"ticket_id": ticket.ticket_id, "kind": "standard", "phone": "+16047218629",
+            "start": "2026-08-05T14:00:00-07:00", "address": "5900 No. 3 Rd",
+            "description": "dripping tap", "technician_id": ""}
+    return calendar_create(ToolContext(world=world), **{**args, **over})
+
+
+def test_a_calendar_failure_does_not_leave_a_booking_nobody_can_see(tmp_path, monkeypatch):
+    """"You are booked" over an entry no technician has is worse than "I could not book"."""
+    from plumbing.integrations.gate import LiveToolUnavailable
+    from plumbing.world import ToolRejection
+    from plumbing.tools import ops_tools
+
+    store = SqliteStore(tmp_path / "prod.db")
+    world = _empty_world(store)
+    world.technicians["t_wang"] = _a_technician()
+
+    monkeypatch.setattr(ops_tools, "is_live", lambda name: name == "calendar.create_appointment")
+    import plumbing.integrations.google_calendar as gcal
+
+    def _boom(**_kwargs):
+        raise LiveToolUnavailable("calendar quota exceeded")
+
+    monkeypatch.setattr(gcal, "create_event", _boom)
+
+    with pytest.raises(ToolRejection) as caught:
+        _book_via_tool(world, technician_id="t_wang")
+    assert "not confirmed" in str(caught.value)
+    assert "Do not tell the customer it is booked" in str(caught.value)
+
+    # And the slot is free again, rather than held by a booking that does not exist.
+    start = datetime.fromisoformat("2026-08-05T14:00:00-07:00")
+    assert store.appointments_between(start - timedelta(hours=1), start + timedelta(hours=1)) == []
+
+
+def test_a_successful_booking_stores_the_event_id(tmp_path, monkeypatch):
+    """Without it a reschedule cannot move the entry and a cancellation cannot remove it."""
+    from plumbing.tools import ops_tools
+    import plumbing.integrations.google_calendar as gcal
+
+    store = SqliteStore(tmp_path / "prod.db")
+    world = _empty_world(store)
+    world.technicians["t_wang"] = _a_technician()
+
+    monkeypatch.setattr(ops_tools, "is_live", lambda name: name == "calendar.create_appointment")
+    monkeypatch.setattr(gcal, "create_event", lambda **_kw: "gcal-xyz")
+
+    _book_via_tool(world, technician_id="t_wang")
+    with store.connect() as conn:
+        row = conn.execute("SELECT calendar_event_id FROM appointments").fetchone()
+    assert row["calendar_event_id"] == "gcal-xyz"
+
+
+def test_nothing_reaches_google_while_the_gate_is_shut(tmp_path, monkeypatch):
+    """The default. Every tool is mocked until both switches are deliberately turned on."""
+    import plumbing.integrations.google_calendar as gcal
+
+    def _should_not_run(**_kwargs):
+        raise AssertionError("the real calendar was called with the gate shut")
+
+    monkeypatch.setattr(gcal, "create_event", _should_not_run)
+
+    world = _empty_world(SqliteStore(tmp_path / "prod.db"))
+    world.technicians["t_wang"] = _a_technician()
+    assert _book_via_tool(world, technician_id="t_wang")["appointment_id"]
+
+
+def _a_technician():
+    from plumbing.world import Technician
+
+    return Technician(id="t_wang", name="Mike Wang", phone="+16045550201",
+                      skills=["leak"], areas=["richmond"], max_concurrent_jobs=3,
+                      on_duty=True, policy="accept")
