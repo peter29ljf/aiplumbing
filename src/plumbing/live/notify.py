@@ -28,7 +28,6 @@ from plumbing.integrations.gate import LiveToolUnavailable
 
 # What the call says, every time. Not generated: a message that varies is a message that
 # can go wrong, and this one only has to make a phone ring in someone's pocket.
-CALL_SCRIPT = "There is a new job. Please check your messages."
 
 
 def offer_job(
@@ -64,20 +63,11 @@ def offer_job(
         outcome["telegram"] = {"simulated": True, "chat_id": chat_id, "text": text,
                                "buttons": offers_mod.buttons(offer.offer_id)}
 
-    outcome["call"] = _ring(phone, outcome["errors"])
+    # No call. Technicians are reached on Telegram and nowhere else — the deployment chose
+    # not to pay for a ringing phone, and a second channel that half works is worse than
+    # one that either works or says it did not.
     return outcome
 
-
-def _ring(phone: str, errors: list[str]) -> Any:
-    if not is_live("phone.call_technician"):
-        return {"simulated": True, "to": phone, "script": CALL_SCRIPT}
-    from plumbing.integrations import twilio_voice  # noqa: PLC0415
-
-    try:
-        return twilio_voice.say_and_hang_up(phone, CALL_SCRIPT)
-    except LiveToolUnavailable as exc:
-        errors.append(f"call: {exc}")
-        return None
 
 
 def notify_technician(
@@ -107,17 +97,7 @@ def notify_technician(
     else:
         outcome["telegram"] = {"simulated": True, "chat_id": chat_id, "text": text}
 
-    if not urgent:
-        return outcome
-
-    if is_live("phone.call_technician"):
-        from plumbing.integrations import twilio_voice  # noqa: PLC0415
-
-        try:
-            outcome["call"] = twilio_voice.say_and_hang_up(phone, CALL_SCRIPT)
-        except LiveToolUnavailable as exc:
-            outcome["errors"].append(f"call: {exc}")
-    else:
-        outcome["call"] = {"simulated": True, "to": phone, "script": CALL_SCRIPT}
-
+    # No call, however urgent. Technicians are reached on Telegram and nowhere else: the
+    # deployment chose not to pay for a ringing phone, and a second channel that half works
+    # is worse than one that either works or says plainly that it did not.
     return outcome

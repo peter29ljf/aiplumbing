@@ -103,6 +103,84 @@ def sms_send(ctx: ToolContext, to: str, body: str, purpose: str) -> dict[str, An
 
 
 @tool(
+    "technician.notify",
+    "Tell the technician about a job — a booking they need to attend, a change to one, or "
+    "anything else they must know. Use this for every message to a technician; you do not "
+    "choose how it reaches them.",
+    {
+        "type": "object",
+        "properties": {
+            "technician_id": {"type": "string", "description": "Which technician"},
+            "subject": {"type": "string", "description": "One line: what this is about"},
+            "body": {
+                "type": "string",
+                "description": "The address, the customer's name and number, the fault, and "
+                "the appointment time. Everything they need without asking.",
+            },
+        },
+        "required": ["technician_id", "subject", "body"],
+    },
+)
+def technician_notify(
+    ctx: ToolContext, technician_id: str, subject: str, body: str
+) -> dict[str, Any]:
+    """One way to reach a technician, and the agent does not know which way it is.
+
+    It used to be `sms.send` to their number, which failed silently for a long time: the
+    roster carries fictional numbers, Twilio answered "Landline or unreachable carrier",
+    nothing raised, and a customer was given a confirmation for a job nobody had been told
+    about.
+
+    Telegram is the channel now. That is a fact about this deployment rather than about the
+    work, so it lives here and not in a prompt, and changing it later is a change to this
+    function.
+    """
+    world = ctx.world
+    technician = world.technicians.get(technician_id)
+    if technician is None:
+        raise ToolRejection(
+            f"No technician with id '{technician_id}'. Available: {sorted(world.technicians)}"
+        )
+    if not body.strip():
+        raise ToolRejection("There is no point sending a technician an empty message.")
+
+    record = {
+        "index": len(world.sms_outbox),
+        "at": world.now().isoformat(),
+        "agent": ctx.agent_name,
+        "to": technician.telegram_chat_id or technician_id,
+        "recipient_type": "technician",
+        "recipient_id": technician_id,
+        "channel": "telegram",
+        "purpose": "technician_dispatch",
+        "body": f"{subject}\n\n{body}",
+        "live": False,
+    }
+
+    if is_live("telegram.send"):
+        if not technician.telegram_chat_id:
+            # Refused rather than dropped. A technician with no Telegram cannot be reached
+            # at all, and the agent must not tell a customer somebody is coming.
+            raise ToolRejection(
+                f"{technician.name} has no Telegram, so there is no way to reach them. "
+                f"Do not confirm this booking. Use escalate.raise so a person sorts it out."
+            )
+        from plumbing.integrations import telegram  # noqa: PLC0415
+
+        try:
+            sent = telegram.send_message(technician.telegram_chat_id, record["body"])
+        except LiveToolUnavailable as exc:
+            raise ToolRejection(f"The technician could not be reached: {exc}") from exc
+        record["live"] = True
+        record["provider_message_id"] = sent["message_id"]
+        world.sms_outbox.append(record)
+        return {"sent": True, "to": technician.name, "channel": "telegram", "live": True}
+
+    world.sms_outbox.append(record)
+    return {"sent": True, "to": technician.name, "channel": "telegram", "live": False}
+
+
+@tool(
     "email.send",
     "Send an email. Used for formal large-project quotes and document upload links.",
     {
