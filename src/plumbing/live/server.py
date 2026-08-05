@@ -130,6 +130,57 @@ class Inbound:
         return 200, _gather(reply)
 
 
+    # ---- telegram: the technician's side -----------------------------
+    def telegram(self, update: dict[str, Any], *, secret: str) -> tuple[int, dict[str, Any]]:
+        """A technician replying. Verified, allowlisted, and answered immediately.
+
+        Telegram retries a webhook that is slow to answer, which would send the reply
+        twice, so this returns as soon as the message is recorded rather than waiting on
+        anything downstream.
+        """
+        from plumbing.integrations import telegram as tg  # noqa: PLC0415
+        from plumbing.integrations.gate import LiveToolUnavailable  # noqa: PLC0415
+
+        try:
+            tg.verify_webhook_secret(secret)
+        except LiveToolUnavailable:
+            # Anyone can post here; a forged update must not be able to drive the agent.
+            return 403, {"error": "forbidden"}
+
+        message = update.get("message") or {}
+        text = str(message.get("text") or "").strip()
+        chat_id = str((message.get("chat") or {}).get("id") or "")
+        user_id = str((message.get("from") or {}).get("id") or "")
+        if not chat_id or not user_id:
+            return 200, {"ok": True}
+
+        known = self.sessions.technician_by_chat_id(chat_id)
+        if known is None:
+            # Told plainly rather than ignored: somebody who should have access needs to
+            # know what to ask for, and the id they need is right there.
+            self._telegram_reply(chat_id, f"This bot is for our technicians. Your id is {chat_id}.")
+            return 200, {"ok": True}
+        if not text:
+            self._telegram_reply(chat_id, "Text only for now, please.")
+            return 200, {"ok": True}
+
+        self.sessions.record_technician_message(chat_id=chat_id, text=text)
+        return 200, {"ok": True}
+
+    def _telegram_reply(self, chat_id: str, text: str) -> None:
+        from plumbing.integrations import is_live  # noqa: PLC0415
+
+        if not is_live("telegram.send"):
+            return
+        from plumbing.integrations import telegram as tg  # noqa: PLC0415
+        from plumbing.integrations.gate import LiveToolUnavailable  # noqa: PLC0415
+
+        try:
+            tg.send_message(chat_id, text)
+        except LiveToolUnavailable:
+            return
+
+
 # ---- TwiML ------------------------------------------------------------
 
 
@@ -199,6 +250,13 @@ def make_handler(inbound: Inbound) -> type[BaseHTTPRequestHandler]:
                     form = _parse_form(self._body())
                     code, xml = inbound.sms(form)
                     self._send(code, xml.encode(), "application/xml")
+                elif self.path.startswith("/telegram"):
+                    update = json.loads(self._body() or b"{}")
+                    code, data = inbound.telegram(
+                        update,
+                        secret=self.headers.get("X-Telegram-Bot-Api-Secret-Token", ""),
+                    )
+                    self._send(code, json.dumps(data).encode(), "application/json")
                 elif self.path.startswith("/voice"):
                     form = _parse_form(self._body())
                     code, xml = inbound.voice(form)

@@ -28,7 +28,9 @@ statuses:
   # account, and only once the internal calendar has been reconciled with the real one.
   # calendar.create_appointment: live
   # calendar.reschedule: live
-  # calendar.cancel: live {}
+  # calendar.cancel: live
+  # telegram.send: live          # how the technician is told about a job
+  # phone.call_technician: live  # the call that only says "check your messages" {}
   # Example, once the real SMS gateway is connected:
   # sms.send: live
 

@@ -21,7 +21,7 @@ import threading
 import uuid
 from typing import Any
 
-from plumbing import agent_registry
+from plumbing import agent_registry, config
 from plumbing.live.conversation import LiveConversation
 from plumbing.llm import LLM
 from plumbing.store import SqliteStore, phone_key
@@ -77,6 +77,19 @@ class SessionStore:
             conversation = self._build(channel=channel, phone=phone, session_id=session_id)
             self._sessions[key] = conversation
             return conversation
+
+    def technician_by_chat_id(self, chat_id: str) -> dict[str, Any] | None:
+        """Only people on the roster may drive the bot."""
+        for spec in config.world_seed().get("technicians", []):
+            if str(spec.get("telegram_chat_id") or "") == chat_id:
+                return spec
+        return None
+
+    def record_technician_message(self, *, chat_id: str, text: str) -> None:
+        """Kept with everything else that was said, so the thread survives a restart."""
+        self.store.add_message(channel="telegram", speaker="technician", text=text,
+                               session_id=f"telegram:{chat_id}")
+        self.store.add_event("technician_replied", detail=text[:200], chat_id=chat_id)
 
     def end(self, *, phone: str = "", session_id: str = "") -> None:
         with self._lock:

@@ -150,3 +150,72 @@ def test_the_rate_limit_window_slides():
     assert limiter.allow("k") and limiter.allow("k")
     assert not limiter.allow("k")
     assert limiter.allow("other")
+
+
+# ---- telegram: the technician's side ---------------------------------
+
+
+class FakeSessionsWithRoster(FakeSessions):
+    def __init__(self, roster=("555",)):
+        super().__init__()
+        self.roster = roster
+        self.recorded: list[dict] = []
+
+    def technician_by_chat_id(self, chat_id):
+        return {"id": "t_wang", "telegram_chat_id": chat_id} if chat_id in self.roster else None
+
+    def record_technician_message(self, *, chat_id, text):
+        self.recorded.append({"chat_id": chat_id, "text": text})
+
+
+def _update(chat_id="555", text="on my way", user_id="u1"):
+    return {"message": {"text": text, "chat": {"id": chat_id}, "from": {"id": user_id}}}
+
+
+def _inbound_with_roster(monkeypatch, roster=("555",)):
+    import plumbing.integrations.telegram as tg
+
+    monkeypatch.setattr(tg, "verify_webhook_secret", lambda provided: None)
+    return Inbound(FakeSessionsWithRoster(roster))
+
+
+def test_a_forged_update_cannot_drive_the_agent(monkeypatch):
+    """The webhook is a public URL. Without the shared secret anyone could post to it."""
+    import plumbing.integrations.telegram as tg
+    from plumbing.integrations.gate import LiveToolUnavailable
+
+    def _reject(provided):
+        raise LiveToolUnavailable("secret did not match")
+
+    monkeypatch.setattr(tg, "verify_webhook_secret", _reject)
+    inbound = Inbound(FakeSessionsWithRoster())
+    code, _ = inbound.telegram(_update(), secret="wrong")
+    assert code == 403
+    assert inbound.sessions.recorded == []
+
+
+def test_a_technician_on_the_roster_is_heard(monkeypatch):
+    inbound = _inbound_with_roster(monkeypatch)
+    code, _ = inbound.telegram(_update(text="done, tap replaced"), secret="ok")
+    assert code == 200
+    assert inbound.sessions.recorded == [{"chat_id": "555", "text": "done, tap replaced"}]
+
+
+def test_a_stranger_is_told_the_id_they_need_rather_than_ignored(monkeypatch):
+    """Somebody who should have access needs to know what to ask for."""
+    inbound = _inbound_with_roster(monkeypatch)
+    replies = []
+    inbound._telegram_reply = lambda chat_id, text: replies.append(text)
+
+    code, _ = inbound.telegram(_update(chat_id="999"), secret="ok")
+    assert code == 200
+    assert inbound.sessions.recorded == []
+    assert "999" in replies[0]
+
+
+def test_a_photo_with_no_caption_does_not_crash_the_webhook(monkeypatch):
+    inbound = _inbound_with_roster(monkeypatch)
+    inbound._telegram_reply = lambda chat_id, text: None
+    code, _ = inbound.telegram(_update(text=""), secret="ok")
+    assert code == 200
+    assert inbound.sessions.recorded == []
