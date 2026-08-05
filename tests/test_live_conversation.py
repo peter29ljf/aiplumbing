@@ -82,3 +82,56 @@ def test_a_carrier_number_and_a_typed_one_are_not_described_the_same_way():
 
     assert "carrier vouches for it" in carrier
     assert "claim and not proof" in typed
+
+
+# ---- ending the conversation ------------------------------------------
+#
+# A real customer gave their email, the agent sent the request for photographs, escalated
+# the quote and called conversation.end without a word. The empty reply reached the widget,
+# which could not tell it from a failure and told them we could not be reached — on the one
+# turn where everything had worked.
+
+
+class EndingAgent(FakeAgent):
+    def __init__(self, reply: str | None):
+        super().__init__()
+        self.reply = reply
+
+    def respond(self, ctx, messages):
+        from plumbing.agent import TurnResult
+
+        turn = TurnResult()
+        turn.ended = True
+        turn.reply = self.reply
+        return turn
+
+
+def _ending(reply: str | None) -> LiveConversation:
+    conversation = _conversation(channel="chat", phone="+16045550101")
+    conversation.agents["intake"] = EndingAgent(reply)
+    return conversation
+
+
+def test_a_silent_close_still_says_something():
+    from plumbing.live.conversation import CLOSED_WITHOUT_A_WORD
+
+    conversation = _ending(None)
+
+    assert conversation.say("peterljf@example.com") == CLOSED_WITHOUT_A_WORD
+    assert conversation.closed
+
+
+def test_the_agent_s_own_closing_words_are_used_when_it_has_them():
+    conversation = _ending("Thanks — that's gone to the technician.")
+
+    assert conversation.say("here it is") == "Thanks — that's gone to the technician."
+
+
+def test_the_closing_line_is_recorded_like_any_other_reply():
+    """Otherwise the transcript shows a customer talking to nobody, and the archive of
+    what we told them is missing the last thing we told them."""
+    conversation = _ending(None)
+    conversation.say("peterljf@example.com")
+
+    assert conversation.transcript.entries[-1]["speaker"] == "agent"
+    assert conversation.transcript.entries[-1]["text"]
