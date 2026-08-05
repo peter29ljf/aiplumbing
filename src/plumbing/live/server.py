@@ -100,6 +100,18 @@ DOING = {
 DOING_FALLBACK = "Just a moment"
 
 
+def _doing(tool: str) -> str:
+    """The line to show for a tool, whichever spelling of its name arrived.
+
+    The agent loop reports the wire name — `crm_lookup_by_phone` — because that is what
+    the model was given, while everything a person writes uses the dotted form. Keyed on
+    the dotted names above and looked up on both here: the first version keyed one way and
+    read the other, so every tool missed and every customer saw the fallback, which is
+    exactly the failure this feature exists to prevent and it looked like it was working.
+    """
+    return DOING.get(tool) or DOING.get(tool.replace("_", ".", 1), DOING_FALLBACK)
+
+
 @dataclass
 class _Pending:
     """One turn being worked on. Read from the HTTP thread, written by the worker."""
@@ -249,9 +261,7 @@ class Inbound:
     def _run_turn(self, session_id: str, phone: str, text: str, work: _Pending) -> None:
         try:
             conversation = self.sessions.get(channel="chat", phone=phone, session_id=session_id)
-            conversation.ctx.progress = lambda tool: setattr(
-                work, "doing", DOING.get(tool, DOING_FALLBACK)
-            )
+            conversation.ctx.progress = lambda tool: setattr(work, "doing", _doing(tool))
             work.reply = conversation.say(text)
         except Exception as exc:  # noqa: BLE001
             # The customer gets an apology, not a stack trace, and the type is kept so the

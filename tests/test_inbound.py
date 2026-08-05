@@ -726,6 +726,25 @@ def test_a_tool_with_no_wording_does_not_leak_its_name_to_the_customer(inbound: 
     assert "ticket" not in polled["doing"]
 
 
+def test_every_phrase_is_reachable_from_the_name_the_agent_reports():
+    """The agent loop reports the wire name — `crm_lookup_by_phone` — because that is what
+    the model was given. The wording is keyed on the dotted names people write. Keyed one
+    way and read the other, every tool missed and every customer saw the fallback: the
+    feature looked like it was working and was doing nothing."""
+    from plumbing.live.server import DOING, DOING_FALLBACK, _doing
+    from plumbing.tools import registry
+
+    registry._ensure_loaded()
+    wire = {t.name: t.wire_name for t in registry.all_tools().values()}
+
+    for tool in DOING:
+        assert tool in wire, f"{tool} is not a registered tool"
+        assert _doing(wire[tool]) == DOING[tool], f"{tool} unreachable as {wire[tool]}"
+        assert _doing(tool) == DOING[tool]
+
+    assert _doing("ticket_set_fields") == DOING_FALLBACK
+
+
 def test_every_phrase_reads_like_something_a_person_would_say():
     """These go on a customer's screen. A tool name showing through is the failure."""
     from plumbing.live.server import DOING, DOING_FALLBACK
