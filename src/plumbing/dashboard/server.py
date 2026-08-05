@@ -26,6 +26,7 @@ import yaml
 
 from plumbing import agent_registry, config, livestatus
 from plumbing import prompt_history
+from plumbing.llm import active_provider
 from plumbing.paths import AGENTS_DIR, CONFIG_DIR, PROMPT_HISTORY_DIR, load_dotenv
 from plumbing.tools import catalog as tool_catalog
 from plumbing.tools import resolve
@@ -127,10 +128,13 @@ def prompt_files() -> list[dict[str, Any]]:
 def llm_settings() -> dict[str, Any]:
     load_dotenv()
     cfg = config.llm_config()
-    key_env = cfg["provider"].get("api_key_env", "DEEPSEEK_API_KEY")
+    provider = active_provider(cfg)
+    key_env = provider.get("api_key_env", "DEEPSEEK_API_KEY")
     key = os.environ.get(key_env, "")
     return {
-        "provider": cfg["provider"],
+        "provider": provider,
+        "active_provider": cfg.get("active"),
+        "available_providers": sorted(cfg.get("providers") or {}),
         "roles": cfg["roles"],
         "limits": cfg.get("limits", {}),
         "doctor_backend": cfg.get("doctor_backend", {}),
@@ -215,10 +219,13 @@ def save_llm(payload: dict[str, Any]) -> dict[str, Any]:
     """Only base_url, timeout, retries, per-role model settings and run limits."""
     cfg = config.llm_config()
 
+    # Writes land on whichever provider is active, so editing the console while
+    # `active: deepseek` cannot silently retune the qwen block.
+    target = active_provider(cfg)
     provider = payload.get("provider", {})
     for key in ("base_url", "timeout_seconds", "max_retries"):
         if key in provider:
-            cfg["provider"][key] = provider[key]
+            target[key] = provider[key]
     if "api_key" in payload or "api_key" in provider:
         raise ValueError(
             "This console does not accept API keys. Edit the project's .env file directly."

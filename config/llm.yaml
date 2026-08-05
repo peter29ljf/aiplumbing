@@ -1,52 +1,76 @@
-# DeepSeek access configuration (OpenAI-compatible API).
-# The API key does NOT live here — it is read from .env / the DEEPSEEK_API_KEY
-# environment variable.
+# Model provider configuration (OpenAI-compatible API).
 #
-# If a model id returns 404, run `python3 scripts/check_llm.py` to list the
-# real available ids, then update this file.
+# Two providers are defined below and one is active. **Switching is the `active:` line
+# and nothing else** — the roles get their model id from the active provider, so a
+# switch does not mean editing seven role blocks and missing one.
+#
+# The API key never lives here. It is read from .env under the variable named by
+# api_key_env, and <NAME>_BASE_URL overrides base_url for that provider.
+#
+# If a model id returns 404, run `python3 scripts/check_llm.py` to list the real ids.
 
-provider:
-  base_url: "https://api.deepseek.com/v1"
-  api_key_env: "DEEPSEEK_API_KEY"
-  timeout_seconds: 120
-  max_retries: 3
+active: qwen
 
-# Model settings per role. All point at the same flash model; to give doctor or
-# judge a stronger model, change it here only — no code changes required.
+providers:
+  qwen:
+    base_url: "https://llm-lhu6gyj1f60ryppl.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+    api_key_env: "QWEN_API_KEY"
+    model: "qwen3.7-flash"
+    timeout_seconds: 120
+    max_retries: 3
+    # Vendor switches with no field in the OpenAI schema. Qwen reasons by default and
+    # bills the thinking as output tokens: on a trivial question that was 194 output
+    # tokens instead of 6, for an identical answer. Off globally; a role can override.
+    extra_body:
+      enable_thinking: false
+    # Its json_object mode refuses unless the word "json" appears somewhere in the
+    # messages. Every prompt that asks for JSON here already says so, but a new one
+    # must too, or the call comes back 400.
+
+  deepseek:
+    base_url: "https://api.deepseek.com/v1"
+    api_key_env: "DEEPSEEK_API_KEY"
+    model: "deepseek-v4-flash"
+    timeout_seconds: 120
+    max_retries: 3
+    # Also a reasoning model, but with no switch to turn the thinking off — budget
+    # max_tokens for it. Cache hit rates of 93-94% were normal on this workload.
+
+# Per-role settings. The model comes from the active provider; add `model: "..."` to a
+# role only when that role should differ from the rest.
 roles:
   agent:                                  # Business agents (intake / small_job / ...)
-    model: "deepseek-v4-flash"
     temperature: 0.3
     max_tokens: 2000
   customer:                               # Simulated customer
-    model: "deepseek-v4-flash"
     temperature: 0.9                      # High temperature -> varied wording, real pressure-testing
     max_tokens: 500
   technician:                             # Simulated technician (on-site staff)
-    model: "deepseek-v4-flash"
     temperature: 0.7
     max_tokens: 400
   supervisor:                             # Simulated supervisor
-    model: "deepseek-v4-flash"
     temperature: 0.5
     max_tokens: 500
   judge:                                  # LLM judge (rule-compliance verdicts)
-    model: "deepseek-v4-flash"
+    extra_body: { enable_thinking: true }
     temperature: 0.0                      # Verdicts must be stable
     max_tokens: 1500
 
+  # Thinking stays on for the roles whose whole job is cross-referencing. Measured on the
+  # 1300-line corpus with it off: output fell from 44,574 tokens to 903, and three of the
+  # four findings were wrong — one of them contradicted the evidence it had just quoted.
+  # The saving was the model not doing the work. These roles run rarely; the volume is in
+  # the conversational roles above, and those keep thinking off.
   auditor:                                # Static consistency scan over all prompts
-    model: "deepseek-v4-flash"
+    extra_body: { enable_thinking: true }
     temperature: 0.0                      # Same corpus must give the same findings
-    # Reads ~1300 lines at once. This is a reasoning model and reasoning is billed against
-    # max_tokens, so the budget has to cover the thinking as well as the report. At 8000 the
-    # reply came back empty; 32000 was enough for one corpus and not for the same corpus 36
-    # lines longer, because how long it thinks varies. Leave plenty of headroom — an empty
-    # reply costs a whole rerun, and unused budget costs nothing.
-    max_tokens: 64000
+    # Reads ~1300 lines and reports on all of it. With thinking off the budget only has to
+    # cover the report itself, but leave headroom: an empty reply costs a whole rerun and
+    # unused budget costs nothing.
+    max_tokens: 16000
 
   doctor:                                 # Only used when doctor_backend.kind = "openai"
-    model: "deepseek-v4-flash"
+    extra_body: { enable_thinking: true }
     temperature: 0.4
     max_tokens: 8000
 

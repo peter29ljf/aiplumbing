@@ -21,6 +21,24 @@ from plumbing import config
 from plumbing.paths import load_dotenv
 
 
+def active_provider(cfg: dict[str, Any]) -> dict[str, Any]:
+    """The provider block config selects with `active:`.
+
+    Older configs carried a single flat `provider:` mapping; that still works, so a
+    checkout mid-switch does not break.
+    """
+    providers = cfg.get("providers")
+    if not providers:
+        return cfg["provider"]
+    name = cfg.get("active")
+    if name not in providers:
+        raise LLMError(
+            f"config/llm.yaml selects active provider '{name}', which is not one of "
+            f"{sorted(providers)}"
+        )
+    return providers[name]
+
+
 class LLMError(RuntimeError):
     pass
 
@@ -94,16 +112,22 @@ class LLM:
     def __init__(self, cfg: dict[str, Any] | None = None) -> None:
         load_dotenv()
         self.cfg = cfg or config.llm_config()
-        provider = self.cfg["provider"]
+        provider = active_provider(self.cfg)
+        self.provider_name = self.cfg.get("active", "provider")
+        self._default_model = provider.get("model")
 
         key_env = provider.get("api_key_env", "DEEPSEEK_API_KEY")
         api_key = os.environ.get(key_env)
         if not api_key:
             raise LLMError(
-                f"Environment variable {key_env} is not set. Copy .env.example to .env and fill in your DeepSeek key."
+                f"Environment variable {key_env} is not set. Copy .env.example to .env and "
+                f"fill in the key for the provider named in config/llm.yaml."
             )
 
-        base_url = os.environ.get("DEEPSEEK_BASE_URL") or provider["base_url"]
+        # The override variable is named after the key variable, so swapping providers does
+        # not leave a DEEPSEEK_BASE_URL quietly pointing the new one at the old endpoint.
+        url_env = provider.get("base_url_env") or key_env.replace("_API_KEY", "_BASE_URL")
+        base_url = os.environ.get(url_env) or provider["base_url"]
         self.client = OpenAI(
             api_key=api_key,
             base_url=base_url,
@@ -111,14 +135,30 @@ class LLM:
             max_retries=0,  # retry here instead, so attempts can be logged
         )
         self._max_retries = provider.get("max_retries", 3)
+        # Vendor-specific switches the OpenAI schema has no field for. Qwen needs
+        # enable_thinking here: it reasons by default, and on this workload the thinking
+        # was 97% of the output tokens for no gain in the answer.
+        self._extra_body = dict(provider.get("extra_body") or {})
         self.usage = Usage()
 
     # ------------------------------------------------------------------
     def role_settings(self, role: str) -> dict[str, Any]:
+        """Role settings with the active provider's model filled in.
+
+        A role only names a model when it should differ from the rest — otherwise
+        switching provider would mean editing every role and missing one.
+        """
         roles = self.cfg.get("roles", {})
         if role not in roles:
             raise LLMError(f"No role '{role}' under roles in config/llm.yaml")
-        return roles[role]
+        settings = dict(roles[role])
+        settings.setdefault("model", self._default_model)
+        if not settings["model"]:
+            raise LLMError(
+                f"Role '{role}' has no model and provider "
+                f"'{self.cfg.get('active')}' declares no default in config/llm.yaml"
+            )
+        return settings
 
     def limit(self, name: str, default: int) -> int:
         return int(self.cfg.get("limits", {}).get(name, default))
@@ -145,6 +185,9 @@ class LLM:
             kwargs["tool_choice"] = tool_choice or "auto"
         if response_format:
             kwargs["response_format"] = response_format
+        extra_body = {**self._extra_body, **(settings.get("extra_body") or {})}
+        if extra_body:
+            kwargs["extra_body"] = extra_body
 
         last_error: Exception | None = None
         for attempt in range(self._max_retries + 1):
