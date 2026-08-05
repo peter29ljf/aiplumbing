@@ -1,0 +1,238 @@
+"""The three ways a customer reaches us: web chat, SMS and a phone call.
+
+One agent behind all of them. What differs is what arrives with the message.
+
+**SMS and voice** come through a carrier, which vouches for the number. The conversation
+is that number's, and it is the same conversation whether they text today and ring
+tomorrow.
+
+**Web chat** is open to the anonymous internet and brings nothing with it. Two problems
+follow, and both are handled here in code rather than in a prompt:
+
+- *Cost.* Every message is a model turn somebody pays for. A public endpoint with no
+  ceiling is a bill waiting to happen, so there is a length cap and a per-session and
+  per-address rate limit.
+- *Identity.* A number typed into a form is a **claim**, not proof — nothing vouches for
+  it the way a carrier does. Chat is therefore keyed by session, with the asserted number
+  carried alongside. The gate that requires one before any message is accepted is code on
+  purpose: history, warranty and booking all hang off that number, and a rule the model
+  can be talked out of is not a gate.
+
+Written on `http.server` like the console, so running this adds no dependency. It is
+enough for a single business behind nginx; it is not a general web framework and does not
+try to be.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import time
+import urllib.parse
+from collections import defaultdict, deque
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
+from xml.sax.saxutils import escape
+
+from plumbing.live.sessions import SessionStore
+
+MAX_MESSAGE_CHARS = 1000
+CHAT_MESSAGES_PER_MINUTE = 12
+CHAT_MESSAGES_PER_MINUTE_PER_IP = 30
+
+# North American numbers; the business serves British Columbia. Anything that reduces to
+# ten digits is accepted and normalised further down.
+_TEN_DIGITS = re.compile(r"^\+?1?\d{10}$")
+
+
+class RateLimiter:
+    """A sliding window per key. Small, in-process, and enough for one business."""
+
+    def __init__(self, per_minute: int) -> None:
+        self.per_minute = per_minute
+        self._hits: dict[str, deque[float]] = defaultdict(deque)
+
+    def allow(self, key: str) -> bool:
+        now = time.monotonic()
+        window = self._hits[key]
+        while window and now - window[0] > 60:
+            window.popleft()
+        if len(window) >= self.per_minute:
+            return False
+        window.append(now)
+        return True
+
+
+def valid_phone(raw: str) -> bool:
+    return bool(_TEN_DIGITS.match(re.sub(r"[\s()\-.]", "", raw or "")))
+
+
+class Inbound:
+    """Channel handling, with no HTTP in it — so it can be tested without a socket."""
+
+    def __init__(self, sessions: SessionStore) -> None:
+        self.sessions = sessions
+        self.per_session = RateLimiter(CHAT_MESSAGES_PER_MINUTE)
+        self.per_ip = RateLimiter(CHAT_MESSAGES_PER_MINUTE_PER_IP)
+
+    # ---- web chat ----------------------------------------------------
+    def chat(self, payload: dict[str, Any], *, ip: str = "") -> tuple[int, dict[str, Any]]:
+        session_id = str(payload.get("session_id") or "").strip()
+        phone = str(payload.get("phone") or "").strip()
+        text = str(payload.get("text") or "").strip()
+
+        if not session_id:
+            return 400, {"error": "session_id is required"}
+        if not valid_phone(phone):
+            # Deliberately before anything is spent on a model call.
+            return 400, {
+                "error": "phone_required",
+                "message": "Please enter a phone number we can reach you on to start the chat.",
+            }
+        if not text:
+            return 400, {"error": "text is required"}
+        if len(text) > MAX_MESSAGE_CHARS:
+            return 413, {"error": "too_long", "limit": MAX_MESSAGE_CHARS}
+        if not self.per_session.allow(session_id) or not self.per_ip.allow(ip or session_id):
+            return 429, {"error": "rate_limited", "message": "Too many messages. One moment."}
+
+        conversation = self.sessions.get(channel="chat", phone=phone, session_id=session_id)
+        return 200, {"reply": conversation.say(text), "session_id": session_id}
+
+    # ---- SMS ---------------------------------------------------------
+    def sms(self, form: dict[str, str]) -> tuple[int, str]:
+        """Twilio posts a form and expects TwiML back."""
+        phone = (form.get("From") or "").strip()
+        text = (form.get("Body") or "").strip()
+        if not phone or not text:
+            return 200, _twiml("")
+        conversation = self.sessions.get(channel="sms", phone=phone)
+        return 200, _twiml(conversation.say(text[:MAX_MESSAGE_CHARS]))
+
+    # ---- voice -------------------------------------------------------
+    def voice(self, form: dict[str, str]) -> tuple[int, str]:
+        """A call in progress. Twilio transcribes; we answer and ask for the next thing.
+
+        `SpeechResult` is absent on the first request of a call — that is the greeting.
+        """
+        phone = (form.get("From") or "").strip()
+        said = (form.get("SpeechResult") or "").strip()
+
+        if not said:
+            conversation = self.sessions.get(channel="voice", phone=phone)
+            spoken = conversation.say("[caller has just connected and is waiting for you to speak first]")
+            return 200, _gather(spoken or "Fangxin Plumbing, how can I help?")
+
+        conversation = self.sessions.get(channel="voice", phone=phone)
+        reply = conversation.say(said[:MAX_MESSAGE_CHARS])
+        if conversation.closed:
+            return 200, _say_and_hang_up(reply)
+        return 200, _gather(reply)
+
+
+# ---- TwiML ------------------------------------------------------------
+
+
+def _twiml(body: str) -> str:
+    inner = f"<Message>{escape(body)}</Message>" if body else ""
+    return f'<?xml version="1.0" encoding="UTF-8"?><Response>{inner}</Response>'
+
+
+def _gather(text: str) -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?><Response>'
+        '<Gather input="speech" speechTimeout="auto" action="/voice" method="POST">'
+        f"<Say>{escape(text)}</Say>"
+        "</Gather>"
+        "<Say>Sorry, I did not catch that. Please call again or send us a text.</Say>"
+        "</Response>"
+    )
+
+
+def _say_and_hang_up(text: str) -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?><Response>'
+        f"<Say>{escape(text)}</Say><Hangup/></Response>"
+    )
+
+
+# ---- HTTP -------------------------------------------------------------
+
+
+def make_handler(inbound: Inbound) -> type[BaseHTTPRequestHandler]:
+    class Handler(BaseHTTPRequestHandler):
+        server_version = "FangxinInbound/1"
+
+        def log_message(self, fmt: str, *args: Any) -> None:  # quieter than the default
+            return
+
+        def _client_ip(self) -> str:
+            # Behind nginx the socket address is always the proxy, so prefer the header it
+            # sets. Only trust it because nothing else can reach this port.
+            return (self.headers.get("X-Forwarded-For") or "").split(",")[0].strip() \
+                or self.client_address[0]
+
+        def _body(self) -> bytes:
+            length = int(self.headers.get("Content-Length") or 0)
+            return self.rfile.read(length) if length else b""
+
+        def _send(self, code: int, body: bytes, content_type: str) -> None:
+            self.send_response(code)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self) -> None:  # noqa: N802
+            if self.path == "/health":
+                self._send(200, b'{"ok":true}', "application/json")
+            else:
+                self._send(404, b"not found", "text/plain")
+
+        def do_POST(self) -> None:  # noqa: N802
+            try:
+                if self.path.startswith("/chat"):
+                    payload = json.loads(self._body() or b"{}")
+                    code, data = inbound.chat(payload, ip=self._client_ip())
+                    self._send(code, json.dumps(data).encode(), "application/json")
+                elif self.path.startswith("/sms"):
+                    form = _parse_form(self._body())
+                    code, xml = inbound.sms(form)
+                    self._send(code, xml.encode(), "application/xml")
+                elif self.path.startswith("/voice"):
+                    form = _parse_form(self._body())
+                    code, xml = inbound.voice(form)
+                    self._send(code, xml.encode(), "application/xml")
+                else:
+                    self._send(404, b"not found", "text/plain")
+            except Exception as exc:  # noqa: BLE001
+                # A stack trace must never reach a customer, and a dropped connection is
+                # worse than a plain apology — Twilio retries on a 500.
+                self._send(
+                    200,
+                    json.dumps({"error": "internal", "detail": type(exc).__name__}).encode()
+                    if self.path.startswith("/chat")
+                    else _twiml("Sorry — something went wrong here. Please try again shortly.").encode(),
+                    "application/json" if self.path.startswith("/chat") else "application/xml",
+                )
+
+    return Handler
+
+
+def _parse_form(body: bytes) -> dict[str, str]:
+    return {k: v[0] for k, v in urllib.parse.parse_qs(body.decode(), keep_blank_values=True).items()}
+
+
+def serve(database_path: str, port: int = 8770) -> None:
+    inbound = Inbound(SessionStore(database_path))
+    ThreadingHTTPServer(("127.0.0.1", port), make_handler(inbound)).serve_forever()
+
+
+if __name__ == "__main__":  # pragma: no cover
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--db", default="data/plumbing.db")
+    parser.add_argument("--port", type=int, default=8770)
+    args = parser.parse_args()
+    serve(args.db, args.port)
