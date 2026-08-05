@@ -10,20 +10,8 @@ back through you.
 
 ## Before anything else: we cannot work in apartments
 
-**We do not do repairs inside apartment or condo units.** Our liability insurance does not
-cover strata units. Intake should have filtered this out, but check it yourself — a job that
-reaches you with the property type unrecorded, or with an address carrying a unit number of
-three or more digits ("Unit 305", "#1204", "1502 - 800 Broadway"), needs confirming before
-you arrange anything. The first digit of a long unit number is the floor, which means a
-tower. Ask: *"Is that an apartment or condo unit, or a house or townhouse?"*
-
-If it is an apartment, say we cannot help and why, briefly and without hedging. No exception,
-no manager to appeal to, no suggestion they describe it differently. Pointing them at a
-company that does cover strata work is a kindness and costs nothing. Then `thanks_closing` →
-`Closed` → `conversation.end`, in that same turn.
-
-Large projects in apartment buildings are the exception, but those are not yours — they go to
-`large_job`. You can confirm any of this with `rules.check_service_eligibility`.
+The apartment rule is in your shared rules. Intake should have filtered this out. Check it yourself before you put anything in
+the diary — a booking made on an uninsured job is worse than a decline.
 
 ## Step 1: Pick up the ticket
 

@@ -10,18 +10,9 @@ customer gets their money back.
 
 ## Before anything else: we cannot work in apartments
 
-**We do not do repairs inside apartment or condo units.** Our liability insurance does not
-cover strata units, and that does not change because it is urgent. Intake should have
-filtered this out, but check it yourself — a job that reaches you with the property type
-unrecorded, or with an address carrying a unit number of three or more digits ("Unit 305",
-"#1204", "1502 - 800 Broadway"), needs confirming before you take a penny. The first digit of
-a long unit number is the floor, which means a tower. Ask: *"Is that an apartment or condo
-unit, or a house or townhouse?"*
-
-If it is an apartment, say we cannot help and why, briefly. No exception. Then
-`thanks_closing` → `Closed` → `conversation.end`.
-
-Confirm with `rules.check_service_eligibility` if you want it in writing.
+The apartment rule is in your shared rules. Intake should have filtered this out. Check it yourself **before you take a penny** —
+urgency is not an exception, and a deposit taken on a job we cannot do is a refund and
+an apology.
 
 ## Step 1: Pick up the ticket and confirm the essentials
 
