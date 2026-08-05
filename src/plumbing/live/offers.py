@@ -70,6 +70,11 @@ CREATE TABLE IF NOT EXISTS offers (
     state      TEXT NOT NULL DEFAULT 'sent',
     reason     TEXT NOT NULL DEFAULT '',
     message_id TEXT NOT NULL DEFAULT '',
+    -- How many nudges have gone out, and whether to keep sending them. Both live here
+    -- rather than in memory: a restart that forgets them starts the count again and the
+    -- technician gets the first reminder twice.
+    reminders_sent INTEGER NOT NULL DEFAULT 0,
+    nudging    INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -129,15 +134,17 @@ class Offers:
         self._update(offer_id, message_id=message_id)
 
     def accept(self, offer_id: str) -> None:
-        self._update(offer_id, state="accepted")
+        self._update(offer_id, state="accepted", nudging=0)
         self._event(offer_id, "job_accepted")
 
     def decline(self, offer_id: str, reason: str) -> None:
-        self._update(offer_id, state="declined", reason=reason)
+        self._update(offer_id, state="declined", reason=reason, nudging=0)
         self._event(offer_id, "job_declined", detail=reason)
 
     def ask_for_reason(self, offer_id: str) -> None:
-        self._update(offer_id, state="awaiting_reason")
+        # They have answered — they tapped Decline and are being asked why. Nudging them
+        # now would be nagging somebody who is already typing.
+        self._update(offer_id, state="awaiting_reason", nudging=0)
 
     def note_typed(self, chat_id: str, text: str) -> None:
         """Remember what was typed while an offer is open.

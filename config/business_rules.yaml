@@ -162,6 +162,20 @@ technician_handover:
     relay quotes or manage the visit. It checks back once, after the interval, for the
     outcome.
 
+# ---------------------------- Offering a job to a technician -------------
+job_offer:
+  # A Telegram message can be missed — a phone in a pocket, a hand holding a wrench. A
+  # real phone call cuts through and costs money per call; these nudges cost nothing, so
+  # they are tried first. If jobs still get missed, that is the evidence for buying the
+  # calls, rather than a guess.
+  #
+  # Minutes after the offer goes out. Escalating gaps: soon enough to matter, spread out
+  # enough not to become noise somebody learns to swipe away.
+  reminder_minutes: [5, 15, 30]
+  # After the last one, stop. A bot that keeps asking is a bot that gets muted, and a
+  # muted bot misses the next job too. The offer is flagged for the office instead.
+  give_up_after_last_reminder: true
+
 # ---------------------------- Job sizing --------------------------------
 job_sizing:
   currency: "CAD"

@@ -366,7 +366,17 @@ def _parse_form(body: bytes) -> dict[str, str]:
 
 
 def serve(database_path: str, port: int = 8770) -> None:
-    inbound = Inbound(SessionStore(database_path))
+    from plumbing import config  # noqa: PLC0415
+    from plumbing.live.reminders import ReminderLoop  # noqa: PLC0415
+
+    sessions = SessionStore(database_path)
+    inbound = Inbound(sessions)
+
+    # Nudges an offer nobody has answered. Its own thread, and a daemon one: it must
+    # never be the reason the server will not shut down, and never the reason it falls
+    # over — whether a reminder went out has nothing to do with answering a customer.
+    ReminderLoop(sessions.offers, config.business_rules()).start()
+
     ThreadingHTTPServer(("127.0.0.1", port), make_handler(inbound)).serve_forever()
 
 
