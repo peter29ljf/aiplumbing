@@ -27,10 +27,12 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
 import uuid
 import urllib.parse
 from collections import defaultdict, deque
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from xml.sax.saxutils import escape
@@ -50,13 +52,23 @@ CHAT_GREETING = (
     "Thanks — you're through to Fangxin Plumbing. What can we help you with?"
 )
 
-# The whole JSON surface. `/chat` is the original single-shot form, kept because it works
-# and because a caller that already has the number should not need two round trips.
+# The whole JSON surface. `/chat` is the original single-shot form: it blocks until the
+# agent answers, which is fine for a script on the same machine and wrong through a proxy.
 _CHAT_ROUTES = {
     "/chat": "chat",
     "/chat/new": "chat_new",
     "/chat/message": "chat_message",
+    "/chat/poll": "chat_poll",
 }
+
+
+@dataclass
+class _Pending:
+    """One turn being worked on. Read from the HTTP thread, written by the worker."""
+
+    done: bool = False
+    reply: str | None = None
+    error: str | None = None
 
 
 class RateLimiter:
@@ -95,6 +107,11 @@ class Inbound:
         self.sessions = sessions
         self.per_session = RateLimiter(CHAT_MESSAGES_PER_MINUTE)
         self.per_ip = RateLimiter(CHAT_MESSAGES_PER_MINUTE_PER_IP)
+        # Turns in flight, keyed by session. In memory on purpose: a reply nobody collected
+        # before a restart is gone, and the customer sends their message again — which is
+        # the same thing that already happens to the conversation itself.
+        self._pending: dict[str, _Pending] = {}
+        self._lock = threading.Lock()
 
     # ---- web chat ----------------------------------------------------
     def chat_new(self, payload: dict[str, Any], *, ip: str = "") -> tuple[int, dict[str, Any]]:
@@ -131,10 +148,21 @@ class Inbound:
         }
 
     def chat_message(self, payload: dict[str, Any], *, ip: str = "") -> tuple[int, dict[str, Any]]:
-        """Say something in a session already opened. Carries no number of its own.
+        """Take the message and answer later. Carries no number of its own.
 
         The number comes from the session, so a caller cannot change whose history they
         are reading by editing one field of the next request.
+
+        **The reply does not come back on this request.** The first turn of a conversation
+        is the agent looking up the customer, reading the rules, checking the diary and
+        pricing the call-out — measured at 129 seconds. Cloudflare cuts an idle connection
+        at 100, so the answer was written, stored, and never seen: the browser's fetch
+        rejected and the widget told the customer we were offline while the agent was
+        still working. Holding an HTTP request open for two minutes is a bet on every
+        proxy between here and the customer, and it is a bet that loses.
+
+        So this returns at once and the front end polls `/chat/poll`. Nothing in the chain
+        has to wait, and how long the agent takes stops being a networking question.
         """
         session_id = str(payload.get("session_id") or "").strip()
         if not session_id:
@@ -149,7 +177,72 @@ class Inbound:
                 "message": "This chat has expired. Start a new one.",
             }
 
-        return self.chat({**payload, "session_id": session_id, "phone": phone}, ip=ip)
+        text = str(payload.get("text") or "").strip()
+        if not text:
+            return 400, {"error": "text is required"}
+        if len(text) > MAX_MESSAGE_CHARS:
+            return 413, {"error": "too_long", "limit": MAX_MESSAGE_CHARS}
+        if not self.per_session.allow(session_id) or not self.per_ip.allow(ip or session_id):
+            return 429, {"error": "rate_limited", "message": "Too many messages. One moment."}
+
+        with self._lock:
+            running = self._pending.get(session_id)
+            if running is not None and not running.done:
+                # One turn at a time per session. LiveConversation holds the message list,
+                # and two workers appending to it would interleave one customer's sentence
+                # into the middle of another's.
+                return 409, {
+                    "error": "still_working",
+                    "message": "Still working on your last message — one moment.",
+                }
+            work = _Pending()
+            self._pending[session_id] = work
+
+        thread = threading.Thread(
+            target=self._run_turn, args=(session_id, phone, text, work), daemon=True
+        )
+        thread.start()
+        return 202, {"status": "working", "session_id": session_id}
+
+    def _run_turn(self, session_id: str, phone: str, text: str, work: _Pending) -> None:
+        try:
+            conversation = self.sessions.get(channel="chat", phone=phone, session_id=session_id)
+            work.reply = conversation.say(text)
+        except Exception as exc:  # noqa: BLE001
+            # The customer gets an apology, not a stack trace, and the type is kept so the
+            # log has something to go on. A worker that dies silently leaves the front end
+            # polling forever.
+            work.error = type(exc).__name__
+        finally:
+            work.done = True
+
+    def chat_poll(self, payload: dict[str, Any], *, ip: str = "") -> tuple[int, dict[str, Any]]:
+        """Is the reply ready? Cheap, and deliberately not rate-limited with the messages.
+
+        Polling is not the customer talking; throttling it would only make the widget look
+        broken while the agent was working perfectly well.
+        """
+        session_id = str(payload.get("session_id") or "").strip()
+        if not session_id:
+            return 400, {"error": "session_id is required"}
+
+        with self._lock:
+            work = self._pending.get(session_id)
+            if work is None:
+                return 200, {"status": "idle"}
+            if not work.done:
+                return 200, {"status": "working"}
+            # Handed over once, then forgotten — otherwise a reply is delivered twice when
+            # two polls cross in flight.
+            del self._pending[session_id]
+
+        if work.error:
+            return 200, {
+                "status": "error",
+                "message": "Sorry — something went wrong at our end. Please try again.",
+                "detail": work.error,
+            }
+        return 200, {"status": "ready", "reply": work.reply or ""}
 
     def chat(self, payload: dict[str, Any], *, ip: str = "") -> tuple[int, dict[str, Any]]:
         session_id = str(payload.get("session_id") or "").strip()

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -264,6 +266,16 @@ def base_url(inbound: Inbound):
     httpd.shutdown()
 
 
+def _wait_over_http(base_url: str, session_id: str, timeout: float = 5.0) -> dict:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        _, polled = _post(f"{base_url}/chat/poll", {"session_id": session_id})
+        if polled["status"] != "working":
+            return polled
+        time.sleep(0.01)
+    raise AssertionError("the worker never finished")
+
+
 def _post(url: str, payload: dict) -> tuple[int, dict]:
     import json as _json
     import urllib.request
@@ -279,10 +291,14 @@ def test_each_chat_endpoint_reaches_its_own_handler(base_url: str):
     code, opened = _post(f"{base_url}/chat/new", {"phone": "604-721-8629"})
     assert code == 200 and opened["session_id"]
 
-    code, answered = _post(
+    code, accepted = _post(
         f"{base_url}/chat/message", {"session_id": opened["session_id"], "text": "hi"}
     )
-    assert code == 200 and answered["reply"] == "echo: hi"
+    assert code == 202 and accepted["status"] == "working"
+
+    assert _wait_over_http(base_url, opened["session_id"]) == {
+        "status": "ready", "reply": "echo: hi",
+    }
 
 
 def test_a_query_string_does_not_stop_a_route_matching(base_url: str):
@@ -398,3 +414,164 @@ def test_a_request_with_no_origin_is_unaffected(cors_url: str):
 
     assert status == 200
     assert "Access-Control-Allow-Origin" not in headers
+
+
+# ---- opening a session ------------------------------------------------
+
+
+def test_opening_a_session_costs_nothing(inbound: Inbound):
+    """The number is taken on the form. No model call happens until they say something."""
+    code, body = inbound.chat_new({"phone": "604-721-8629"})
+
+    assert code == 200
+    assert body["session_id"] and body["greeting"]
+    assert inbound.sessions.calls == []
+
+
+def test_a_session_cannot_be_opened_without_a_number(inbound: Inbound):
+    code, body = inbound.chat_new({"phone": ""})
+
+    assert code == 400
+    assert body["error"] == "phone_required"
+    assert inbound.sessions.store.chat_sessions == {}
+
+
+def test_two_sessions_never_collide(inbound: Inbound):
+    """The id is minted here. A browser choosing its own could choose somebody else's."""
+    first = inbound.chat_new({"phone": "604-721-8629"})[1]["session_id"]
+    second = inbound.chat_new({"phone": "604-721-8629"})[1]["session_id"]
+
+    assert first != second
+
+
+def test_a_session_the_server_has_never_heard_of_is_told_to_start_again(inbound: Inbound):
+    """What a widget left open across a restart sees. A dead box is worse than saying so."""
+    code, body = inbound.chat_message({"session_id": "made-up", "text": "hello"})
+
+    assert code == 404
+    assert body["error"] == "unknown_session"
+    assert inbound.sessions.calls == []
+
+
+def test_the_message_endpoint_keeps_the_ceiling(inbound: Inbound):
+    session_id = inbound.chat_new({"phone": "604-721-8629"})[1]["session_id"]
+
+    code, _ = inbound.chat_message({"session_id": session_id, "text": "x" * 1001})
+
+    assert code == 413
+
+
+# ---- answering later --------------------------------------------------
+#
+# The first turn of a conversation was measured at 129 seconds — the agent looks up the
+# customer, reads the rules, checks the diary and prices the call-out. Cloudflare cuts an
+# idle connection at 100, so the reply was written, stored, and never seen: the browser's
+# fetch rejected and the widget told the customer we were offline while the agent was
+# still working.
+
+
+def _wait(inbound: Inbound, session_id: str, timeout: float = 5.0) -> dict:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        _, polled = inbound.chat_poll({"session_id": session_id})
+        if polled["status"] != "working":
+            return polled
+        time.sleep(0.01)
+    raise AssertionError("the worker never finished")
+
+
+def test_a_message_is_accepted_before_the_agent_has_answered(inbound: Inbound):
+    session_id = inbound.chat_new({"phone": "604-721-8629"})[1]["session_id"]
+
+    code, body = inbound.chat_message({"session_id": session_id, "text": "my tap drips"})
+
+    assert code == 202
+    assert body["status"] == "working"
+
+
+def test_the_reply_arrives_on_a_later_poll(inbound: Inbound):
+    session_id = inbound.chat_new({"phone": "604-721-8629"})[1]["session_id"]
+    inbound.chat_message({"session_id": session_id, "text": "my tap drips"})
+
+    assert _wait(inbound, session_id) == {"status": "ready", "reply": "echo: my tap drips"}
+    # The number came from the session, not from the request that could have said anything.
+    assert inbound.sessions.calls == [
+        {"channel": "chat", "phone": "604-721-8629", "session_id": session_id}
+    ]
+
+
+def test_a_number_in_the_message_body_cannot_change_whose_history_is_read(inbound: Inbound):
+    """Otherwise editing one field of a request reads another customer's record."""
+    session_id = inbound.chat_new({"phone": "604-721-8629"})[1]["session_id"]
+
+    inbound.chat_message(
+        {"session_id": session_id, "phone": "778-555-0000", "text": "hello"}
+    )
+    _wait(inbound, session_id)
+
+    assert inbound.sessions.calls[0]["phone"] == "604-721-8629"
+
+
+def test_a_reply_is_handed_over_once(inbound: Inbound):
+    """Two polls crossing in flight must not print the answer twice."""
+    session_id = inbound.chat_new({"phone": "604-721-8629"})[1]["session_id"]
+    inbound.chat_message({"session_id": session_id, "text": "hello"})
+    _wait(inbound, session_id)
+
+    _, again = inbound.chat_poll({"session_id": session_id})
+
+    assert again == {"status": "idle"}
+
+
+def test_a_second_message_is_refused_while_the_first_is_still_working(inbound: Inbound):
+    """LiveConversation holds the message list. Two workers appending to it would
+    interleave one customer's sentence into the middle of another's."""
+    session_id = inbound.chat_new({"phone": "604-721-8629"})[1]["session_id"]
+    started = threading.Event()
+    release = threading.Event()
+
+    conversation = inbound.sessions.get(channel="chat", phone="604-721-8629",
+                                        session_id=session_id)
+
+    def slow(text: str) -> str:
+        started.set()
+        release.wait(5)
+        return "echo: " + text
+
+    conversation.say = slow
+    inbound.sessions.calls.clear()
+    inbound.chat_message({"session_id": session_id, "text": "first"})
+    started.wait(5)
+
+    code, body = inbound.chat_message({"session_id": session_id, "text": "second"})
+    release.set()
+
+    assert code == 409
+    assert body["error"] == "still_working"
+
+
+def test_a_worker_that_blows_up_does_not_leave_the_widget_polling_forever(inbound: Inbound):
+    session_id = inbound.chat_new({"phone": "604-721-8629"})[1]["session_id"]
+    conversation = inbound.sessions.get(channel="chat", phone="604-721-8629",
+                                        session_id=session_id)
+
+    def explode(text: str) -> str:
+        raise RuntimeError("the model fell over")
+
+    conversation.say = explode
+    inbound.chat_message({"session_id": session_id, "text": "hello"})
+
+    answer = _wait(inbound, session_id)
+
+    assert answer["status"] == "error"
+    assert "RuntimeError" == answer["detail"]
+    assert "stack" not in answer["message"].lower()      # the customer gets an apology
+
+
+def test_polling_a_session_nobody_has_written_to_is_idle_not_an_error(inbound: Inbound):
+    session_id = inbound.chat_new({"phone": "604-721-8629"})[1]["session_id"]
+
+    code, body = inbound.chat_poll({"session_id": session_id})
+
+    assert code == 200
+    assert body == {"status": "idle"}
