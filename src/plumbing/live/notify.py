@@ -31,6 +31,55 @@ from plumbing.integrations.gate import LiveToolUnavailable
 CALL_SCRIPT = "There is a new job. Please check your messages."
 
 
+def offer_job(
+    *,
+    offers: Any,
+    ticket_id: str,
+    chat_id: str,
+    phone: str,
+    summary: str,
+) -> dict[str, Any]:
+    """Put a job in front of the technician with an Accept and a Decline under it.
+
+    The buttons exist so an answer costs one tap. Everything about how the answer comes
+    back lives in `plumbing.live.offers`; this only sends it and makes the phone ring.
+    """
+    from plumbing.live import offers as offers_mod  # noqa: PLC0415
+
+    offer = offers.create(ticket_id=ticket_id, chat_id=chat_id, summary=summary)
+    text = offers_mod.offer_text(summary)
+    outcome: dict[str, Any] = {"offer_id": offer.offer_id, "telegram": None,
+                               "call": None, "errors": []}
+
+    if is_live("telegram.send"):
+        from plumbing.integrations import telegram  # noqa: PLC0415
+
+        try:
+            sent = telegram.send_message(chat_id, text, buttons=offers_mod.buttons(offer.offer_id))
+            offers.set_message_id(offer.offer_id, sent["message_id"])
+            outcome["telegram"] = sent
+        except LiveToolUnavailable as exc:
+            outcome["errors"].append(f"telegram: {exc}")
+    else:
+        outcome["telegram"] = {"simulated": True, "chat_id": chat_id, "text": text,
+                               "buttons": offers_mod.buttons(offer.offer_id)}
+
+    outcome["call"] = _ring(phone, outcome["errors"])
+    return outcome
+
+
+def _ring(phone: str, errors: list[str]) -> Any:
+    if not is_live("phone.call_technician"):
+        return {"simulated": True, "to": phone, "script": CALL_SCRIPT}
+    from plumbing.integrations import twilio_voice  # noqa: PLC0415
+
+    try:
+        return twilio_voice.say_and_hang_up(phone, CALL_SCRIPT)
+    except LiveToolUnavailable as exc:
+        errors.append(f"call: {exc}")
+        return None
+
+
 def notify_technician(
     *,
     chat_id: str,

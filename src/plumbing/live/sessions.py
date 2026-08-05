@@ -46,6 +46,9 @@ class SessionStore:
 
     def __init__(self, database_path: str, llm: LLM | None = None) -> None:
         self.store = SqliteStore(database_path)
+        from plumbing.live.offers import Offers  # noqa: PLC0415
+
+        self.offers = Offers(self.store)
         self.llm = llm or LLM()
         self._sessions: dict[str, LiveConversation] = {}
         self._lock = threading.Lock()

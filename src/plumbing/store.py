@@ -366,10 +366,11 @@ class SqliteStore:
         The in-memory counter restarts at 1 every process, which is fine for a scenario and
         would hand two different customers the same ticket number in production.
         """
-        table = {"TK": "tickets", "AP": "appointments"}.get(prefix)
+        table = {"TK": "tickets", "AP": "appointments", "OF": "offers"}.get(prefix)
         if table is None:
             return f"{prefix}-{int(datetime.now().timestamp() * 1000) % 1_000_000:06d}"
-        column = {"tickets": "ticket_id", "appointments": "appointment_id"}[table]
+        column = {"tickets": "ticket_id", "appointments": "appointment_id",
+                  "offers": "offer_id"}[table]
         with self.connect() as conn:
             row = conn.execute(
                 f"SELECT {column} FROM {table} WHERE {column} LIKE ? "

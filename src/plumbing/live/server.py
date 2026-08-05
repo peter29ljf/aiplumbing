@@ -147,6 +147,9 @@ class Inbound:
             # Anyone can post here; a forged update must not be able to drive the agent.
             return 403, {"error": "forbidden"}
 
+        if update.get("callback_query"):
+            return self._button_press(update["callback_query"])
+
         message = update.get("message") or {}
         text = str(message.get("text") or "").strip()
         chat_id = str((message.get("chat") or {}).get("id") or "")
@@ -164,8 +167,89 @@ class Inbound:
             self._telegram_reply(chat_id, "Text only for now, please.")
             return 200, {"ok": True}
 
+        offers = self.sessions.offers
+        pending = offers.awaiting_reason(chat_id)
+        if pending is not None:
+            # They tapped Decline and were asked why. This is the answer.
+            offers.decline(pending.offer_id, text)
+            self._settle(offers.get(pending.offer_id))
+            self._telegram_reply(chat_id, "Noted — the office will sort it out. Thanks.")
+        else:
+            # An offer is on screen and they are typing. Held as a possible reason so that
+            # "type why, then tap Decline" works; harmless if they tap Accept instead.
+            offers.note_typed(chat_id, text)
+
         self.sessions.record_technician_message(chat_id=chat_id, text=text)
         return 200, {"ok": True}
+
+    def _button_press(self, callback: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        """Accept is one tap. Decline needs a reason, given either before or after."""
+        from plumbing.live import offers as offers_mod  # noqa: PLC0415
+
+        callback_id = str(callback.get("id") or "")
+        chat_id = str(((callback.get("message") or {}).get("chat") or {}).get("id") or "")
+        parsed = offers_mod.parse_callback(str(callback.get("data") or ""))
+        if parsed is None or self.sessions.technician_by_chat_id(chat_id) is None:
+            self._answer(callback_id, "")
+            return 200, {"ok": True}
+
+        offer_id, decision = parsed
+        offers = self.sessions.offers
+        offer = offers.get(offer_id)
+        if offer is None or offer.state in ("accepted", "declined"):
+            # Someone scrolled back to an old offer. Answering the callback still matters
+            # or their client spins.
+            self._answer(callback_id, "That one is already settled.")
+            return 200, {"ok": True}
+
+        if decision == offers_mod.ACCEPT:
+            offers.accept(offer_id)
+            self._answer(callback_id, "Accepted — thanks.")
+            self._settle(offers.get(offer_id))
+            return 200, {"ok": True}
+
+        if offer.reason:
+            # They typed why before tapping Decline, which is the flow the message asks
+            # for. Nothing more to ask.
+            offers.decline(offer_id, offer.reason)
+            self._answer(callback_id, "Declined — thanks for the reason.")
+            self._settle(offers.get(offer_id))
+            return 200, {"ok": True}
+
+        # Tapped Decline with nothing typed. Asking is better than refusing the tap: the
+        # person who presses the obvious button before reading is not the one at fault.
+        offers.ask_for_reason(offer_id)
+        self._answer(callback_id, "")
+        self._telegram_reply(chat_id, "No problem — what should I tell the customer?")
+        return 200, {"ok": True}
+
+    def _settle(self, offer: Any) -> None:
+        """Rewrite the offer message so its buttons are gone and the outcome is visible."""
+        from plumbing.integrations import is_live  # noqa: PLC0415
+
+        if offer is None or not offer.message_id or not is_live("telegram.send"):
+            return
+        from plumbing.integrations import telegram as tg  # noqa: PLC0415
+        from plumbing.integrations.gate import LiveToolUnavailable  # noqa: PLC0415
+        from plumbing.live import offers as offers_mod  # noqa: PLC0415
+
+        try:
+            tg.edit_message(offer.chat_id, offer.message_id, offers_mod.settled_text(offer))
+        except LiveToolUnavailable:
+            return
+
+    def _answer(self, callback_id: str, text: str) -> None:
+        from plumbing.integrations import is_live  # noqa: PLC0415
+
+        if not callback_id or not is_live("telegram.send"):
+            return
+        from plumbing.integrations import telegram as tg  # noqa: PLC0415
+        from plumbing.integrations.gate import LiveToolUnavailable  # noqa: PLC0415
+
+        try:
+            tg.answer_callback(callback_id, text)
+        except LiveToolUnavailable:
+            return
 
     def _telegram_reply(self, chat_id: str, text: str) -> None:
         from plumbing.integrations import is_live  # noqa: PLC0415

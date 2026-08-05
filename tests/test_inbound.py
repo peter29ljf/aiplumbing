@@ -156,10 +156,11 @@ def test_the_rate_limit_window_slides():
 
 
 class FakeSessionsWithRoster(FakeSessions):
-    def __init__(self, roster=("555",)):
+    def __init__(self, roster=("555",), offers=None):
         super().__init__()
         self.roster = roster
         self.recorded: list[dict] = []
+        self.offers = offers if offers is not None else _real_offers()
 
     def technician_by_chat_id(self, chat_id):
         return {"id": "t_wang", "telegram_chat_id": chat_id} if chat_id in self.roster else None
@@ -170,6 +171,15 @@ class FakeSessionsWithRoster(FakeSessions):
 
 def _update(chat_id="555", text="on my way", user_id="u1"):
     return {"message": {"text": text, "chat": {"id": chat_id}, "from": {"id": user_id}}}
+
+
+def _real_offers():
+    """A real Offers over a throwaway database — the flow is the thing under test."""
+    import tempfile
+    from plumbing.live.offers import Offers
+    from plumbing.store import SqliteStore
+
+    return Offers(SqliteStore(Path(tempfile.mkdtemp()) / "offers.db"))
 
 
 def _inbound_with_roster(monkeypatch, roster=("555",)):

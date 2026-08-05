@@ -35,15 +35,55 @@ def _call(method: str, payload: dict[str, Any]) -> dict[str, Any]:
     return body.get("result") or {}
 
 
-def send_message(chat_id: str, text: str) -> dict[str, Any]:
-    """Send a message to a technician's chat. Returns the provider's message id."""
+def send_message(
+    chat_id: str, text: str, buttons: list[list[dict[str, str]]] | None = None
+) -> dict[str, Any]:
+    """Send a message, optionally with inline buttons under it.
+
+    `buttons` is rows of `{"text": ..., "data": ...}`. Telegram caps `callback_data` at
+    **64 bytes**, and silently rejects the whole message when it is over — so the data
+    carried is a short code, not a payload.
+    """
     if not chat_id:
         raise LiveToolUnavailable(
             "No Telegram chat id for this technician. They need to message the bot once "
             "so it learns their id, and that id has to be on their record."
         )
-    result = _call("sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "HTML"})
+    payload: dict[str, Any] = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+    if buttons:
+        for row in buttons:
+            for button in row:
+                if len(button["data"].encode()) > 64:
+                    raise LiveToolUnavailable(
+                        f"callback_data {button['data']!r} is over Telegram's 64-byte limit."
+                    )
+        payload["reply_markup"] = json.dumps({
+            "inline_keyboard": [
+                [{"text": b["text"], "callback_data": b["data"]} for b in row] for row in buttons
+            ]
+        })
+    result = _call("sendMessage", payload)
     return {"provider": "telegram", "message_id": str(result.get("message_id", ""))}
+
+
+def answer_callback(callback_id: str, text: str = "") -> None:
+    """Acknowledge a button press.
+
+    Not optional: until this is sent the client shows a spinner on the button and the
+    technician cannot tell whether their tap registered, so they tap it again.
+    """
+    _call("answerCallbackQuery", {"callback_query_id": callback_id, "text": text})
+
+
+def edit_message(chat_id: str, message_id: str, text: str) -> None:
+    """Replace a message and drop its buttons.
+
+    Called the moment a decision lands, so the same job cannot be accepted twice by
+    somebody scrolling back to an old offer.
+    """
+    _call("editMessageText", {
+        "chat_id": chat_id, "message_id": message_id, "text": text, "parse_mode": "HTML",
+    })
 
 
 def verify_webhook_secret(provided: str) -> None:
