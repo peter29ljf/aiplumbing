@@ -68,12 +68,16 @@ def clock_advance(ctx: ToolContext, minutes: int, reason: str = "") -> dict[str,
 def rules_standard_fee(ctx: ToolContext) -> dict[str, Any]:
     pricing = ctx.world.rules["pricing"]
     fee = pricing["standard_inspection_fee"]
+    no_charge = ctx.world.rules.get("no_charge", {})
     return {
         "amount": fee["amount"],
         "currency": fee["currency"],
         "qualifier": fee["qualifier"],
         "display": f"{fee['currency']} {fee['amount']} ({fee['qualifier']})",
         "offset_rules": pricing["fee_offset"],
+        # Zero is a price too. Without these the agent has to promise "free" from memory.
+        "reschedule_free": bool(no_charge.get("reschedule")),
+        "cancellation_free": bool(no_charge.get("cancellation")),
     }
 
 
@@ -134,7 +138,11 @@ def rules_schedule(ctx: ToolContext) -> dict[str, Any]:
     _NO_ARGS,
 )
 def rules_job_sizing(ctx: ToolContext) -> dict[str, Any]:
-    return ctx.world.rules["job_sizing"]
+    no_charge = ctx.world.rules.get("no_charge", {})
+    return {
+        **ctx.world.rules["job_sizing"],
+        "quote_free": bool(no_charge.get("quote")),
+    }
 
 
 @tool(

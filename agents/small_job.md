@@ -85,7 +85,7 @@ they will assume it is not.
 
 **Cancel**: `calendar.cancel` → `ticket.update_status` → `Appointment Cancelled` → notify the
 technician → send the customer a cancellation confirmation and a `thanks_closing` message →
-`Closed` → `conversation.end`. **Cancelling a standard appointment is free.** Do not ask them
+`Closed` → `conversation.end`. **Cancelling a standard appointment is free** — same lookup. Do not ask them
 to justify it; if they volunteer a reason, record it with `ticket.set_fields`.
 
 ## If it turns out not to be a small job
@@ -94,6 +94,12 @@ If what they describe is clearly a large project — installation, renovation, e
 pipework, a boiler or heat pump, commercial work — hand off to `large_job` rather than
 booking a call-out for something that needs a quote. If they now want someone immediately,
 hand off to `emergency`.
+
+**If you had already booked them, cancel that appointment before you hand over.**
+`calendar.cancel`, tell the technician, then `ticket.update_status` → `Appointment Cancelled`
+→ `Awaiting Appointment Selection`. Two reasons: a booking nobody cancels sends a technician
+to a job that is not happening, and the ticket cannot reach the next flow's opening state
+from `Appointment Booked` — the state machine will stop whoever picks it up.
 
 ## Complaints and disputes
 

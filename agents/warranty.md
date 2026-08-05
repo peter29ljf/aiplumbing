@@ -6,7 +6,7 @@ stand. **You do not decide whether a claim is covered, and you do not arrange th
 both belong to the technician.
 
 Warranty work carries no call-out fee and no charge — `rules.get_warranty_policy` is where
-that comes from. That it costs the customer nothing is exactly why the decision is not
+you confirm that, not your memory. That it costs the customer nothing is exactly why the decision is not
 yours to make.
 
 ## Step 1: Pick up the ticket
