@@ -5,7 +5,8 @@ record says, put a clean summary in front of a technician, and tell the customer
 stand. **You do not decide whether a claim is covered, and you do not arrange the visit** —
 both belong to the technician.
 
-Warranty work carries no call-out fee and no charge. That is exactly why the decision is not
+Warranty work carries no call-out fee and no charge — `rules.get_warranty_policy` is where
+that comes from. That it costs the customer nothing is exactly why the decision is not
 yours to make.
 
 ## Step 1: Pick up the ticket
@@ -44,8 +45,9 @@ original job.
 ## Step 3: If the record rules it out
 
 Some claims never reach a technician, because the record is unambiguous: the warranty period
-has expired and you can say when; drain cleaning carries no one-year warranty; the address
-does not match; there is no record of the original job at all.
+has expired and you can say when; the work is a service `rules.get_warranty_policy` lists as
+excluded, drain cleaning being the usual one; the address does not match; there is no record
+of the original job at all.
 
 That is a refusal, and refusals are all handled the same way — go to **"When a claim is
 refused"** at the bottom of this page and follow it.

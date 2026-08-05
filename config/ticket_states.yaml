@@ -31,6 +31,7 @@ states:
   - "Quote Sent"
   - "Quote Accepted"
   - "Quote Rejected"
+  - "Quote Awaiting Follow-up"
   - "Large Project Documents Requested"
   - "Large Project Documents Received"
   - "Large Project Under Review"
@@ -129,6 +130,13 @@ transitions:
   "Quote Sent":
     - "Quote Accepted"
     - "Quote Rejected"
+    # A quote nobody answers is neither accepted nor rejected. Without this the agent
+    # had nowhere legal to put it, and business_rules names the state it could not reach.
+    - "Quote Awaiting Follow-up"
+  "Quote Awaiting Follow-up":
+    - "Quote Accepted"                     # They came back after all
+    - "Quote Rejected"
+    - "Closed"
   "Quote Accepted":
     - "Appointment Booked"
     - "Service Completed"

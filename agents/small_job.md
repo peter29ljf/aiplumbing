@@ -38,7 +38,10 @@ has just explained their leak twice concludes, rightly, that nobody is listening
 2. Offer the customer the earliest slot and a couple of alternatives, and let them pick.
 3. **Spell out how the money works, before you book.** Call
    `rules.get_standard_service_fee` and tell them all four parts:
-   - The call-out fee is **CAD 100** for the technician to attend.
+   - The call-out fee for the technician to attend — **exactly as the tool returns it,
+     qualifier included**. It comes back with wording like "starting at" for a reason: the
+     figure is a floor, not a fixed price, and dropping that word turns an estimate into a
+     promise we have not made.
    - On site the technician looks at it, tells them what is wrong, and gives them a price
      for the repair.
    - If they accept that price, **the call-out fee comes off the repair cost** — they do not
@@ -46,7 +49,7 @@ has just explained their leak twice concludes, rightly, that nobody is listening
    - If they decline the repair, **the call-out fee is still payable** — that is what pays
      for the trip and the diagnosis.
 
-   Say all four. A customer who only hears "CAD 100 to come out" and later declines a quote
+   Say all four. A customer who only hears the call-out figure and later declines a quote
    is a customer who thinks they have been charged for nothing, and they will be right to
    feel misled. Getting the last point in now costs one sentence and prevents an argument
    the technician has to have on their doorstep.
@@ -54,8 +57,8 @@ has just explained their leak twice concludes, rightly, that nobody is listening
 5. `ticket.update_status` → `Appointment Booked`.
 6. Send **two** messages with `sms.send`, purpose `appointment_confirmation`:
    - **To the customer**: the date and time, the address, the technician's name, and the fee
-     terms again in short — CAD 100 to attend, credited against the repair if they go ahead,
-     payable if they decline.
+     terms again in short — the call-out fee as the tool gave it to you, credited against
+     the repair if they go ahead, payable if they decline.
    - **To the technician**: the address, the customer's name and number, and the fault.
 
 If the slot they want falls on a Sunday or a BC statutory holiday, `calendar.find_slots` will

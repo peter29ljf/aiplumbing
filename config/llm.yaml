@@ -38,10 +38,13 @@ roles:
   auditor:                                # Static consistency scan over all prompts
     model: "deepseek-v4-flash"
     temperature: 0.0                      # Same corpus must give the same findings
-    # Reads ~1300 lines at once. This is a reasoning model, and reasoning is billed
-    # against max_tokens: at 8000 the thinking consumed the whole budget and the reply
-    # came back empty, which surfaces as a JSON parse failure rather than as truncation.
-    max_tokens: 32000
+    # Reads ~1300 lines at once. This is a reasoning model and reasoning is billed against
+    # max_tokens, so the budget has to cover the thinking as well as the report. At 8000 the
+    # reply came back empty; 32000 was enough for one corpus and not for the same corpus 36
+    # lines longer, because how long it thinks varies. Leave plenty of headroom — an empty
+    # reply costs a whole rerun, and unused budget costs nothing.
+    max_tokens: 64000
+
   doctor:                                 # Only used when doctor_backend.kind = "openai"
     model: "deepseek-v4-flash"
     temperature: 0.4

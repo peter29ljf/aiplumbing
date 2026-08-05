@@ -20,8 +20,10 @@ rules. In particular:
   rate band applies → `clock.now`
 - Before quoting any price → `rules.get_standard_service_fee` or `rules.get_emergency_fee`
 - Before saying "the earliest we can come is…" → `calendar.find_slots`
-- When a customer raises a warranty claim → `crm.get_warranty_candidates`. Never work
-  out the warranty period yourself.
+- Before ruling on a warranty claim → `crm.get_warranty_candidates`. Never work out the
+  warranty period yourself. **This is for whoever handles warranty claims.** If your own
+  prompt tells you to hand a claim straight on, hand it on — looking up the record so you
+  can form a view is exactly what that instruction is preventing.
 
 ## Ticket status
 

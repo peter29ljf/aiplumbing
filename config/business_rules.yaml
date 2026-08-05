@@ -167,9 +167,13 @@ job_sizing:
     Estimated at CAD 1,000 or above, or involving installation, remodelling,
     renovation, complex leak detection, extensive pipework, new builds, boiler or
     heat pump installation, or commercial projects
+  # Ask once for more detail. If that does not settle it, it is a small job — no
+  # exceptions, and no second round of questions. A customer who says "I don't know"
+  # does not know, and every extra round is a turn spent owing them a cost we cannot
+  # yet state. The technician sizes it properly on site.
   unknown_policy: >-
-    Request photos, video and a fuller description first; if the scope still cannot
-    be judged reliably, route to the free-quote process
+    Ask once for more detail; if the scope still cannot be judged, treat it as a
+    small job and hand off to small_job
 
 # ---------------------------- Emergency dispatch ------------------------
 emergency_dispatch:
@@ -184,6 +188,15 @@ emergency_dispatch:
     before_dispatch_confirmed: "auto_refund"        # Agent refunds the deposit automatically
     after_dispatch_confirmed: "supervisor_review"   # No auto-refund; must escalate
     cut_off: "The emergency confirmation message being sent to the customer"
+
+# ---------------------------- Things that are free -----------------------
+# Zero is a price. Every one of these was stated in a prompt and nowhere else, so a
+# decision to start charging would have had to be found by reading five prompts.
+no_charge:
+  warranty_visit: true          # A warranty visit carries no call-out fee and no charge
+  quote: true                   # Quoting a large project is free
+  reschedule: true              # Moving a standard appointment costs nothing
+  cancellation: true            # Cancelling a standard appointment costs nothing
 
 # ---------------------------- Warranty ----------------------------------
 warranty:
@@ -247,8 +260,11 @@ escalation:
     - "Technician cannot complete the job"
     - "Dispute over damage caused by the service"
     - "On-site safety incident"
-    - "Payment failure, duplicate charge, or failed refund"
-    - "Cancellation refund after the technician has departed"
+    # A declined card or a deposit that has not landed yet is ordinary and belongs to the
+    # agent running that payment step. Escalate only once money has actually moved wrongly,
+    # or once our own tools have been tried and it still cannot be completed.
+    - "Duplicate charge, failed refund, or a payment our tools cannot complete"
+    - "Cancellation refund after the emergency confirmation message has been sent"
     - "Customer disputes a warranty decision"
   ai_must_not:
     - "Accept liability, promise compensation, or issue a refund outside the rules"
