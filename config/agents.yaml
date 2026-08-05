@@ -27,7 +27,11 @@ agents:
     - clock.*
     - rules.*
     - crm.*
-    - calendar.find_slots
+    # No calendar. Reception triages and hands over; the colleague who books looks the
+    # diary up once. Granting it here meant intake found the slots, quoted the fee, handed
+    # off, and small_job did all four lookups again before it could say anything —
+    # twenty-seven seconds of the customer's wait, spent twice on the same answer.
+    # Taking the tool away is what makes that true, rather than a line in a prompt.
     - sms.send
     - email.*
     - ticket.*
