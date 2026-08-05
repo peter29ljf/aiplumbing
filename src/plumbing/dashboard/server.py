@@ -15,6 +15,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import threading
+import time
 import webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -280,6 +282,106 @@ def _write_yaml_preserving_header(path: Path, data: dict[str, Any]) -> None:
 
 
 # ======================================================================
+# Talking to the agent
+# ======================================================================
+#
+# The same LiveConversation production uses, so what is said here is what a customer would
+# be told. What differs is the tools: this process has no PLUMBING_LIVE_* set, so every
+# adapter is the simulator and nothing leaves the machine. Booking from this console does
+# not put an entry in anybody's real diary.
+#
+# Every model call is timed. "Is the agent slow?" deserves a breakdown rather than a
+# verdict — the answer decides whether to change the model, the prompt, or the tool list.
+
+_chat_lock = threading.Lock()
+_chat: dict[str, Any] = {"conversation": None, "llm": None}
+
+
+def _conversation(phone: str = "") -> Any:
+    from plumbing.live.conversation import LiveConversation  # noqa: PLC0415
+    from plumbing.llm import LLM  # noqa: PLC0415
+    from plumbing.tools.registry import ToolContext  # noqa: PLC0415
+    from plumbing.world import World  # noqa: PLC0415
+
+    if _chat["conversation"] is None:
+        llm = LLM()
+        enabled = set(config.enabled_agents())
+        world = World(now=datetime.now().astimezone().isoformat())
+        _chat["llm"] = llm
+        # Only the agents this deployment runs, exactly as live/sessions.py assembles
+        # them. build_all returns every agent in the config; handing all five to the
+        # console would let it transfer somewhere production cannot reach, and the console
+        # would be testing a system nobody is running.
+        everything = agent_registry.build_all(llm, enabled=enabled)
+        _chat["conversation"] = LiveConversation(
+            agents={name: everything[name] for name in sorted(enabled) if name in everything},
+            entry_agent=config.live_config().get("entry_agent", "intake"),
+            llm=llm,
+            ctx=ToolContext(world=world, enabled_agents=tuple(sorted(enabled))),
+            channel="chat",
+            phone=phone,
+            session_id="console",
+        )
+    return _chat["conversation"]
+
+
+def chat_reset(phone: str = "") -> dict[str, Any]:
+    """A number here means the conversation starts the way a real one does.
+
+    Production takes it on the form, so the agent is told it up front and spends its first
+    turn looking the customer up, reading the diary and pricing the call-out. Without one
+    the agent just asks for it, which is a much shorter turn — and timing that instead is
+    how you measure the wrong thing and conclude the agent is fast.
+    """
+    with _chat_lock:
+        _chat["conversation"] = None
+        _chat["llm"] = None
+        _chat["phone"] = (phone or "").strip()
+    return {"ok": True, "phone": _chat.get("phone", "")}
+
+
+def chat_say(text: str) -> dict[str, Any]:
+    """One turn, with the time each model call took and what it asked for."""
+    from plumbing.llm import LLM  # noqa: PLC0415
+
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("Say something first.")
+
+    with _chat_lock:
+        conversation = _conversation(_chat.get("phone", ""))
+        calls: list[dict[str, Any]] = []
+        original = LLM.chat
+
+        def timed(self, role, messages, tools=None, tool_choice=None, response_format=None):
+            started = time.monotonic()
+            message = original(self, role, messages, tools=tools, tool_choice=tool_choice,
+                               response_format=response_format)
+            calls.append({
+                "seconds": round(time.monotonic() - started, 1),
+                "tools": [c.function.name
+                          for c in (getattr(message, "tool_calls", None) or [])],
+            })
+            return message
+
+        LLM.chat = timed
+        began = time.monotonic()
+        try:
+            reply = conversation.say(text)
+        finally:
+            LLM.chat = original
+
+        return {
+            "reply": reply,
+            "seconds": round(time.monotonic() - began, 1),
+            "calls": calls,
+            "agent": conversation.active_name,
+            "ticket": conversation.ctx.world.active_ticket_id or "",
+            "closed": conversation.closed,
+        }
+
+
+# ======================================================================
 # HTTP
 # ======================================================================
 
@@ -357,6 +459,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(save_agent_tools(payload["agent"], payload["tools"]))
             elif route.path == "/api/llm":
                 self._json(save_llm(payload))
+            elif route.path == "/api/chat":
+                self._json(chat_say(payload.get("text", "")))
+            elif route.path == "/api/chat/reset":
+                self._json(chat_reset(payload.get("phone", "")))
             else:
                 self._json({"error": "not found"}, 404)
         except ValueError as exc:
