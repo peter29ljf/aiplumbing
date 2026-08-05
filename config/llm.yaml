@@ -9,9 +9,14 @@
 #
 # If a model id returns 404, run `python3 scripts/check_llm.py` to list the real ids.
 
-active: qwen
+active: bailian-deepseek
 
 providers:
+  # Not active. A full 24-scenario baseline came back 4/24 against DeepSeek's 21/24, with
+  # every failure the agent's and all of one shape: tools it was told to call and did not,
+  # handoffs not made, states walked wrong. Its cache also only reached 14.2% against
+  # DeepSeek's 94%, so the input cost was roughly sixteen times higher in practice.
+  # Kept for a retry with explicit cache_control and thinking on for the agent.
   qwen:
     base_url: "https://llm-lhu6gyj1f60ryppl.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
     api_key_env: "QWEN_API_KEY"
@@ -27,6 +32,17 @@ providers:
     # messages. Every prompt that asks for JSON here already says so, but a new one
     # must too, or the call comes back 400.
 
+  # DeepSeek's model served from Bailian, so the key and the billing sit in one place.
+  # No provider-level extra_body: this one reasons natively and both directions of
+  # enable_thinking work, so the roles decide. Nothing is turned off here that has not
+  # been measured — turning it off untested cost a whole 24-scenario baseline today.
+  bailian-deepseek:
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key_env: "QWEN_API_KEY"
+    model: "deepseek-v4-flash-0731"
+    timeout_seconds: 120
+    max_retries: 3
+
   deepseek:
     base_url: "https://api.deepseek.com/v1"
     api_key_env: "DEEPSEEK_API_KEY"
@@ -40,6 +56,12 @@ providers:
 # role only when that role should differ from the rest.
 roles:
   agent:                                  # Business agents (intake / small_job / ...)
+    # Thinking ON. It was off on the grounds that this is a conversational role, and the
+    # full baseline came back 4/24 against DeepSeek's 21/24 — every failure the agent's,
+    # and all of one shape: tools it was told to call and did not, handoffs not made,
+    # states walked wrong. Deciding which tool to call next from what the last one
+    # returned is reasoning, whatever the output looks like to a customer.
+    extra_body: { enable_thinking: true }
     temperature: 0.3
     max_tokens: 2000
   customer:                               # Simulated customer
