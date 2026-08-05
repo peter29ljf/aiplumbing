@@ -11,6 +11,9 @@ technicians:
     max_concurrent_jobs: 3
     on_duty: true
     default_policy: "accept"
+    # Learned when they first messaged the bot. Everything the office sends a technician
+    # goes to Telegram; the phone is only used to make it ring.
+    telegram_chat_id: "6043701711"
 
   - id: "t_li"
     name: "David Li"
