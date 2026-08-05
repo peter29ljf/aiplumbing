@@ -145,10 +145,11 @@ prices it. What you do is get the technician enough to work from.
 3. Tell them the quote is free, that a technician prices it once he has seen the
    photographs, and that they do not need to stay online. **Do not give a figure or a
    range**, and do not promise how long it will take.
-4. `ticket.set_fields` with what they want done, then `escalate.raise` so the technician
-   knows it is waiting. Then `conversation.end` — **end the conversation, do not close the
-   ticket.** A quote nobody has written yet is not finished work, and the shared "close
-   the loop" routine would mark it `Closed` and lose it.
+4. `ticket.set_fields` with what they want done, `escalate.raise` so the technician knows
+   it is waiting, and `conversation.end` — **all three in one call**, with the message from
+   step 3. Nothing here reads what the others returned. **End the conversation, do not
+   close the ticket:** a quote nobody has written yet is not finished work, and the shared
+   "close the loop" routine would mark it `Closed` and lose it.
 
 Skip Step 6 — there is nothing for them to choose between.
 
