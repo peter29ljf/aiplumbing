@@ -226,16 +226,56 @@ harness 噪音修掉后自动通过了 —— 它们本来就没问题。
 24 条端到端场景全量，`--repeat 2` 出可信判定，让 doctor 修掉所有 `actionable` 的失败。
 P0 那套判定机制和 4b 都验过了，这一轮是它们合起来的第一次全量考试。
 
-**基线阶段已完成：20/24 通过**（明细见文件开头）。doctor 正在修 2 条 agent 问题：
+## 第一次全量跑完了：**21/24，验收未达标**（要 22）
 
-- `journey_warranty_rejected_becomes_paid_work` —— 第 1、2 轮都没修好。
-  轮 1 改 `warranty.md`（保修移交规则收窄到"仅覆盖内的索赔"），轮 2 改
-  `_shared/technician_handover.md`（加第三种师傅结果："退回给你，要跟客户谈"）。
-  诊断在收敛：师傅拒赔后 agent 发短信通知就收单了，**没给客户"那走付费维修"这条路**。
-- `journey_deposit_payment_fails` —— 还没轮到。
+| | 基线 | 终态 |
+|---|---|---|
+| 通过 | 20 | **21** |
+| 失败 | 1 | **0** ✅ |
+| 抖动 | 3 | 3 |
 
-**卡点**：另外 2 条要等 4e 定了才能进 doctor。所以这一轮跑完最好的结果是 **22/24**，
-剩 2 条是分类问题不是 agent 问题。
+**0 失败是真进步。** 但 21 < 22，这一项不勾。
+
+### doctor 的战绩：改 4 次，留 1 次
+
+- ✅ **`journey_deposit_payment_fails` 修好了**（轮 1 一次过，回归 23 场景全清）。
+  诊断：`core_rules` 里"支付问题一律 escalate"这条太宽，**刷卡被拒也去找主管**，
+  于是定金链接根本没发。它把规则收窄成"付款环节由负责该环节的 agent 处理，且不改变交接对象"。
+- ❌ **`journey_warranty_rejected_becomes_paid_work` 三轮全部回滚。**
+  轮 1 改 `warranty.md`、轮 2、3 改 `_shared/technician_handover.md`，
+  每次场景仍然失败，自动还原。诊断一直在收敛（师傅拒赔后没给客户付费维修这条路 →
+  用短信发结论而客户看不到 → 把 `review.get_verdict` 拖到 24 小时跟进、把回合全耗在
+  "我们会回复您"上），**但三次都没改对**。
+
+**回滚机制连续正确工作 3 次**——这是防回归护栏第一次被真正压力测试。
+
+### 终态 3 条抖动
+
+| 场景 | 变化 | 归属 |
+|---|---|---|
+| `warranty_rejected_becomes_paid_work` | FAIL 0/4 → 抖动 2/4 | doctor 修不动，**需要人改流程** |
+| `emergency_no_taker_switches_to_standard` | 抖动 → 抖动 | 4e（分类误判） |
+| `emergency_cancel_after_confirmation` | **PASS → 抖动** ⚠️ | 新出现，见下 |
+
+⚠️ **`emergency_cancel_after_confirmation` 是基线通过、终态抖动的。**
+而它在 doctor 那次改动的 23 场景回归里是通过的。两种可能：纯方差，或者
+**回归的 `--repeat 2` 强度不够，漏掉了这次改动引入的问题**。下一轮要盯。
+
+### 护栏校验
+
+跑前跑后 `config/ src/ scenarios/ tests/` 的 SHA256 **完全一致**（`fa2c7570…`），
+doctor 全程没碰过受保护的文件。
+
+### 成本
+
+输入 39,731,290 token / 输出 1,953,994，**缓存命中 93.8%**。
+
+### 一个值得记的巧合
+
+doctor 唯一保留的那次改动，改的正是我在 prompt 静态审查里列为"第 6 条可简化项"的地方
+（各 agent 的 escalate 规则太宽、和 core_rules 重复）。**一个是读出来的，一个是跑 156 次
+端到端跑出来的，结论相同。** 这是 [METHOD.md](business-agent-template/METHOD.md) 第二节
+"静态一致性检查是最大效率洼地"的直接证据。
 
 ```bash
 PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --workers 8 --repeat 2 --max-repair-rounds 3
@@ -245,6 +285,16 @@ PYTHONPATH=src python3 -m plumbing.testkit.loop --suite journey --workers 8 --re
 
 **验收**：22/24（4e 未定之前的上限），且 `prompt_history/` 里能看清每次改动的原因。
 4e 定完再补跑一次拿 24/24。
+
+**当前 21/24，未达标。** 补齐要三件事，都不是再跑一次能解决的：
+
+1. **`warranty_rejected_becomes_paid_work` 需要人改流程，不是 doctor 能修的。**
+   根因在 [prompt 审查](#) 里已定位：「保修被否 → 问客户要不要付费做」这件事在
+   `warranty.md:53-55` 和 `_shared/technician_handover.md:29-34` **各写了一份，
+   触发时机不同、措辞不同、都不完整**，agent 不知道照哪份走。doctor 三轮一直在这两个
+   文件之间来回改，改不出来是必然的——**要合并成一份，这是结构问题不是措辞问题**。
+2. **4e 拍板**（`no_rule_violations` 的来源分类），解掉 `no_taker_switches_to_standard`。
+3. **查 `emergency_cancel_after_confirmation` 的退化**，确认是方差还是回归强度不够。
 
 ---
 
