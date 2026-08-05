@@ -1,0 +1,15 @@
+# What this deployment actually turns on.
+#
+# The other agents are not deleted — their prompts and scenarios are assets for the day
+# they go live. They are simply unreachable here, and everything that could route to them
+# has to know that: the system prompt must not advertise them, and handoff.transfer must
+# refuse rather than report success a moment before the conversation layer says otherwise.
+#
+# The flows left off are the ones holding deposits and refunds. Anything they would have
+# handled is taken down as a message and given to a person.
+
+enabled_agents:
+  - intake
+  - small_job
+
+entry_agent: intake

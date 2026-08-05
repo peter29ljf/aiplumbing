@@ -26,6 +26,10 @@ class ToolContext:
 
     world: World
     agent_name: str = ""
+    # Which agents this deployment runs, when it runs only some. Left unset by the test
+    # rig on purpose: a scenario suite that only exercised what production happens to
+    # have switched on would quietly stop covering the rest.
+    enabled_agents: tuple[str, ...] | None = None
     # Human simulators, injected by the runner. Tools do not care whether they are
     # LLM-driven or scripted.
     technician_sim: Callable[..., dict[str, Any]] | None = None

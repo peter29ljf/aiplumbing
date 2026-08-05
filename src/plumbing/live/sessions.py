@@ -28,12 +28,11 @@ from plumbing.store import SqliteStore, phone_key
 from plumbing.tools.registry import ToolContext
 from plumbing.world import World
 
-# Agents this deployment will actually route to. An agent left out is not merely unused:
-# `LiveConversation` tells the model it cannot be reached, so intake takes the details and
-# escalates instead of transferring into silence.
-ENABLED_AGENTS = ("intake", "small_job")
-
-ENTRY_AGENT = "intake"
+# Which agents this deployment runs, from config/live.yaml. Read once here so the tuple
+# and the config cannot drift apart — they did, and the docstring promised a file that did
+# not exist yet.
+ENABLED_AGENTS = tuple(config.enabled_agents())
+ENTRY_AGENT = config.live_config().get("entry_agent") or "intake"
 
 
 class SessionStore:
@@ -105,7 +104,7 @@ class SessionStore:
         world = World(datetime.now().astimezone().isoformat(), store=self.store)
         agents = _enabled_agents(self.llm)
         # Each Agent resolves its own allow-list; the context only carries the world.
-        ctx = ToolContext(world=world)
+        ctx = ToolContext(world=world, enabled_agents=ENABLED_AGENTS)
         return LiveConversation(
             agents=agents, entry_agent=ENTRY_AGENT, llm=self.llm, ctx=ctx,
             channel=channel, phone=phone, session_id=session_id,
@@ -113,7 +112,7 @@ class SessionStore:
 
 
 def _enabled_agents(llm: LLM) -> dict[str, Any]:
-    everything = agent_registry.build_all(llm)
+    everything = agent_registry.build_all(llm, enabled=set(ENABLED_AGENTS))
     missing = [name for name in ENABLED_AGENTS if name not in everything]
     if missing:
         raise RuntimeError(f"config/agents.yaml has no agent named {missing}")

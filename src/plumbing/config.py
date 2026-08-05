@@ -44,6 +44,23 @@ def agents_config() -> dict[str, Any]:
     return _fresh("agents.yaml")
 
 
+def live_config() -> dict[str, Any]:
+    """Which agents this deployment routes to. Absent file means everything is on.
+
+    The test rig deliberately does not read this: a scenario suite that only exercised
+    what production happens to have switched on would stop covering the rest.
+    """
+    try:
+        return _load("live.yaml")
+    except FileNotFoundError:
+        return {}
+
+
+def enabled_agents() -> list[str]:
+    configured = live_config().get("enabled_agents")
+    return list(configured) if configured else list(agents_config()["agents"])
+
+
 def world_seed() -> dict[str, Any]:
     return _fresh("world_seed.yaml")
 

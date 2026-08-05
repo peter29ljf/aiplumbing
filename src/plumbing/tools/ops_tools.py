@@ -546,6 +546,21 @@ def handoff_transfer(
         raise ToolRejection(
             f"{ctx.agent_name} may not hand off to '{to_agent}'. Allowed targets: {allowed}"
         )
+
+    # An agent this deployment does not run must be refused here, not one message later.
+    # It used to return success, write a handoff into world state and tell the agent its
+    # part was done — and only then did the conversation layer say the target did not
+    # exist. Being told a thing worked and then that it did not is the hardest kind of
+    # instruction to recover from.
+    enabled = ctx.enabled_agents
+    if enabled is not None and to_agent not in enabled:
+        raise ToolRejection(
+            f"'{to_agent}' is not running in this deployment, so there is nobody on the "
+            f"other end of that transfer. Agents you can reach: {sorted(enabled)}. For "
+            f"anything they do not cover, record what the customer told you with "
+            f"ticket.set_fields and use escalate.raise — that reaches the technician on "
+            f"duty, who handles it personally."
+        )
     ctx.handoff_request = {"to_agent": to_agent, "reason": reason, "summary": summary}
     world.handoffs.append(
         {

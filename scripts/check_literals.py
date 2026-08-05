@@ -69,6 +69,9 @@ RETIRED_PATTERNS = {term: _retired_pattern(term) for term in RETIRED}
 # A dotted tool name as it appears in a prompt: `crm.lookup_by_phone`
 TOOL_REF = re.compile(r"`([a-z_]+\.[a-z_]+)`")
 
+# A bare agent name in backticks: `small_job`. Distinguished from a tool by having no dot.
+AGENT_REF = re.compile(r"`([a-z_]+)`")
+
 # Phrases that read like tool calls but are not, and prose that legitimately carries a
 # figure. Anything listed here is skipped rather than reported.
 ALLOW_SUBSTRINGS = (
@@ -94,6 +97,33 @@ def known_tools() -> set[str]:
     return {spec["name"] for spec in registry.catalog() if spec.get("status") != "planned"}
 
 
+def agent_names() -> tuple[set[str], set[str]]:
+    """(every agent in agents.yaml, the ones this deployment runs)."""
+    from plumbing import config  # noqa: PLC0415
+
+    return set(config.agents_config()["agents"]), set(config.enabled_agents())
+
+
+def live_prompt_files() -> set[str]:
+    """Just the files an enabled agent actually assembles.
+
+    A switched-off agent's own prompt naturally names itself and its neighbours, and none
+    of it is loaded in production. Flagging those buries the handful that matter — the
+    first run of this check reported ten findings, of which four were an unused file
+    talking about itself.
+    """
+    from plumbing import config  # noqa: PLC0415
+
+    cfg = config.agents_config()["agents"]
+    live: set[str] = set()
+    for name in config.enabled_agents():
+        spec = cfg.get(name) or {}
+        live.add(f"agents/{spec.get('prompt', name + '.md')}")
+        for fragment in spec.get("shared") or []:
+            live.add(f"agents/_shared/{fragment}.md")
+    return live
+
+
 def rel(path: Path) -> str:
     return str(path).split("/plumbing/", 1)[-1]
 
@@ -102,6 +132,9 @@ def scan() -> list[tuple[str, str, int, str, str]]:
     """(severity, kind, line, location, detail)"""
     findings: list[tuple[str, str, int, str, str]] = []
     tools = known_tools()
+    all_agents, live_agents = agent_names()
+    switched_off = all_agents - live_agents
+    in_production = live_prompt_files()
 
     for path in prompt_files():
         for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
@@ -129,6 +162,16 @@ def scan() -> list[tuple[str, str, int, str, str]]:
                         ("HIGH", "dangling-tool", n, where,
                          f"`{name}` is not a live tool — the agent is being sent somewhere that does not answer")
                     )
+            # A prompt that routes to an agent this deployment does not run sends the
+            # customer into silence. The tool refuses the transfer, but by then the agent
+            # has usually already told them it is arranging something.
+            for m in AGENT_REF.finditer(line):
+                name = m.group(1)
+                if name in switched_off and rel(path) in in_production:
+                    findings.append(
+                        ("HIGH", "disabled-agent", n, where,
+                         f"`{name}` is not enabled in config/live.yaml — routing here reaches nobody")
+                    )
 
     order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
     findings.sort(key=lambda f: (order[f[0]], f[3]))
@@ -146,6 +189,7 @@ SELF_TEST_MUST_CATCH = [
     ("period", "drain cleaning carries no one-year warranty"),
     ("retired", "You are an agent for Maple Plumbing in Toronto."),
     ("dangling", "Call `rules.get_unicorn_policy` before quoting."),
+    ("disabled", "If they mention warranty, hand off to `warranty` immediately."),
 ]
 SELF_TEST_MUST_IGNORE = [
     "Ask one or two things at a time, not three questions at once.",
@@ -172,6 +216,10 @@ def self_test() -> int:
             found.append("retired")
         if any(m.group(1) not in tools for m in TOOL_REF.finditer(line)):
             found.append("dangling")
+        _, live = agent_names()
+        off = set(agent_names()[0]) - live
+        if any(m.group(1) in off for m in AGENT_REF.finditer(line)):
+            found.append("disabled")
         return found
 
     failures = 0
