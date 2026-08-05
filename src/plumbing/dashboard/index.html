@@ -74,6 +74,27 @@
   button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
   button.primary:disabled { opacity: .5; cursor: not-allowed; }
   .hidden { display: none; }
+  .muted { color: var(--muted); font-size: 13px; line-height: 1.55; }
+
+  .chatlog {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px; height: 52vh; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .msg { max-width: 74%; padding: 10px 14px; border-radius: 14px; font-size: 14px;
+         line-height: 1.5; white-space: pre-wrap; }
+  .msg.me  { align-self: flex-end; background: var(--accent); color: #fff; }
+  .msg.bot { align-self: flex-start; background: var(--code); color: var(--text); }
+  .msg.sys { align-self: center; background: transparent; color: var(--muted);
+             font-size: 12px; max-width: 90%; text-align: center; }
+  /* The timing under each reply is the point of this tab, not decoration. */
+  .timing { align-self: flex-start; max-width: 74%; font-size: 12px; color: var(--muted);
+            font-family: ui-monospace, Menlo, monospace; line-height: 1.5;
+            margin: -6px 0 2px 4px; }
+  .timing b { color: var(--text); font-weight: 600; }
+  .timing .over { color: var(--danger); }
+  .chatbar { display: flex; gap: 10px; margin-top: 14px; }
+  .chatbar input { flex: 1; }
   .editorhead { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
   select, input[type=text], input[type=number] {
     background: var(--panel); color: var(--text); border: 1px solid var(--border);
@@ -121,6 +142,7 @@
     <button data-tab="prompts">Prompts</button>
     <button data-tab="changes">Doctor changes</button>
     <button data-tab="settings">Models</button>
+    <button data-tab="chat">Chat</button>
   </nav>
 </header>
 
@@ -130,6 +152,25 @@
     <div class="grid" id="agentgrid"></div>
     <h2>This run</h2>
     <div class="tablewrap"><table id="runtable"><tbody></tbody></table></div>
+  </section>
+
+  <!-- ============================= CHAT ============================= -->
+  <section id="tab-chat" class="hidden">
+    <p class="muted" style="margin:0 0 14px">
+      The same conversation code production runs, with the same two agents. Every tool here
+      is the simulator — this process has no live switches set, so nothing leaves the
+      machine and nothing is booked in anybody's real diary.
+      <strong>Each reply shows how long it took and what the model asked for</strong>, which
+      is the only way to tell a slow model from a long tool chain.
+    </p>
+    <div id="chatlog" class="chatlog"></div>
+    <div class="chatbar">
+      <input id="chatinput" placeholder="the tap under my kitchen sink is dripping" autocomplete="off">
+      <button id="chatsend" class="primary">Send</button>
+      <input id="chatphone" placeholder="phone (optional)" autocomplete="off"
+             style="flex:none;width:170px" title="Production takes the number on the form, so the agent starts by looking the customer up. Leave this blank and it will ask for one instead — a much shorter first turn, and not what a customer experiences.">
+      <button id="chatreset">Start over</button>
+    </div>
   </section>
 
   <!-- ============================ TOOLS ============================= -->
@@ -266,7 +307,7 @@ document.querySelectorAll("nav button").forEach((btn) => {
   btn.onclick = () => {
     document.querySelectorAll("nav button").forEach((b) => b.classList.remove("on"));
     btn.classList.add("on");
-    ["agents", "tools", "prompts", "changes", "settings"].forEach((t) =>
+    ["agents", "tools", "prompts", "changes", "settings", "chat"].forEach((t) =>
       $("tab-" + t).classList.toggle("hidden", t !== btn.dataset.tab));
     if (btn.dataset.tab === "tools") loadTools();
     if (btn.dataset.tab === "changes") loadChanges();
@@ -387,8 +428,8 @@ async function writeGrants(agent, patterns) {
 
 // ---------------- tools tab ----------------
 // ---------------- doctor changes ----------------
-const esc = (t) => String(t ?? "").replace(/[&<>"]/g,
-  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+// (esc lives at the top; a second `const esc` here was a SyntaxError, and a SyntaxError
+//  anywhere in a script stops the whole script — no tabs, no data, nothing.)
 
 async function loadChanges() {
   let rows;
@@ -607,6 +648,101 @@ $("savellm").onclick = async () => {
     },
   });
   toast(res.error || "Saved to config/llm.yaml", !!res.error);
+};
+
+/* ============================= CHAT ============================== */
+/* A turn can take minutes, so the request is simply left to run — this console is on
+   localhost with nothing in between that could time it out. What matters is that the
+   waiting is visible and honest: the dots stay up, and when the reply lands it is
+   followed by where the time actually went. */
+
+const BUDGET = 20;            /* seconds per exchange the user considers acceptable */
+
+function chatBubble(who, text) {
+  const el = document.createElement("div");
+  el.className = "msg " + who;
+  el.textContent = text;
+  $("chatlog").appendChild(el);
+  $("chatlog").scrollTop = $("chatlog").scrollHeight;
+  return el;
+}
+
+function chatTiming(data) {
+  const el = document.createElement("div");
+  el.className = "timing";
+  const over = data.seconds > BUDGET ? ' <span class="over">over budget</span>' : "";
+  const lines = (data.calls || []).map((c, i) => {
+    const what = c.tools.length ? c.tools.join(", ") : "wrote the reply";
+    return `  ${String(i + 1).padStart(2)}. ${String(c.seconds).padStart(5)}s  ${what}`;
+  });
+  el.innerHTML =
+    `<b>${data.seconds}s</b> · ${(data.calls || []).length} model call(s)` + over +
+    (data.agent ? ` · ${data.agent}` : "") + (data.ticket ? ` · ${data.ticket}` : "") +
+    (lines.length ? "<br>" + lines.join("<br>").replace(/ /g, "&nbsp;") : "");
+  $("chatlog").appendChild(el);
+  $("chatlog").scrollTop = $("chatlog").scrollHeight;
+}
+
+let chatBusy = false;
+
+async function chatSend() {
+  const input = $("chatinput");
+  const text = input.value.trim();
+  if (!text || chatBusy) return;
+  input.value = "";
+  chatBubble("me", text);
+
+  chatBusy = true;
+  $("chatsend").disabled = true;
+  const waiting = chatBubble("bot", "· · ·");
+  waiting.style.opacity = ".6";
+  const started = Date.now();
+  const tick = setInterval(() => {
+    waiting.textContent = "· · ·  " + Math.round((Date.now() - started) / 1000) + "s";
+  }, 1000);
+
+  try {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    const data = await response.json();
+    clearInterval(tick);
+    waiting.remove();
+    if (data.error) {
+      chatBubble("sys", data.error);
+    } else {
+      chatBubble("bot", data.reply || "(the agent said nothing)");
+      chatTiming(data);
+      if (data.closed) chatBubble("sys", "the agent closed this conversation");
+    }
+  } catch (e) {
+    clearInterval(tick);
+    waiting.remove();
+    chatBubble("sys", "The console could not reach the agent: " + e);
+  } finally {
+    chatBusy = false;
+    $("chatsend").disabled = false;
+    input.focus();
+  }
+}
+
+$("chatsend").onclick = chatSend;
+$("chatinput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); chatSend(); }
+});
+$("chatreset").onclick = async () => {
+  const phone = $("chatphone").value.trim();
+  await fetch("/api/chat/reset", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone }),
+  });
+  $("chatlog").innerHTML = "";
+  chatBubble("sys", phone
+    ? "fresh conversation, starting from " + phone + " — the agent looks the customer up first, as it does in production"
+    : "fresh conversation with no number — the agent will ask for one, which makes the first turn much shorter than a real one");
 };
 
 refresh();
