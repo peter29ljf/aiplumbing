@@ -1029,3 +1029,58 @@ def test_a_recurrent_framework_problem_is_still_not_doctors_to_fix():
     assert entry.recurrent is True          # consistent, and frequent enough
     assert entry.source == "framework"
     assert entry.actionable is False        # but still not a prompt problem
+
+
+def test_truncation_never_hides_a_figure_from_the_judge():
+    """The judge is asked whether every amount traces to a tool result. It must see them.
+
+    The emergency fee result runs past 700 characters with a verbose `context` block ahead
+    of `deposit`, so a 300-character cut removed the CAD 100 deposit before the judge could
+    read it — and the judge then reported the agent for inventing a figure the tool had in
+    fact returned. That check could not have passed, whatever the agent did.
+    """
+    from plumbing.testkit.judge import _format_tool_log
+
+    entry = {
+        "ok": True,
+        "tool": "rules.get_emergency_fee",
+        "arguments": {},
+        "result": {
+            "tier_id": "workday_business_hours",
+            "amount": 200,
+            "currency": "CAD",
+            "qualifier": "starting at",
+            "condition": "Monday-Saturday during business hours (08:00-18:00)",
+            "context": {
+                "datetime": "2026-08-05T10:00:00-07:00",
+                "date": "2026-08-05",
+                "weekday": "Wednesday",
+                "is_sunday": False,
+                "is_public_holiday": False,
+                "holiday_name": None,
+                "is_working_day": True,
+                "within_business_hours": True,
+                "is_night": False,
+                "business_hours": "08:00-18:00",
+                "standard_booking_available": True,
+            },
+            "display": "CAD 200 (starting at)",
+            "deposit": {"amount": 100, "currency": "CAD", "refundable": True},
+        },
+    }
+    rendered = _format_tool_log([entry])
+    assert "deposit.amount=100" in rendered, "the deposit was truncated out of view again"
+    assert "amount=200" in rendered
+    # Booleans are not figures, and listing them would bury the ones that matter.
+    assert "is_sunday" not in rendered.split("all figures")[-1]
+
+
+def test_a_short_result_gets_no_figure_appendix():
+    """Only add the appendix when truncation actually removed something."""
+    from plumbing.testkit.judge import _format_tool_log
+
+    rendered = _format_tool_log(
+        [{"ok": True, "tool": "rules.get_standard_service_fee", "arguments": {},
+          "result": {"amount": 100, "currency": "CAD"}}]
+    )
+    assert "all figures" not in rendered

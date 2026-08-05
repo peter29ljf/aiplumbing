@@ -128,9 +128,43 @@ def _format_tool_log(tool_log: list[dict[str, Any]]) -> str:
     for index, entry in enumerate(tool_log, 1):
         status = "OK" if entry.get("ok") else "FAILED"
         args = _truncate(entry.get("arguments", {}), 200)
-        result = _truncate(entry.get("result", entry.get("error", "")), 300)
-        lines.append(f"{index}. [{status}] {entry['tool']} args={args} result={result}")
+        raw = entry.get("result", entry.get("error", ""))
+        result = _truncate(raw, 300)
+        line = f"{index}. [{status}] {entry['tool']} args={args} result={result}"
+        # One of the judge's questions is whether every amount the agent said can be traced
+        # to a tool result. Truncation was deleting the amounts before it could: the
+        # emergency fee result runs 714 characters with a verbose `context` block sitting
+        # in front of `deposit`, so the CAD 100 deposit — at character 517 — never reached
+        # the judge, which then reported the agent for inventing it. The check could not
+        # have passed. Every figure now survives the cut, whatever the result's shape.
+        if len(_stringify(raw)) > 300:
+            figures = _numbers(raw)
+            if figures:
+                line += f"\n     [all figures in the full result: {figures}]"
+        lines.append(line)
     return "\n".join(lines) or "(no tool calls)"
+
+
+def _numbers(value: Any, path: str = "", out: list[str] | None = None) -> str:
+    """Every numeric leaf as `path=value`, so truncation cannot hide a price."""
+    out = [] if out is None else out
+    if isinstance(value, bool):
+        pass
+    elif isinstance(value, (int, float)):
+        out.append(f"{path or 'value'}={value}")
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            _numbers(v, f"{path}.{k}" if path else str(k), out)
+    elif isinstance(value, list):
+        for i, v in enumerate(value):
+            _numbers(v, f"{path}[{i}]", out)
+    return ", ".join(out[:40])
+
+
+def _stringify(value: Any) -> str:
+    import json
+
+    return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
 
 
 def _truncate(value: Any, limit: int) -> str:

@@ -135,7 +135,17 @@ def llm_settings() -> dict[str, Any]:
         "provider": provider,
         "active_provider": cfg.get("active"),
         "available_providers": sorted(cfg.get("providers") or {}),
-        "roles": cfg["roles"],
+        # A role only names a model when it should differ from the active provider's, so
+        # the raw config has no model on most of them. Fill in the effective one — the
+        # console was rendering blank rows after that became true.
+        "roles": {
+            name: {
+                **spec,
+                "model": spec.get("model") or provider.get("model"),
+                "model_inherited": "model" not in spec,
+            }
+            for name, spec in cfg["roles"].items()
+        },
         "limits": cfg.get("limits", {}),
         "doctor_backend": cfg.get("doctor_backend", {}),
         "api_key_env": key_env,
