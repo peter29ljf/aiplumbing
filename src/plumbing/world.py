@@ -51,6 +51,9 @@ class Technician:
     status: str = "idle"          # idle | assigned | en_route | on_site | completed
     active_jobs: int = 0
     status_after_dispatch: str = ""   # scenario hook: departs the moment they are dispatched
+    # Learned when they first message the bot. Everything the office sends them goes to
+    # Telegram; the phone is only used to make it ring.
+    telegram_chat_id: str = ""
 
 
 @dataclass
@@ -167,6 +170,7 @@ class World:
                 policy=over.get("policy", spec.get("default_policy", "accept")),
                 decline_reason=over.get("decline_reason", ""),
                 status=over.get("status", "idle"),
+                telegram_chat_id=spec.get("telegram_chat_id", ""),
             )
             # A scenario can have a technician set off the moment they are dispatched,
             # which is what puts the automatic refund out of reach.

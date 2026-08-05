@@ -363,6 +363,21 @@ def escalate_raise(
     }
     world.escalations.append(record)
     world.transition_ticket(ticket_id, "Escalated to Supervisor", note=reason)
+
+    # Reach the human. There is one technician on duty and they are also the supervisor,
+    # so this is where "a person will look at it" stops being a phrase and becomes a
+    # phone ringing. Failures are recorded on the escalation rather than raised: a
+    # technician who cannot be reached is a problem for the office, not something to
+    # throw at the customer sitting in the conversation.
+    from plumbing.live.notify import notify_technician  # noqa: PLC0415
+
+    on_duty = next((t for t in world.technicians.values() if t.on_duty), None)
+    record["notified"] = notify_technician(
+        chat_id=getattr(on_duty, "telegram_chat_id", "") if on_duty else "",
+        phone=on_duty.phone if on_duty else "",
+        subject=f"Escalation on {ticket_id}: {reason}",
+        body=f"{details}\n\nRaised by {ctx.agent_name}. Reply here and the office will pick it up.",
+    )
     return record
 
 
