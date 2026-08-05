@@ -81,11 +81,20 @@ echo "  https://smartstrategy.services/health -> HTTP $CODE"
 
 echo
 echo "--- what is actually reaching the outside world ---"
-ssh -o ConnectTimeout=20 "$HOST" "cd $REMOTE && PYTHONPATH=src .venv/bin/python -c \"
+# Run with the environment of the running service, not with a fresh login shell's.
+# The switches live in the systemd unit, so a plain ssh command does not have them and
+# reported "master: False (file)" while the service was quite happily sending Telegram
+# messages. A deploy summary that contradicts the deploy is worse than no summary.
+ssh -o ConnectTimeout=20 "$HOST" "
+  cd $REMOTE
+  PID=\$(systemctl show -p MainPID --value $SERVICE)
+  env \$(tr '\\0' '\\n' < /proc/\$PID/environ | grep '^PLUMBING_' | tr '\\n' ' ') \
+    PYTHONPATH=src .venv/bin/python -c \"
 from plumbing.integrations.gate import live_status
 s = live_status()
 print('  master:', s['master_switch'], '(' + s['master_switch_source'] + ')')
-print('  live  :', s['effectively_live'] or 'nothing', '(' + s['tools_source'] + ')')
+for t in sorted(s['effectively_live']) or ['nothing is live']:
+    print('   ', t)
 \"" 2>/dev/null
 
 if [ "$CODE" != "200" ]; then
