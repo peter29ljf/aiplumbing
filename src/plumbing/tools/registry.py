@@ -39,6 +39,14 @@ class ToolContext:
     conversation_ended: bool = False
     end_reason: str = ""
     scenario: dict[str, Any] = field(default_factory=dict)
+    # Called with each tool name just after it runs, when somebody is waiting to be told
+    # what is happening. After rather than before on purpose: the tools themselves are
+    # local and finish instantly, and the wait is the model call that follows — so the
+    # name of the tool that just ran is what should be on screen during it. A customer sitting through a minute of tool calls sees three
+    # dots and cannot tell a system that is working from one that has died; this is how
+    # the widget says "checking the calendar" instead. Unset everywhere else, including
+    # the test rig, where nobody is watching.
+    progress: Callable[[str], None] | None = None
 
 
 ToolHandler = Callable[..., Any]
