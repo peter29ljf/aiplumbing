@@ -191,10 +191,17 @@ job_sizing:
   currency: "CAD"
   large_job_threshold: 1000          # >= 1000 is a large job / project
   small_job_description: "Estimated repair total below CAD 1,000"
+  # "installation" on its own used to be in this list, and it caught "install a faucet" —
+  # a customer wanting a tap fitted was told it was a larger project, asked for photographs
+  # and handed to a person, instead of being given a time. The specific installations that
+  # really are large are named individually below, which is what that word was reaching
+  # for. Fitting or swapping a fixture is a small job: the technician prices it on site,
+  # the same as any other repair.
   large_job_description: >-
-    Estimated at CAD 1,000 or above, or involving installation, remodelling,
-    renovation, complex leak detection, extensive pipework, new builds, boiler or
-    heat pump installation, or commercial projects
+    Estimated at CAD 1,000 or above, or involving remodelling, renovation, complex leak
+    detection, extensive pipework, new builds, boiler or heat pump installation, water
+    main or sewer work, or commercial projects. Fitting a tap, a toilet, a waste disposal
+    unit or similar is not a large job.
   # Ask once for more detail. If that does not settle it, it is a small job — no
   # exceptions, and no second round of questions. A customer who says "I don't know"
   # does not know, and every extra round is a turn spent owing them a cost we cannot

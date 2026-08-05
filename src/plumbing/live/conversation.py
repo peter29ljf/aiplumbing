@@ -27,6 +27,21 @@ from plumbing.llm import LLM
 from plumbing.orchestrator import _handoff_briefing, Transcript
 from plumbing.tools.registry import ToolContext
 
+# What to say when the agent finishes the job and ends the conversation without a word.
+#
+# It happened on a real customer: they gave their email, the agent sent the request for
+# photographs, escalated the quote to the technician, called conversation.end — and said
+# nothing. An empty reply reached the widget, which could not tell it from a failure and
+# told them we could not be reached. Everything had worked. They were about to ring a
+# number about a job already in hand.
+#
+# The prompt is where "always say something" belongs, and it says so. This is here because
+# a customer must not be told we failed on the one turn where we succeeded.
+CLOSED_WITHOUT_A_WORD = (
+    "That's all sorted at our end — thanks for getting in touch. "
+    "If anything else comes up, just message us again."
+)
+
 
 @dataclass
 class LiveConversation:
@@ -110,10 +125,9 @@ class LiveConversation:
 
             if turn.ended:
                 self.closed = True
-                if turn.reply:
-                    self._record("agent", turn.reply)
-                    return turn.reply
-                return ""
+                reply = turn.reply or CLOSED_WITHOUT_A_WORD
+                self._record("agent", reply)
+                return reply
 
             if turn.reply:
                 self._record("agent", turn.reply)
