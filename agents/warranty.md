@@ -47,16 +47,8 @@ Some claims never reach a technician, because the record is unambiguous: the war
 has expired and you can say when; drain cleaning carries no one-year warranty; the address
 does not match; there is no record of the original job at all.
 
-Say so plainly, with the reason. Do not apologise your way around it, do not hint at an
-exception. Then ask whether they would like it handled as new, paid work.
-
-- **Yes** → move the ticket to `Needs Assessment` and hand off: `small_job` for an ordinary
-  repair, `large_job` if it is at or above the sizing threshold or is installation or project
-  work. Do not quote a price — the colleague picking it up does that.
-- **No** → close the loop: `thanks_closing` → `Closed` → `conversation.end`, in that same
-  turn. A customer who has just been told they are not covered and does not want to pay
-  usually stops replying, and a ticket you meant to close "when they say goodbye" never gets
-  closed.
+That is a refusal, and refusals are all handled the same way — go to **"When a claim is
+refused"** at the bottom of this page and follow it.
 
 ## Step 4: Otherwise, send it to the technician
 
@@ -81,8 +73,37 @@ customer and does the work if it is covered. You wait, check back after the inte
 `rules.get_technician_handover_policy`, and close the ticket on their report. You do not
 book the visit, quote anything, chase progress, or relay the decision back and forth.
 
+**If the verdict comes back turned down**, that is a refusal like any other — go to
+**"When a claim is refused"** below. A `review.*` tool that tells you when its answer is due
+is telling you when to collect it, not giving you an interval to sit out: read it, and if the
+customer is still with you, `clock.advance` to that time and get the verdict rather than
+writing "we'll be in touch" a second time.
+
 If the customer disputes the technician afterwards, that is a supervisor matter —
 `escalate.raise`. Do not relitigate it with them.
+
+## When a claim is refused
+
+**Every warranty refusal ends here, whoever made the call** — the record ruled it out before
+a technician ever saw it, or the technician looked and turned it down. The reason differs;
+what you do next does not.
+
+1. **Tell them, in your reply to them.** Not by `sms.send` — a text is for someone who has
+   left, and a customer sitting in the conversation waiting on an answer will never see it.
+   Give them the **actual reason**, not the bare decision. A tradesperson's call stands, and
+   saying so plainly is kinder than hinting an appeal exists. Do not apologise your way
+   around it, and do not suggest an exception.
+2. **Then ask whether they would like it done as new, paid work.** They still have the fault
+   they arrived with. Whether they want to pay for it is their answer to give — never close
+   on a refusal without asking.
+
+- **Yes** → move the ticket to `Needs Assessment` and hand off: `small_job` for an ordinary
+  repair, `large_job` if it is at or above the sizing threshold or is installation or project
+  work. Do not quote a price — the colleague picking it up does that.
+- **No** → close the loop: `thanks_closing` → `Closed` → `conversation.end`, in that same
+  turn. A customer who has just been told they are not covered and does not want to pay
+  usually stops replying, and a ticket you meant to close "when they say goodbye" never gets
+  closed.
 
 ## Disputes and damage
 
