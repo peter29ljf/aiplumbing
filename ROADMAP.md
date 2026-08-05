@@ -363,9 +363,37 @@ doctor 三轮修不动的根因不是措辞，是 `_shared/technician_handover.m
 
 ---
 
-# F 阶段 — 接真实服务（**全绿之前不做**）
+# F 阶段 — 上线（intake + small_job 先行）
 
 `live_tools_enabled: false` 是总闸，每个工具还有自己的 `live` 开关，**两把都开才走真实**。
+
+### [x] F0. 生产基础设施 ✅ 2026-08-04
+
+从 `aiphone` 搬来的适配器 + 自己写的持久化。**agent 逻辑以 plumbing 为准**——
+aiphone 的 prompt 没经过验证，跑出来是错的，只取它的工具层。
+
+| | 做了什么 | 测试 |
+|---|---|---|
+| **持久化** | `store.py` —— SQLite。`World(store=...)` 可选，不传就是原来的纯内存，24 条场景和测试台一行没改 | 18 |
+| **真实日历** | `integrations/google_calendar.py`，接进建/改/取消，**写失败回滚并拒绝**——不能让 agent 说"约好了"而师傅日历里没有 | 3 |
+| **入站三通道** | `live/server.py` —— chat / sms / voice，一个 agent | 15 |
+| **人工兜底** | Telegram 发详情 + 电话只说一句"有新订单请查看信息" | 11 |
+
+**只开 intake + small_job**（`live/sessions.py:ENABLED_AGENTS`）。要转别处时 agent
+被告知"这个 deployment 到不了那里，请记录信息并 escalate"，**不会交接进虚空**。
+关掉的那三个恰好是拿定金和退款的。
+
+**三个身份差异**：sms / voice 有运营商背书的号码；**chat 什么都没有**——号码是表单里
+自称的，所以按 session 归档，且**没号码不接受任何消息（代码门，不是 prompt 规则）**。
+
+### 还差什么才能真接客户
+
+| | |
+|---|---|
+| 🔴 **没物业类型也能约** | 公寓硬闸只拦明确标了 apartment 的。agent 忘了问就漏过去了 |
+| 🔴 **两把 live 开关全关** | 现在一条真实短信都发不出去，这是故意的 |
+| 🟠 **对话不跨重启** | 客户/工单/预约都在库里；**进行中的对话在内存**，重启会断线重来 |
+| 🟠 **没部署** | nginx 只发静态页，服务没起 |
 
 ### [ ] F1. 逐个工具切 live
 
