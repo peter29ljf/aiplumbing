@@ -7,11 +7,23 @@ Every check carries a `source`, answering one question: **could doctor fix this 
 a prompt?**
 
 - `harness`   the test rig broke — a simulator or the model failed. Nothing to fix here.
-- `framework` the state machine, a hard gate or the tool permissions blocked something.
-              A human decides whether the rule or the flow is wrong; no prompt can route
-              around it, and every illegal transition seen so far has been a missing edge
-              rather than a misbehaving agent.
+- `framework` a hard gate or the tool permissions stopped the agent from doing something
+              it must never do. A human decides whether the rule is wrong; a prompt must
+              not route around it, and doctor is not allowed to try.
 - `agent`     the agent did the wrong thing. This is the only kind doctor should touch.
+
+**An illegal ticket transition is an `agent` failure, not a `framework` one.** This module
+used to lump it in with the hard gates on the grounds that every illegal transition seen so
+far had been a missing edge. The first full-suite baseline falsified that: in both cases the
+legal path existed and the agent was cutting a corner — in one of them skipping the refund
+before booking a standard appointment, which is exactly what that scenario is written to
+catch. A missing edge and a shortcut look identical from here, so the split is by what is
+fixable: walking the wrong way through a state machine is something a prompt can be told
+about, while a hard gate exists precisely so no prompt can talk its way past it.
+
+If a transition really is a missing edge, doctor cannot add it — `config/` is outside what
+it may touch — so it will fail, revert, and the scenario shows up as unfixable, which is the
+signal to look at the state machine.
 """
 
 from __future__ import annotations
@@ -26,6 +38,10 @@ from plumbing.orchestrator import ConversationResult
 HARNESS = "harness"
 FRAMEWORK = "framework"
 AGENT = "agent"
+
+# Violation kinds that mean "you walked the wrong way", as opposed to "you tried something
+# forbidden". Only these are the agent's to fix.
+STATE_MACHINE_VIOLATIONS = {"illegal_ticket_transition", "invalid_ticket_state"}
 
 
 @dataclass
@@ -89,18 +105,38 @@ def evaluate(
             )
         )
 
-    # ---- Violations (a hard gate fired) ------------------------------
+    # ---- Violations -------------------------------------------------
+    # Split by who can fix it: a wrong route through the state machine is the agent's
+    # (doctor may work on it), a hard gate firing is not (a human decides).
     if expect.get("allow_violations", False) is not True:
         allowed = set(expect.get("expected_violations", []))
         actual = [v for v in snapshot["violations"] if v["kind"] not in allowed]
+        transitions = [v for v in actual if v["kind"] in STATE_MACHINE_VIOLATIONS]
+        gates = [v for v in actual if v["kind"] not in STATE_MACHINE_VIOLATIONS]
+
+        def describe(violations: list[dict[str, Any]]) -> str:
+            return "; ".join(
+                f"{v['kind']}({v['tool']}) {v['detail'][:80]}" for v in violations
+            )
+
+        checks.append(
+            Check(
+                "no_illegal_transitions",
+                not transitions,
+                "No illegal transitions"
+                if not transitions
+                else "Agent moved the ticket somewhere it cannot go from here: "
+                + describe(transitions),
+                AGENT,
+            )
+        )
         checks.append(
             Check(
                 "no_rule_violations",
-                not actual,
+                not gates,
                 "No violations"
-                if not actual
-                else "Rule hard gates fired: "
-                + "; ".join(f"{v['kind']}({v['tool']}) {v['detail'][:80]}" for v in actual),
+                if not gates
+                else "Rule hard gates fired: " + describe(gates),
                 FRAMEWORK,
             )
         )

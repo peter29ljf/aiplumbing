@@ -737,17 +737,41 @@ def test_a_crash_is_framework_not_harness():
     assert checks[0].source == "framework"
 
 
-def test_a_fired_hard_gate_is_framework():
-    """Every illegal transition seen so far has been a missing edge, not a rogue agent."""
+def test_an_illegal_transition_is_the_agent():
+    """Walking the wrong way through the state machine is something a prompt can fix.
+
+    This used to assert `framework`, on the grounds that every illegal transition seen so
+    far had been a missing edge. The first full-suite baseline falsified that — both cases
+    had a legal path and the agent was cutting a corner — so doctor is now allowed to work
+    on them. A genuinely missing edge still surfaces: doctor cannot edit config/, so its
+    attempts fail and revert, and the scenario reports as unfixable.
+    """
     from plumbing.testkit import assertions
 
     world = World(now=WORKDAY)
     world.record_violation("illegal_ticket_transition", "cannot go there", "ticket.update_status")
     checks = assertions.evaluate({"id": "x", "customer": {}, "expect": {}},
                                  _ConversationStub(), world.snapshot(), [])
+    moved = next(c for c in checks if c.name == "no_illegal_transitions")
+    assert moved.passed is False
+    assert moved.source == "agent"
+    # And it must not also trip the hard-gate check, or one fault is reported twice.
+    assert next(c for c in checks if c.name == "no_rule_violations").passed is True
+
+
+def test_a_fired_hard_gate_is_still_framework():
+    """A gate exists so that no prompt can talk its way past it. Doctor stays out."""
+    from plumbing.testkit import assertions
+
+    world = World(now=WORKDAY)
+    world.record_violation("dispatch_before_deposit", "deposit unpaid",
+                           "calendar.create_appointment")
+    checks = assertions.evaluate({"id": "x", "customer": {}, "expect": {}},
+                                 _ConversationStub(), world.snapshot(), [])
     gate = next(c for c in checks if c.name == "no_rule_violations")
     assert gate.passed is False
     assert gate.source == "framework"
+    assert next(c for c in checks if c.name == "no_illegal_transitions").passed is True
 
 
 def test_an_ordinary_expectation_miss_is_the_agent():
