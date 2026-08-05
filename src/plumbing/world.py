@@ -24,6 +24,25 @@ from zoneinfo import ZoneInfo
 from plumbing import config
 
 
+def _on_duty_roster() -> set[str] | None:
+    """Which technicians this machine actually has, or None for all of them.
+
+    The seed carries four, and every scenario and half the tests are written against
+    them — so the roster cannot be trimmed in git without rewriting the suite to match a
+    deployment. It is trimmed here instead: `PLUMBING_ON_DUTY=t_wang` and the agent can
+    only ever pick that one.
+
+    It matters more than it looks. Three of the four have no Telegram, so a booking that
+    landed on one of them could not be passed to anybody — the tool refuses and the
+    customer is escalated instead of given a time. Narrowing the roster to the people who
+    really exist is what stops that being a coin toss.
+    """
+    import os  # noqa: PLC0415
+
+    listed = os.environ.get("PLUMBING_ON_DUTY", "").strip()
+    return {name.strip() for name in listed.split(",") if name.strip()} or None
+
+
 def _technician_phone(spec: dict[str, Any]) -> str:
     """The seed's number, unless this machine has a real one for that technician.
 
@@ -176,7 +195,10 @@ class World:
         # --- Technicians ------------------------------------------------
         tech_overrides: dict[str, Any] = overrides.get("technicians", {}) or {}
         self.technicians: dict[str, Technician] = {}
+        roster = _on_duty_roster()
         for spec in self.seed.get("technicians", []):
+            if roster is not None and spec["id"] not in roster:
+                continue
             over = tech_overrides.get(spec["id"], {}) or {}
             self.technicians[spec["id"]] = Technician(
                 id=spec["id"],

@@ -1292,3 +1292,71 @@ def test_small_job_can_reach_a_technician_and_cannot_ring_one():
 
     assert "technician.notify" in granted
     assert not any(name.startswith("phone.") for name in granted)
+
+
+def test_a_live_job_goes_out_with_accept_and_decline_under_it(monkeypatch, tmp_path):
+    """A technician who cannot answer is one the office has to chase. Decline asks why,
+    because a refusal with no reason leaves whoever picks it up guessing at what to tell
+    the customer."""
+    import plumbing.tools.comms_tools as comms
+    from plumbing.store import SqliteStore
+
+    sent = {}
+
+    def fake_send(chat_id, text, buttons=None):
+        sent.update(chat_id=chat_id, text=text, buttons=buttons)
+        return {"message_id": "77"}
+
+    import plumbing.integrations.telegram as tg
+
+    monkeypatch.setattr(tg, "send_message", fake_send)
+    monkeypatch.setattr(comms, "is_live", lambda name: name == "telegram.send")
+    monkeypatch.setattr("plumbing.live.notify.is_live", lambda name: name == "telegram.send")
+
+    world = World(now=WORKDAY, store=SqliteStore(tmp_path / "d.db"))
+    world.technicians["t_wang"].telegram_chat_id = "6043701711"
+
+    result, _ = call(world, "technician.notify", technician_id="t_wang",
+                     subject="New job", body="8900 Demorest Dr, today 2pm")
+
+    assert result["sent"] is True and result["offer_id"]
+    labels = [b["text"] for row in sent["buttons"] for b in row]
+    assert any("Accept" in label for label in labels)
+    assert any("Decline" in label for label in labels)
+    assert "8900 Demorest Dr" in sent["text"]
+
+
+def test_without_a_database_it_is_still_sent_just_without_buttons(monkeypatch):
+    """Tracking an answer needs somewhere to keep it. The test rig has nowhere, and
+    nobody there is going to tap anything."""
+    import plumbing.tools.comms_tools as comms
+    import plumbing.integrations.telegram as tg
+
+    sent = {}
+    monkeypatch.setattr(tg, "send_message",
+                        lambda chat_id, text, buttons=None: sent.update(buttons=buttons)
+                        or {"message_id": "1"})
+    monkeypatch.setattr(comms, "is_live", lambda name: name == "telegram.send")
+
+    world = World(now=WORKDAY)          # no store
+    world.technicians["t_wang"].telegram_chat_id = "6043701711"
+
+    result, _ = call(world, "technician.notify", technician_id="t_wang",
+                     subject="New job", body="x")
+
+    assert result["sent"] is True
+    assert sent["buttons"] is None
+
+
+def test_a_deployment_can_narrow_the_roster_to_who_really_exists(monkeypatch):
+    """Three of the four seeded technicians have no Telegram, so a booking landing on one
+    could not be passed to anybody. The seed cannot be trimmed in git — every scenario is
+    written against it — so the machine says who is real."""
+    monkeypatch.setenv("PLUMBING_ON_DUTY", "t_wang")
+
+    assert sorted(World(now=WORKDAY).technicians) == ["t_wang"]
+
+
+def test_without_that_the_whole_seeded_roster_is_there():
+    """So the suite keeps the world it has always run against."""
+    assert len(World(now=WORKDAY).technicians) == 4

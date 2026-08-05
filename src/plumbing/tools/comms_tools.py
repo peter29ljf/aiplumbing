@@ -165,19 +165,51 @@ def technician_notify(
                 f"{technician.name} has no Telegram, so there is no way to reach them. "
                 f"Do not confirm this booking. Use escalate.raise so a person sorts it out."
             )
-        from plumbing.integrations import telegram  # noqa: PLC0415
-
         try:
-            sent = telegram.send_message(technician.telegram_chat_id, record["body"])
+            sent = _offer_or_message(world, technician, record["body"])
         except LiveToolUnavailable as exc:
             raise ToolRejection(f"The technician could not be reached: {exc}") from exc
         record["live"] = True
-        record["provider_message_id"] = sent["message_id"]
+        record.update(sent)
         world.sms_outbox.append(record)
-        return {"sent": True, "to": technician.name, "channel": "telegram", "live": True}
+        return {"sent": True, "to": technician.name, "channel": "telegram", "live": True,
+                "offer_id": sent.get("offer_id", "")}
 
     world.sms_outbox.append(record)
     return {"sent": True, "to": technician.name, "channel": "telegram", "live": False}
+
+
+def _offer_or_message(world: Any, technician: Any, body: str) -> dict[str, Any]:
+    """Send it as a job offer with Accept and Decline under it, where that is possible.
+
+    A technician who cannot answer is a technician the office has to chase. The buttons
+    make an answer one tap, and Decline asks for the reason — a refusal with no reason
+    leaves whoever picks it up guessing at what to tell the customer.
+
+    Tracking an answer needs somewhere to keep it, so without a database this falls back
+    to a plain message. That is the test rig, where nobody is going to tap anything.
+    """
+    from plumbing.integrations import telegram  # noqa: PLC0415
+
+    store = getattr(world, "store", None)
+    if store is None:
+        return {"provider_message_id": telegram.send_message(
+            technician.telegram_chat_id, body)["message_id"]}
+
+    from plumbing.live import notify  # noqa: PLC0415
+    from plumbing.live.offers import Offers  # noqa: PLC0415
+
+    outcome = notify.offer_job(
+        offers=Offers(store),
+        ticket_id=world.active_ticket_id or "",
+        chat_id=technician.telegram_chat_id,
+        phone=technician.phone,
+        summary=body,
+    )
+    if outcome["errors"]:
+        raise LiveToolUnavailable("; ".join(outcome["errors"]))
+    return {"offer_id": outcome["offer_id"],
+            "provider_message_id": (outcome["telegram"] or {}).get("message_id", "")}
 
 
 @tool(
