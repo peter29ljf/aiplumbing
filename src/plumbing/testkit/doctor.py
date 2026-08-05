@@ -21,6 +21,7 @@ fixes one scenario but breaks another is always recoverable.
 from __future__ import annotations
 
 import hashlib
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -236,6 +237,64 @@ def _hash_tree() -> dict[str, str]:
     return digest
 
 
+# Where the Claude Code installer actually puts things, in the order worth trying. PATH is
+# the right answer when it has the entry; it frequently does not. On the deployment server
+# the CLI sits at ~/.local/bin/claude and that directory is on no PATH at all — not the
+# login shell's, not a non-interactive shell's, and certainly not a systemd unit's.
+_CLAUDE_LOCATIONS = (
+    "~/.local/bin/claude",
+    "~/.claude/local/claude",
+    "/usr/local/bin/claude",
+    "/opt/homebrew/bin/claude",
+)
+
+
+def _claude_executable(backend: dict[str, Any]) -> tuple[str | None, str]:
+    """Find the CLI. Returns (path, how_it_was_found) — the second half is for the error.
+
+    Looking beyond PATH is not defensive padding. Doctor is invoked from a test run, a
+    cron job or a systemd unit, and each of those has a different PATH from the shell the
+    CLI was installed in. Requiring them to agree is requiring a coincidence.
+    """
+    explicit = backend.get("command")
+    if explicit:
+        path = str(Path(explicit).expanduser())
+        return (path, "config") if Path(path).exists() else (None, "config-missing")
+
+    found = shutil.which("claude")
+    if found:
+        return found, "path"
+
+    for candidate in _CLAUDE_LOCATIONS:
+        path = Path(candidate).expanduser()
+        if path.exists():
+            return str(path), "known-location"
+
+    return None, "absent"
+
+
+def _explain_missing_cli(how: str, backend: dict[str, Any]) -> str:
+    """Say which of the three problems this actually is.
+
+    They used to share one message that named only the first, so a machine with the CLI
+    installed and logged in was told to install the CLI. A misdiagnosis costs more than
+    silence, because it sends someone off fixing something that is not broken.
+    """
+    if how == "config-missing":
+        return (
+            f"[doctor] doctor_backend.command points at {backend.get('command')!r}, "
+            f"which does not exist. Correct the path in config/llm.yaml, or remove the "
+            f"line to search PATH and the usual install locations."
+        )
+    return (
+        "[doctor] The Claude Code CLI is not installed anywhere I looked: PATH, "
+        + ", ".join(_CLAUDE_LOCATIONS)
+        + ". Install it, set doctor_backend.command in config/llm.yaml to its full path, "
+        "or set doctor_backend.kind to 'openai' to use the API instead — which is a "
+        "weaker repairer, so prefer the first two."
+    )
+
+
 def _propose_via_claude_cli(
     result: Any,
     scenario: dict[str, Any],
@@ -300,8 +359,17 @@ When you are done, print a final line in exactly this form and nothing after it:
 REASON: <one or two sentences explaining the root cause and what you changed>
 """
 
+    executable, how = _claude_executable(backend)
+    if executable is None:
+        print("    " + _explain_missing_cli(how, backend))
+        return None
+    if how == "known-location":
+        # Worth saying out loud: it works, but only because we went looking. Anything else
+        # on this machine that shells out to `claude` will fail.
+        print(f"    [doctor] using {executable} (not on PATH)")
+
     command = [
-        "claude",
+        executable,
         "-p",
         task,
         "--model",
@@ -323,8 +391,9 @@ REASON: <one or two sentences explaining the root cause and what you changed>
             check=False,
         )
     except FileNotFoundError:
-        print("    [doctor] `claude` CLI not found on PATH. Set doctor_backend.kind to "
-              "'openai' in config/llm.yaml, or install the Claude Code CLI.")
+        # Resolved a moment ago, so this is the file disappearing between the check and
+        # the run — a mid-flight upgrade, usually.
+        print(f"    [doctor] {executable} vanished between finding it and running it.")
         return None
     except subprocess.TimeoutExpired:
         print(f"    [doctor] Claude CLI timed out after {timeout}s")

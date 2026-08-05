@@ -1179,3 +1179,66 @@ def test_an_empty_handoff_expectation_still_catches_a_real_handoff():
         {"id": "x", "customer": {}, "expect": {"handoff_to": []}},
         _ConversationStub(), world.snapshot(), [])
     assert next(c for c in checks if c.name == "handoff_to").passed is False
+
+
+# ======================================================================
+# Finding the Claude Code CLI
+# ======================================================================
+
+
+def test_the_cli_is_used_from_path_when_path_has_it(monkeypatch):
+    from plumbing.testkit import doctor
+
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: "/usr/bin/claude")
+    assert doctor._claude_executable({}) == ("/usr/bin/claude", "path")
+
+
+def test_an_installed_cli_is_found_even_when_path_does_not_have_it(monkeypatch, tmp_path):
+    """The case on the deployment server.
+
+    The CLI sits at ~/.local/bin/claude and that directory is on no PATH at all — not the
+    login shell's, not a non-interactive shell's, not a systemd unit's. Requiring them to
+    agree is requiring a coincidence.
+    """
+    from plumbing.testkit import doctor
+
+    installed = tmp_path / "claude"
+    installed.write_text("#!/bin/sh\n")
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+    monkeypatch.setattr(doctor, "_CLAUDE_LOCATIONS", (str(installed),))
+
+    assert doctor._claude_executable({}) == (str(installed), "known-location")
+
+
+def test_an_explicit_path_in_config_wins(monkeypatch, tmp_path):
+    from plumbing.testkit import doctor
+
+    pinned = tmp_path / "claude"
+    pinned.write_text("#!/bin/sh\n")
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: "/usr/bin/claude")
+
+    assert doctor._claude_executable({"command": str(pinned)}) == (str(pinned), "config")
+
+
+def test_a_genuinely_absent_cli_says_so(monkeypatch):
+    from plumbing.testkit import doctor
+
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+    monkeypatch.setattr(doctor, "_CLAUDE_LOCATIONS", ("/nowhere/claude",))
+
+    path, how = doctor._claude_executable({})
+    assert path is None and how == "absent"
+    assert "not installed anywhere I looked" in doctor._explain_missing_cli(how, {})
+
+
+def test_a_wrong_configured_path_is_not_reported_as_missing_software(monkeypatch):
+    """Telling someone to install what they already installed sends them fixing nothing."""
+    from plumbing.testkit import doctor
+
+    backend = {"command": "/does/not/exist/claude"}
+    path, how = doctor._claude_executable(backend)
+    assert path is None and how == "config-missing"
+
+    message = doctor._explain_missing_cli(how, backend)
+    assert "/does/not/exist/claude" in message
+    assert "not installed" not in message

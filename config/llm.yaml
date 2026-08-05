@@ -103,6 +103,11 @@ roles:
 #                enforced afterwards: every protected file is hashed before and after, and
 #                the whole attempt is discarded if anything outside agents/ was touched.
 #   openai     - one-shot JSON patch from the `doctor` role above (no repo access).
+#
+# `command` is optional and only needed when the binary is somewhere unusual — say
+# "/root/.local/bin/claude". Without it doctor tries PATH and then the places the
+# installer normally uses, which covers the common case: the CLI installed under
+# ~/.local/bin while nothing has put that directory on any PATH.
 doctor_backend:
   kind: "claude_cli"
   model: "claude-opus-5"
