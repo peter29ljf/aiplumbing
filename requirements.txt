@@ -1,0 +1,17 @@
+# Direct dependencies only. Transitive ones are left to the resolver: a full freeze pins
+# packages nobody here chose, and every one of them becomes a thing that has to be bumped.
+#
+# There was no file at all until now. The server's venv had been assembled by hand, so a
+# rebuild would have lost it — and lost it quietly: the calendar adapter only discovers a
+# missing library when an agent tries to book, which is the worst possible moment.
+
+openai>=1.40                 # every model call, via the OpenAI-compatible API
+PyYAML>=6.0                  # config/*.yaml, scenarios, personas
+
+# Google Calendar. Only imported when calendar.* is live, and the adapter says plainly
+# that it is missing rather than failing somewhere further down.
+google-api-python-client>=2.100
+google-auth>=2.30
+
+# --- development ---------------------------------------------------------
+pytest>=8.0

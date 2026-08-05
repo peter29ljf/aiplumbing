@@ -13,3 +13,17 @@ enabled_agents:
   - small_job
 
 entry_agent: intake
+
+# Browsers that may call the chat endpoints from a page.
+#
+# The widget is served from www.smartstrategy.services and the app answers on the apex
+# domain, so every request the site makes is cross-origin and the browser will not hand
+# the answer back without permission. Nothing said so, which is why the chat never worked:
+# the server returned 200 and the browser threw it away.
+#
+# A list rather than `*`, because these endpoints spend money on a model call and carry a
+# session id. `*` would let any page on the internet run up the bill and read the replies.
+# Exact origins, scheme included — an origin is not a hostname.
+web_chat_origins:
+  - "https://www.smartstrategy.services"
+  - "https://smartstrategy.services"
