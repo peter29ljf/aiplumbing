@@ -59,7 +59,9 @@ agents:
     - crm.*
     - calendar.*
     - sms.send
-    - phone.*
+    # No phone. Technicians are reached on Telegram and nowhere else, which is what
+    # technician.notify does; small_job.md never called anything in this namespace anyway,
+    # and a ringing phone is the one thing this deployment decided not to pay for.
     - technician.*
     - schedule.*
     - ticket.*

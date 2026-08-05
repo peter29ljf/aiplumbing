@@ -1222,3 +1222,73 @@ def test_the_gates_that_matter_are_still_shut():
     third = world.seed_ticket("Warranty Eligibility Review", "+16045550101")
     with pytest.raises(ToolRejection):
         world.transition_ticket(third.ticket_id, "Warranty Booked")
+
+
+# ---- reaching a technician --------------------------------------------
+#
+# It used to be sms.send to their number. The roster carries fictional numbers, Twilio
+# answered "Landline or unreachable carrier", nothing raised — and a customer was given a
+# confirmation for a job nobody had been told about.
+
+
+def test_a_technician_is_told_over_telegram():
+    world = World(now=WORKDAY)
+    world.technicians["t_wang"].telegram_chat_id = "6043701711"
+
+    result, ctx = call(world, "technician.notify", technician_id="t_wang",
+                       subject="New job", body="8900 Demorest Dr, today 2pm, Lin")
+
+    assert result["channel"] == "telegram"
+    assert result["to"] == world.technicians["t_wang"].name
+    assert ctx.world.sms_outbox[-1]["recipient_id"] == "t_wang"
+    assert "8900 Demorest Dr" in ctx.world.sms_outbox[-1]["body"]
+
+
+def test_the_agent_never_names_the_channel():
+    """The schema takes a technician and a message, and nothing about how it travels.
+    Switching to something else later is a change to the tool, not to five prompts."""
+    from plumbing.tools import registry
+
+    registry._ensure_loaded()
+    fields = registry.all_tools()["technician.notify"].schema()["function"]["parameters"]
+    assert set(fields["properties"]) == {"technician_id", "subject", "body"}
+
+
+def test_a_technician_nobody_can_reach_is_refused_rather_than_dropped(monkeypatch):
+    """Live, with no Telegram for them, there is no way to reach that person at all — and
+    the agent must not go on to tell a customer somebody is coming."""
+    import plumbing.tools.comms_tools as comms
+
+    world = World(now=WORKDAY)
+    world.technicians["t_li"].telegram_chat_id = ""
+    monkeypatch.setattr(comms, "is_live", lambda name: name == "telegram.send")
+
+    result, _ = call(world, "technician.notify", technician_id="t_li",
+                     subject="New job", body="x")
+
+    assert result["ok"] is False
+    assert "no Telegram" in result["error"]
+    assert "Do not confirm" in result["error"]
+    assert world.sms_outbox == []          # nothing was recorded as sent
+
+
+def test_an_unknown_technician_is_refused():
+    world = World(now=WORKDAY)
+
+    result, _ = call(world, "technician.notify", technician_id="t_nobody",
+                     subject="x", body="y")
+
+    assert result["ok"] is False
+    assert "t_wang" in result["error"]      # and says who there is instead
+
+
+def test_small_job_can_reach_a_technician_and_cannot_ring_one():
+    """The deployment decided not to pay for calls, and that is enforced by the grant
+    rather than by asking the prompt nicely."""
+    from plumbing import config
+    from plumbing.tools import resolve
+
+    granted = {t.name for t in resolve(config.agents_config()["agents"]["small_job"]["tools"])}
+
+    assert "technician.notify" in granted
+    assert not any(name.startswith("phone.") for name in granted)
