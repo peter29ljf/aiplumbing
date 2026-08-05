@@ -61,6 +61,10 @@ ssh -o ConnectTimeout=60 "$HOST" "
   set -e
   cd $REMOTE
   git pull -q origin main
+  # Before the restart, so a dependency a commit needs is there when it starts rather
+  # than discovered at the moment an agent tries to use it. Quiet unless something
+  # actually installs; it is a no-op on almost every deploy.
+  .venv/bin/pip install -q -r requirements.txt
   systemctl restart $SERVICE
   sleep 3
   systemctl is-active $SERVICE

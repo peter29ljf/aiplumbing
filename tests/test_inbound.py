@@ -296,3 +296,105 @@ def test_a_path_that_merely_starts_with_chat_is_not_a_chat_endpoint(base_url: st
     with pytest.raises(urllib.error.HTTPError) as caught:
         _post(f"{base_url}/chatterbox", {"text": "hi"})
     assert caught.value.code == 404
+
+
+def test_the_widget_is_told_what_number_to_ring_when_the_chat_fails(inbound: Inbound):
+    """It shows that number at the moment the chat has already broken, so it cannot be
+    fetched then. A number typed into the HTML instead would be a second source of truth
+    that nobody remembers to change."""
+    from plumbing import config
+
+    _, body = inbound.chat_new({"phone": "604-721-8629"})
+
+    assert body["call_us"] == config.business_rules()["company"]["phone"]
+
+
+# ---- CORS -------------------------------------------------------------
+#
+# The widget is served from www.smartstrategy.services and the app answers on the apex
+# domain, so every call the site makes is cross-origin. Nothing said so, and the browser
+# threw away answers the server had already returned 200 for. That, not the endpoint
+# contract, is why the chat had never once worked.
+
+
+ALLOWED = "https://www.smartstrategy.services"
+
+
+@pytest.fixture()
+def cors_url(inbound: Inbound):
+    import threading
+    from http.server import ThreadingHTTPServer
+
+    from plumbing.live.server import make_handler
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(inbound, origins=[ALLOWED]))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{httpd.server_address[1]}"
+    httpd.shutdown()
+
+
+def _request(url: str, method: str, origin: str | None, payload: dict | None = None):
+    import json as _json
+    import urllib.error
+    import urllib.request
+
+    data = _json.dumps(payload).encode() if payload is not None else None
+    request = urllib.request.Request(url, data=data, method=method)
+    if payload is not None:
+        request.add_header("Content-Type", "application/json")
+    if origin:
+        request.add_header("Origin", origin)
+    try:
+        with urllib.request.urlopen(request) as response:  # noqa: S310
+            return response.status, dict(response.headers)
+    except urllib.error.HTTPError as exc:
+        return exc.code, dict(exc.headers)
+
+
+def test_the_preflight_is_answered(cors_url: str):
+    """Posting JSON is not a simple request, so the browser preflights every message.
+    BaseHTTPRequestHandler answers 501 on its own, and the real request never follows."""
+    status, headers = _request(f"{cors_url}/chat/new", "OPTIONS", ALLOWED)
+
+    assert status == 204
+    assert headers["Access-Control-Allow-Origin"] == ALLOWED
+    assert "POST" in headers["Access-Control-Allow-Methods"]
+    assert "Content-Type" in headers["Access-Control-Allow-Headers"]
+
+
+def test_an_allowed_origin_gets_the_answer_back(cors_url: str):
+    status, headers = _request(
+        f"{cors_url}/chat/new", "POST", ALLOWED, {"phone": "604-721-8629"}
+    )
+
+    assert status == 200
+    assert headers["Access-Control-Allow-Origin"] == ALLOWED
+    assert headers.get("Vary") == "Origin"       # or a cache serves it to somebody else
+
+
+def test_a_stranger_gets_no_permission(cors_url: str):
+    """The endpoint spends money on a model call and hands back a session id. `*` would
+    let any page on the internet run up the bill and read the replies."""
+    status, headers = _request(
+        f"{cors_url}/chat/new", "POST", "https://evil.example", {"phone": "604-721-8629"}
+    )
+
+    assert "Access-Control-Allow-Origin" not in headers
+    assert status == 200          # the server still answers; the browser is what refuses
+
+
+def test_a_stranger_is_refused_at_the_preflight(cors_url: str):
+    """Cheaper than letting them through to the request that costs something."""
+    status, headers = _request(f"{cors_url}/chat/new", "OPTIONS", "https://evil.example")
+
+    assert status == 403
+    assert "Access-Control-Allow-Origin" not in headers
+
+
+def test_a_request_with_no_origin_is_unaffected(cors_url: str):
+    """Twilio and Telegram post here from a server, with no Origin at all. They must not
+    start failing because a browser rule was added for somebody else."""
+    status, headers = _request(f"{cors_url}/chat/new", "POST", None, {"phone": "604-721-8629"})
+
+    assert status == 200
+    assert "Access-Control-Allow-Origin" not in headers

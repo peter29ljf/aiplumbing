@@ -56,6 +56,11 @@ def live_config() -> dict[str, Any]:
         return {}
 
 
+def web_chat_origins() -> list[str]:
+    """Origins allowed to call the chat endpoints from a browser. Empty means none."""
+    return [str(o) for o in (live_config().get("web_chat_origins") or [])]
+
+
 def enabled_agents() -> list[str]:
     configured = live_config().get("enabled_agents")
     return list(configured) if configured else list(agents_config()["agents"])

@@ -77,6 +77,13 @@ class RateLimiter:
         return True
 
 
+def _company_phone() -> str:
+    """The number a customer should ring when the chat cannot help them."""
+    from plumbing import config  # noqa: PLC0415
+
+    return str(config.business_rules()["company"].get("phone", ""))
+
+
 def valid_phone(raw: str) -> bool:
     return bool(_TEN_DIGITS.match(re.sub(r"[\s()\-.]", "", raw or "")))
 
@@ -113,7 +120,15 @@ class Inbound:
 
         session_id = uuid.uuid4().hex
         self.sessions.store.open_chat_session(session_id, phone)
-        return 200, {"session_id": session_id, "greeting": CHAT_GREETING}
+        return 200, {
+            "session_id": session_id,
+            "greeting": CHAT_GREETING,
+            # For the widget's "we are offline, call us instead" line. It comes from here
+            # rather than being typed into the page, because a number hardcoded in HTML is
+            # a second source of truth that nobody remembers to change — and the one place
+            # it appears is the moment the chat has already failed.
+            "call_us": _company_phone(),
+        }
 
     def chat_message(self, payload: dict[str, Any], *, ip: str = "") -> tuple[int, dict[str, Any]]:
         """Say something in a session already opened. Carries no number of its own.
@@ -403,7 +418,18 @@ def _say_and_hang_up(text: str) -> str:
 # ---- HTTP -------------------------------------------------------------
 
 
-def make_handler(inbound: Inbound) -> type[BaseHTTPRequestHandler]:
+def make_handler(
+    inbound: Inbound, origins: list[str] | None = None
+) -> type[BaseHTTPRequestHandler]:
+    """`origins` may call the chat endpoints from a browser; None reads them from config.
+
+    Resolved once here rather than per request: an allow-list that can change under a
+    running server is one more thing that behaves differently at 3am than it did in a test.
+    """
+    from plumbing import config  # noqa: PLC0415
+
+    allowed_origins = frozenset(config.web_chat_origins() if origins is None else origins)
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "FangxinInbound/1"
 
@@ -420,12 +446,45 @@ def make_handler(inbound: Inbound) -> type[BaseHTTPRequestHandler]:
             length = int(self.headers.get("Content-Length") or 0)
             return self.rfile.read(length) if length else b""
 
+        def _allow_origin(self) -> str:
+            """The Origin header echoed back, if it is one we allow. Otherwise nothing.
+
+            Echoed rather than answered with `*`: these endpoints spend money on a model
+            call and carry a session id, so any page on the internet being able to run up
+            the bill and read the replies is not a trade worth making. Echoing also keeps
+            the door open for credentialed requests later, which `*` forbids outright.
+            """
+            origin = self.headers.get("Origin", "")
+            return origin if origin and origin in allowed_origins else ""
+
         def _send(self, code: int, body: bytes, content_type: str) -> None:
             self.send_response(code)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
+            allowed = self._allow_origin()
+            if allowed:
+                self.send_header("Access-Control-Allow-Origin", allowed)
+                # Caches and proxies must not serve one origin's answer to another.
+                self.send_header("Vary", "Origin")
             self.end_headers()
             self.wfile.write(body)
+
+        def do_OPTIONS(self) -> None:  # noqa: N802
+            """The preflight. Without it BaseHTTPRequestHandler answers 501 and the
+            browser never sends the real request — which is what was happening: posting
+            JSON is not a simple request, so every chat message was preflighted first."""
+            allowed = self._allow_origin()
+            if not allowed:
+                self._send(403, b"", "text/plain")
+                return
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", allowed)
+            self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Access-Control-Max-Age", "86400")
+            self.send_header("Vary", "Origin")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
 
         def do_GET(self) -> None:  # noqa: N802
             if self.path == "/health":
