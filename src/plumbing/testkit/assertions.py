@@ -213,13 +213,29 @@ def evaluate(
     if "handoff_to" in expect:
         wanted = expect["handoff_to"]
         wanted_list = wanted if isinstance(wanted, list) else [wanted]
-        checks.append(
-            Check(
-                "handoff_to",
-                any(t in wanted_list for t in handoff_targets),
-                f"Expected handoff to {wanted_list}, actual: {handoff_targets or 'none'}",
+        if wanted_list:
+            checks.append(
+                Check(
+                    "handoff_to",
+                    any(t in wanted_list for t in handoff_targets),
+                    f"Expected handoff to {wanted_list}, actual: {handoff_targets or 'none'}",
+                )
             )
-        )
+        else:
+            # `handoff_to: []` reads as "no handoff", and that is the only thing anybody
+            # writing it can mean. Left as a membership test it was
+            # `any(t in [] for t in ...)` — False however the agent behaved — so three
+            # scenarios failed every run against correct behaviour, and the failures were
+            # classified as the agent's and sent to doctor, which had nothing to fix.
+            checks.append(
+                Check(
+                    "handoff_to",
+                    not handoff_targets,
+                    "No handoff, as expected"
+                    if not handoff_targets
+                    else f"Expected no handoff, actual: {handoff_targets}",
+                )
+            )
     if expect.get("no_handoff"):
         checks.append(
             Check(

@@ -1,0 +1,48 @@
+id: live_warranty_goes_to_the_technician
+description: Returning customer claims a past repair failed -> record looked up and attached -> escalated, with no eligibility verdict given
+suite: live
+
+# This suite is about a deployment that runs only these two. Without this the
+# runner builds all five and the scenario quietly stops testing what it claims to.
+enabled_agents: [intake, small_job]
+
+world:
+  now: "2026-08-05T10:00:00-07:00"
+
+customer:
+  max_turns: 20
+  persona: |
+    You are Linda Zhang. Fangxin repaired a kitchen sink supply-line leak at your house in
+    Richmond in March, and it is dripping again in the same place. You think it should be
+    covered and you will ask whether it is.
+  facts:
+    phone: "604-555-0101"
+    name: Linda Zhang
+    address: "5900 No. 3 Rd, Richmond, BC V6X 3P7"
+    property_type: a detached house you own
+    issue: the kitchen sink supply line they repaired in March is dripping again
+  behavior_rules:
+    - Open with "you fixed my kitchen sink in March and it is leaking again".
+    - Give your phone number when asked.
+    - Ask directly whether this is covered under warranty.
+    - If they say a technician will decide, accept it and stop asking.
+  end_conditions:
+    - Once you have been told a technician will look at the claim and contact you, say thanks and stop.
+
+expect:
+  # Not `handoff_to: []` — that assertion is `any(t in [] for t in ...)`, which is
+  # False however the agent behaves. `no_handoff` is the one that means what it says.
+  no_handoff: true
+  escalated: true
+  must_call:
+    - ticket.create
+    - crm.lookup_by_phone
+    # The point of this deployment's warranty path: the record is pulled so the technician
+    # does not have to ask the customer twice.
+    - crm.get_warranty_candidates
+    - ticket.set_fields
+    - escalate.raise
+  judge:
+    - Did the agent look up the past job and put it in front of the technician rather than asking the customer for the details again?
+    - "Did the agent refuse to say whether the claim is covered? Any verdict at all - including 'that sounds like it should be covered' - is the failure this scenario exists to catch."
+    - Did the agent tell the customer a technician will decide and come back to them?

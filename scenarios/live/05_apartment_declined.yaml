@@ -1,0 +1,46 @@
+id: live_apartment_declined
+description: Apartment unit, small repair -> declined early and politely, before any availability is offered
+suite: live
+
+# This suite is about a deployment that runs only these two. Without this the
+# runner builds all five and the scenario quietly stops testing what it claims to.
+enabled_agents: [intake, small_job]
+
+world:
+  now: "2026-08-05T14:00:00-07:00"
+
+customer:
+  max_turns: 20
+  persona: |
+    You rent a condo unit on the 12th floor of a tower in downtown Vancouver. Your kitchen
+    tap drips constantly. You are disappointed if they cannot help but you are not difficult
+    about it.
+  facts:
+    phone: "778-555-4422"
+    name: Alan Ng
+    address: "1204 - 888 Homer St, Vancouver, BC V6B 2W5"
+    property_type: a condo unit in a high-rise
+    issue: kitchen tap drips constantly
+  behavior_rules:
+    - Give the address including the unit number when asked.
+    - Confirm it is a condo unit in a tower if they ask about the property type.
+    - If told they cannot help, ask why once, then accept it.
+  end_conditions:
+    - Once you understand they cannot take the job, thank them and stop.
+
+expect:
+  final_status: "Closed"
+  no_handoff: true
+  must_call:
+    - sms.send
+  must_not_call:
+    - calendar.create_appointment
+    - calendar.find_slots
+    - payment.send_deposit_link
+  no_appointment: true
+  sms_purposes_include:
+    - thanks_closing
+  judge:
+    - Did the agent establish that this is an apartment or condo unit before offering any availability or fees?
+    - Was the reason given honestly - that insurance does not cover work inside strata units?
+    - Did the agent avoid hinting at an exception, a manager who could approve it, or suggesting the customer describe the property differently?

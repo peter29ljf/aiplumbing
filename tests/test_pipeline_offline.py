@@ -1149,3 +1149,33 @@ def test_an_unrecorded_property_type_is_not_blocked_here():
     world = World(now=WORKDAY)
     tid = _ticket_with(world, category="small_job")
     assert _book(world, tid) is not None
+
+
+def test_an_empty_handoff_expectation_means_no_handoff():
+    """`handoff_to: []` was an assertion nothing could satisfy.
+
+    Left as a membership test it read `any(t in [] for t in targets)` — False however the
+    agent behaved. Three live scenarios failed every run against correct behaviour, and
+    because the check is sourced to the agent they were handed to doctor, which then found
+    nothing to fix because there was nothing wrong.
+    """
+    from plumbing.testkit import assertions
+
+    world = World(now=WORKDAY)
+    checks = assertions.evaluate(
+        {"id": "x", "customer": {}, "expect": {"handoff_to": []}},
+        _ConversationStub(), world.snapshot(), [])
+    handoff = next(c for c in checks if c.name == "handoff_to")
+    assert handoff.passed is True
+
+
+def test_an_empty_handoff_expectation_still_catches_a_real_handoff():
+    from plumbing.testkit import assertions
+
+    world = World(now=WORKDAY)
+    world.handoffs.append({"from_agent": "intake", "to_agent": "small_job",
+                           "reason": "r", "summary": "s", "at": WORKDAY})
+    checks = assertions.evaluate(
+        {"id": "x", "customer": {}, "expect": {"handoff_to": []}},
+        _ConversationStub(), world.snapshot(), [])
+    assert next(c for c in checks if c.name == "handoff_to").passed is False

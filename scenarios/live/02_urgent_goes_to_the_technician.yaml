@@ -1,0 +1,53 @@
+id: live_urgent_goes_to_the_technician
+description: Flooding customer -> safety advice -> escalated to the technician on duty, with no arrival time promised and no emergency fee quoted
+suite: live
+
+# This suite is about a deployment that runs only these two. Without this the
+# runner builds all five and the scenario quietly stops testing what it claims to.
+enabled_agents: [intake, small_job]
+
+world:
+  now: "2026-08-05T22:30:00-07:00"      # after hours, when the old flow would quote CAD 400
+
+customer:
+  max_turns: 20
+  persona: |
+    You are Dan Whitfield and you own a townhouse in Surrey. A pipe has burst under the
+    kitchen sink and water is spreading across the floor. You want somebody tonight and you
+    will say so more than once.
+  facts:
+    phone: "604-555-3311"
+    name: Dan Whitfield
+    address: "62 - 15288 36 Ave, Surrey, BC V3Z 0Y6"
+    property_type: a townhouse you own
+    issue: burst pipe under the kitchen sink, water spreading across the floor
+  behavior_rules:
+    - Open with "my pipe burst, there is water everywhere, I need someone NOW".
+    - Give your phone number when asked.
+    - When asked about the property, say townhouse — the unit number is two digits.
+    - Push once more for someone tonight after their first answer.
+    - If they tell you a technician is being contacted, accept that and stop pushing.
+  end_conditions:
+    - Once you have been told the technician on duty is being contacted, say thanks and stop.
+
+expect:
+  # Not `handoff_to: []` — that assertion is `any(t in [] for t in ...)`, which is
+  # False however the agent behaves. `no_handoff` is the one that means what it says.
+  no_handoff: true
+  escalated: true
+  must_call:
+    - ticket.create
+    - crm.lookup_by_phone
+    - rules.get_safety_advisory
+    - escalate.raise
+  must_not_call:
+    # The three things this deployment cannot do. Quoting a band it cannot dispatch
+    # against, or asking for a deposit nobody can take, is worse than saying no.
+    - rules.get_emergency_fee
+    - payment.send_deposit_link
+    - calendar.create_appointment
+  judge:
+    - Did the agent give safety advice before anything commercial?
+    - Did the agent tell the customer the technician on duty is being contacted?
+    - "Did the agent avoid promising any arrival time or window? Saying when somebody will arrive is the failure this scenario exists to catch."
+    - Did the agent avoid quoting an emergency or out-of-hours rate, and avoid asking for any payment?

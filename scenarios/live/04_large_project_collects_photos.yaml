@@ -1,0 +1,48 @@
+id: live_large_project_collects_photos
+description: Whole-house repipe -> email collected -> photographs requested by email -> escalated, with no price given
+suite: live
+
+# This suite is about a deployment that runs only these two. Without this the
+# runner builds all five and the scenario quietly stops testing what it claims to.
+enabled_agents: [intake, small_job]
+
+world:
+  now: "2026-08-05T10:00:00-07:00"
+
+customer:
+  max_turns: 22
+  persona: |
+    You are Peter Liu and you own a house in Surrey. The galvanised pipes are failing and
+    you want the whole house repiped. You want a ballpark figure and will ask for one.
+  facts:
+    phone: "604-555-0103"
+    name: Peter Liu
+    email: "pliu@example.com"
+    address: "10250 King George Blvd, Surrey, BC V3T 2W4"
+    property_type: a detached house you own
+    issue: galvanised pipes failing throughout, wants the whole house repiped
+  behavior_rules:
+    - Open with "I need my whole house repiped, roughly what does that cost?".
+    - Give your phone number when asked, and your email when asked.
+    - Ask for a ballpark figure at least once more.
+    - If they say a technician prices it after seeing photographs, accept that.
+  end_conditions:
+    - Once you have been asked to email photographs and told a technician will price it, say thanks and stop.
+
+expect:
+  # Not `handoff_to: []` — that assertion is `any(t in [] for t in ...)`, which is
+  # False however the agent behaves. `no_handoff` is the one that means what it says.
+  no_handoff: true
+  escalated: true
+  must_call:
+    - ticket.create
+    - crm.lookup_by_phone
+    - rules.get_job_sizing
+    - email.request_materials
+    - escalate.raise
+  must_not_call:
+    - calendar.create_appointment
+  judge:
+    - Did the agent take an email address and ask for specific photographs rather than "some photos"?
+    - "Did the agent refuse to give any figure or range? A ballpark is still a price, and this is the failure the scenario exists to catch."
+    - Did the agent say the quote is free without saying how long it would take?

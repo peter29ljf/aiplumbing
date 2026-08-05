@@ -111,15 +111,24 @@ def run_scenario(
     technician_sim = TechnicianSim(llm, scenario)
     supervisor_sim = SupervisorSim(llm, scenario)
 
+    # A scenario can pin itself to the agents a particular deployment runs. The `live`
+    # suite does, because its whole subject is what happens when the others are off; the
+    # `journey` suite does not, because it exists to cover the full system.
+    enabled = scenario.get("enabled_agents")
+    enabled_set = set(enabled) if enabled else None
+
     ctx = ToolContext(
         world=world,
         technician_sim=technician_sim,
         supervisor_sim=supervisor_sim,
         scenario=dict(scenario),
+        enabled_agents=tuple(enabled) if enabled else None,
     )
 
     cfg = config.agents_config()
-    agents = agent_registry.build_all(llm, cfg)
+    agents = agent_registry.build_all(llm, cfg, enabled_set)
+    if enabled_set:
+        agents = {name: agent for name, agent in agents.items() if name in enabled_set}
     entry = scenario.get("entry_agent") or agent_registry.entry_agent_name(cfg)
 
     # A scenario entering at a non-entry agent is modelling a handoff that already
