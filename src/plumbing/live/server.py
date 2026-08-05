@@ -100,16 +100,21 @@ DOING = {
 DOING_FALLBACK = "Just a moment"
 
 
-def _doing(tool: str) -> str:
-    """The line to show for a tool, whichever spelling of its name arrived.
+def _doing(tool: str) -> str | None:
+    """The line to show for a tool, whichever spelling of its name arrived, or None.
 
     The agent loop reports the wire name — `crm_lookup_by_phone` — because that is what
     the model was given, while everything a person writes uses the dotted form. Keyed on
     the dotted names above and looked up on both here: the first version keyed one way and
-    read the other, so every tool missed and every customer saw the fallback, which is
-    exactly the failure this feature exists to prevent and it looked like it was working.
+    read the other, so every tool missed and every customer saw the fallback.
+
+    **None rather than the fallback**, because the agent asks for several tools at once
+    and this is called for each. Returning the fallback for the unnamed ones meant a batch
+    that ended on `ticket_create` wiped out the `crm_lookup_by_phone` before it — and
+    almost every batch ends on a bookkeeping call, so the fallback was all anyone ever
+    saw. The caller keeps the last line that meant something.
     """
-    return DOING.get(tool) or DOING.get(tool.replace("_", ".", 1), DOING_FALLBACK)
+    return DOING.get(tool) or DOING.get(tool.replace("_", ".", 1))
 
 
 @dataclass
@@ -118,6 +123,18 @@ class _Pending:
 
     done: bool = False
     doing: str = ""
+
+    def note_tool(self, tool: str) -> None:
+        """Keep the last tool that had something worth saying.
+
+        Called once per tool, and the agent asks for several at a time. A bookkeeping call
+        at the end of the batch has no line of its own and must not blank the one before
+        it — the customer would be told nothing for the whole turn, which is the wait this
+        exists to fill.
+        """
+        phrase = _doing(tool)
+        if phrase:
+            self.doing = phrase
     reply: str | None = None
     error: str | None = None
     # Texts that arrived while this turn was running. Chat cannot produce these (the
@@ -261,7 +278,7 @@ class Inbound:
     def _run_turn(self, session_id: str, phone: str, text: str, work: _Pending) -> None:
         try:
             conversation = self.sessions.get(channel="chat", phone=phone, session_id=session_id)
-            conversation.ctx.progress = lambda tool: setattr(work, "doing", _doing(tool))
+            conversation.ctx.progress = work.note_tool
             work.reply = conversation.say(text)
         except Exception as exc:  # noqa: BLE001
             # The customer gets an apology, not a stack trace, and the type is kept so the

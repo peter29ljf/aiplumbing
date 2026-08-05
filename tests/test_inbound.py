@@ -742,7 +742,41 @@ def test_every_phrase_is_reachable_from_the_name_the_agent_reports():
         assert _doing(wire[tool]) == DOING[tool], f"{tool} unreachable as {wire[tool]}"
         assert _doing(tool) == DOING[tool]
 
-    assert _doing("ticket_set_fields") == DOING_FALLBACK
+    assert _doing("ticket_set_fields") is None       # no line of its own
+
+
+def test_a_bookkeeping_call_does_not_wipe_out_the_line_before_it():
+    """The agent asks for several tools at once and this is called for each. The real
+    first batch is [crm_lookup_by_phone, ticket_create]; when the unnamed one overwrote
+    the named one, the fallback was all any customer ever saw for a whole turn — and it
+    looked exactly like the feature working."""
+    from plumbing.live.server import DOING, _Pending
+
+    work = _Pending()
+    work.note_tool("crm_lookup_by_phone")
+    work.note_tool("ticket_create")
+
+    assert work.doing == DOING["crm.lookup_by_phone"]
+
+    work.note_tool("ticket_update_status")
+    assert work.doing == DOING["crm.lookup_by_phone"]      # still the last one that meant something
+
+    work.note_tool("calendar_find_slots")
+    work.note_tool("ticket_set_fields")
+    assert work.doing == DOING["calendar.find_slots"]      # moves on when there is news
+
+
+def test_nothing_worth_saying_yet_still_says_something(inbound: Inbound):
+    """Before any tool with a line of its own has run, the poll must still answer."""
+    from plumbing.live.server import DOING_FALLBACK, _Pending
+
+    work = _Pending()
+    work.note_tool("ticket_create")
+
+    assert work.doing == ""
+    inbound._pending["s"] = work
+    _, polled = inbound.chat_poll({"session_id": "s"})
+    assert polled["doing"] == DOING_FALLBACK
 
 
 def test_every_phrase_reads_like_something_a_person_would_say():
