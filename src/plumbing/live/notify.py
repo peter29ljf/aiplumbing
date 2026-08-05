@@ -40,15 +40,15 @@ def offer_job(
 ) -> dict[str, Any]:
     """Put a job in front of the technician with an Accept and a Decline under it.
 
-    The buttons exist so an answer costs one tap. Everything about how the answer comes
-    back lives in `plumbing.live.offers`; this only sends it and makes the phone ring.
+    The buttons exist so an answer costs one tap, and Decline asks why — a refusal with no
+    reason leaves the office guessing at what to tell the customer. Everything about how
+    the answer comes back lives in `plumbing.live.offers`; this only sends it.
     """
     from plumbing.live import offers as offers_mod  # noqa: PLC0415
 
     offer = offers.create(ticket_id=ticket_id, chat_id=chat_id, summary=summary)
     text = offers_mod.offer_text(summary)
-    outcome: dict[str, Any] = {"offer_id": offer.offer_id, "telegram": None,
-                               "call": None, "errors": []}
+    outcome: dict[str, Any] = {"offer_id": offer.offer_id, "telegram": None, "errors": []}
 
     if is_live("telegram.send"):
         from plumbing.integrations import telegram  # noqa: PLC0415
