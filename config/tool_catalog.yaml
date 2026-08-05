@@ -20,6 +20,18 @@
 # billed to the accounts in .env. Do not turn it on until every agent suite
 # passes end to end.
 # ===========================================================================
+# This file is tracked by git, so it is the wrong place to record what a particular
+# machine has switched on. It used to be: the production server carried two modified
+# lines here, and every `git pull` was a chance to conflict with them or — worse —
+# silently revert them, stopping Telegram notifications with nothing reporting an error.
+#
+# **Production switches live in the environment**, set in the systemd unit:
+#
+#     Environment=PLUMBING_LIVE_ENABLED=true
+#     Environment=PLUMBING_LIVE_TOOLS=telegram.send
+#
+# Either variable overrides everything below. What is here stays all-mocked, so pulling
+# code can never change what is reaching the outside world.
 live_tools_enabled: false
 
 statuses:

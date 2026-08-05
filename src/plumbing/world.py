@@ -503,6 +503,43 @@ class World:
                 return True
         return False
 
+    def external_busy(self, start: datetime, end: datetime) -> list[tuple[datetime, datetime]]:
+        """Everything booked in the window that this process does not hold in memory.
+
+        Two sources, and both matter for different reasons. The **database** holds what was
+        booked in earlier conversations — without it every new conversation believes the
+        diary is empty and sells the same slot again. The **real calendar** holds whatever
+        a person put there by hand, and a technician who blocked out Thursday afternoon in
+        their own phone is exactly the appointment nobody here knows about.
+
+        Fetched once per search, for the whole window. Asking per candidate slot would be
+        hundreds of calls to answer one question.
+        """
+        busy: list[tuple[datetime, datetime]] = []
+
+        if self.store is not None:
+            for row in self.store.appointments_between(start, end):
+                began = _parse_dt(row["start_at"], self.tz)
+                busy.append((began, began + timedelta(minutes=int(row["duration_minutes"] or 0))))
+
+        from plumbing.integrations import is_live  # noqa: PLC0415
+
+        if is_live("calendar.find_slots"):
+            from plumbing.integrations import google_calendar  # noqa: PLC0415
+            from plumbing.integrations.gate import LiveToolUnavailable  # noqa: PLC0415
+
+            try:
+                busy.extend(google_calendar.busy_periods(start, end))
+            except LiveToolUnavailable as exc:
+                # Offering a slot without knowing what is really in the diary is how two
+                # jobs end up at the same hour. Better to say we cannot check.
+                raise ToolRejection(
+                    f"The calendar could not be read, so I cannot tell you what is free: "
+                    f"{exc}. Do not offer a time. Escalate instead."
+                ) from exc
+
+        return busy
+
     def find_slots(
         self,
         *,
@@ -531,6 +568,15 @@ class World:
 
         slots: list[dict[str, Any]] = []
         cursor_day = self._now.date()
+
+        # One lookup for the whole search window, then a plain overlap test per slot.
+        window_end = self._now + timedelta(days=horizon + 1)
+        booked_elsewhere = self.external_busy(self._now, window_end)
+
+        def taken(at: datetime, minutes: int) -> bool:
+            finish = at + timedelta(minutes=minutes)
+            return any(at < b_end and finish > b_start for b_start, b_end in booked_elsewhere)
+
         for offset in range(horizon):
             day = cursor_day + timedelta(days=offset)
             if not self.is_working_day(day):
@@ -543,6 +589,9 @@ class World:
                 steps = int(minutes_past // granularity) + 1
                 slot = start_of_day + timedelta(minutes=steps * granularity)
             while slot + timedelta(minutes=duration) <= end_of_day:
+                if taken(slot, duration):
+                    slot += timedelta(minutes=granularity)
+                    continue
                 for tech in candidates:
                     if not self.technician_busy(tech.id, slot, duration):
                         slots.append(
@@ -575,6 +624,23 @@ class World:
         duration = duration_minutes or sched.get("default_job_duration_minutes", 120)
 
         # Hard gate: no emergency dispatch before the deposit has been paid
+        # Hard gate: nothing gets booked into a property our insurance does not cover.
+        # This is the only failure left in the intake+small_job pair that carries real
+        # liability rather than lost business, so it does not live in a prompt. Three
+        # prompts carry the rule as guidance and the tool refuses regardless.
+        #
+        # **Before the deposit check, deliberately.** The other order told the agent to
+        # go and collect a deposit for a job that would then be refused on the next
+        # call — the customer pays for something we can never do and then has to be
+        # refunded. "We cannot take this at all" is the more useful thing to hear
+        # first, and it is true whether or not any money has moved.
+        excluded = self._excluded_property(ticket_id, kind)
+        if excluded:
+            raise ToolRejection(
+                f"{excluded['reason'].strip()} Do not book this. {excluded['exception'].strip()}",
+                violation="excluded_property_type",
+            )
+
         if kind == "emergency" and self.rules["emergency_dispatch"].get(
             "deposit_required_before_dispatch", True
         ):
@@ -585,17 +651,6 @@ class World:
                     "payment first.",
                     violation="dispatch_before_deposit",
                 )
-
-        # Hard gate: nothing gets booked into a property our insurance does not cover.
-        # This is the only failure left in the intake+small_job pair that carries real
-        # liability rather than lost business, so it does not live in a prompt. Three
-        # prompts carry the rule as guidance and the tool refuses regardless.
-        excluded = self._excluded_property(ticket_id, kind)
-        if excluded:
-            raise ToolRejection(
-                f"{excluded['reason'].strip()} Do not book this. {excluded['exception'].strip()}",
-                violation="excluded_property_type",
-            )
 
         # Hard gate: no standard bookings on Sundays or public holidays
         if kind in ("standard", "warranty") and not self.is_working_day(start.date()):
@@ -654,10 +709,15 @@ class World:
         Reads what the agent recorded on the ticket rather than taking an argument, so a
         booking cannot slip past by simply not mentioning the property type.
 
-        Two things are deliberately let through. A **large project** in an apartment
-        building is reviewed by a person before we commit, which is the exception the
-        rules file states. A **warranty** visit goes wherever the original job was — we
-        already worked there, so the insurance question was settled then.
+        Which flows are excepted comes from each rule's `except_for` list rather than from
+        this function. It used to be two hardcoded conditions here and a prose note in the
+        rules file, and the note drifted: it said the exclusion applied to small jobs,
+        which read as covering emergencies too and disagreed with what this actually did.
+        A rule the gate enforces and a rule the file states have to be one rule.
+
+        Today that list is a large project — reviewed by a person before we commit — and a
+        warranty visit, which goes wherever the original job was, because we already worked
+        there and the insurance question was settled then.
 
         A property type nobody recorded is **not** blocked here. Booking without one is a
         different fault, and turning this gate into "no property type, no appointment"
@@ -665,15 +725,20 @@ class World:
         belongs with whoever decides bookings must carry one.
         """
         ticket = self.tickets.get(ticket_id)
-        if ticket is None or kind == "warranty":
+        if ticket is None:
             return None
         tags = ticket.tags or {}
         property_type = str(tags.get("property_type", "")).strip().lower()
-        category = str(tags.get("category", "")).strip().lower()
-        if not property_type or "large" in category:
+        if not property_type:
             return None
+
+        # What this booking is, in the vocabulary `except_for` uses. `kind` is the
+        # appointment kind; the size of the job lives on the ticket instead.
+        category = str(tags.get("category", "")).strip().lower()
+        flows = {kind, "large_job"} if "large" in category else {kind}
+
         for rule in self.rules.get("service_policy", {}).get("excluded_property_types", []):
-            if rule["id"] == property_type:
+            if rule["id"] == property_type and not (set(rule.get("except_for") or []) & flows):
                 return rule
         return None
 

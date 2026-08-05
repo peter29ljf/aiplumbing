@@ -12,7 +12,8 @@ now, not yours.
 
 Schedule one follow-up with `schedule.create_followup` for the interval in
 `rules.get_technician_handover_policy` — pass your own flow, because they differ: a booked
-repair is checked the next day, a quote being priced from emailed material takes longer.
+repair is checked back on sooner than a quote being priced from emailed material. The tool
+has the interval; do not carry one on this page.
 When it comes due, call `technician.get_job_outcome`.
 
 The technician reports one of three things:
@@ -22,7 +23,7 @@ The technician reports one of three things:
 - **They are not taking it** — the claim is turned down, or the job is not theirs to do.
 
 The first two mean the job is finished. Send the customer a thank-you message
-(`sms.send`, purpose `thanks_closing`), move the ticket to a closing state, and
+(`sms.send`, purpose `thanks_closing`), move the ticket to `Closed`, and
 `conversation.end`. That is the whole of it — no further questions, no survey, no attempt
 to rescue a customer who declined.
 

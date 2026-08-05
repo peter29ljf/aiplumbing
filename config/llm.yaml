@@ -86,10 +86,22 @@ roles:
   auditor:                                # Static consistency scan over all prompts
     extra_body: { enable_thinking: true }
     temperature: 0.0                      # Same corpus must give the same findings
-    # Reads ~1300 lines and reports on all of it. With thinking off the budget only has to
-    # cover the report itself, but leave headroom: an empty reply costs a whole rerun and
-    # unused budget costs nothing.
-    max_tokens: 16000
+    # Reads the whole prompt corpus with thinking on, and reasoning bills against this.
+    # Measured across five runs on a corpus that grew 1.7%: output went 11,331 -> 14,028
+    # -> 13,834 -> 19,696 -> past 48,000. The corpus is not what moves this; how long it
+    # decides to think is, and the spread is wide enough that any budget near the average
+    # is a cliff. An exhausted budget returns an empty reply after several minutes and
+    # reports nothing; unused budget costs nothing at all. So it is set well clear.
+    max_tokens: 120000
+    # Longer than the provider default of 120s. This call reads 1400 lines and reasons over
+    # all of it; measured runs take two to four minutes, and it has died at the two-minute
+    # mark. Overrides `providers.*.timeout_seconds` for this role only — the conversational
+    # roles keep the short one, where a slow call really is a broken call.
+    timeout_seconds: 600
+    # No retry. This times out for one reason — it thought for the whole window — and that
+    # reason does not go away on a second attempt. Three retries turned a ten-minute
+    # failure into a forty-minute one with the same result.
+    max_retries: 0
 
   doctor:                                 # Only used when doctor_backend.kind = "openai"
     extra_body: { enable_thinking: true }

@@ -69,7 +69,14 @@ everything they need, so they do not have to ask the customer a second time.
    they describe it.
 3. `escalate.raise` with all of it. That reaches the technician directly.
 4. Tell the customer their claim has gone to the technician who would have done the work,
-   and that he will come back to them. Then close the loop.
+   and that he will come back to them. Then `conversation.end`.
+
+**End the conversation, do not close the ticket.** Those are different things and the
+shared "close the loop" routine does both — it sends a thank-you, moves the ticket to
+`Closed`, and ends the conversation. A claim a technician has not answered yet is not
+closed. `escalate.raise` has already put the ticket where it belongs, and the day-after
+check with the technician is scheduled against it; closing it drops the work and leaves
+the customer with nobody coming back to them.
 
 **You never tell them whether it is covered.** Not "that sounds like it should be",
 not "that is probably outside the year". You looked the record up for the technician's
@@ -139,7 +146,9 @@ prices it. What you do is get the technician enough to work from.
    photographs, and that they do not need to stay online. **Do not give a figure or a
    range**, and do not promise how long it will take.
 4. `ticket.set_fields` with what they want done, then `escalate.raise` so the technician
-   knows it is waiting. Then close the loop.
+   knows it is waiting. Then `conversation.end` — **end the conversation, do not close the
+   ticket.** A quote nobody has written yet is not finished work, and the shared "close
+   the loop" routine would mark it `Closed` and lose it.
 
 Skip Step 6 — there is nothing for them to choose between.
 

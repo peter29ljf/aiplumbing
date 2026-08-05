@@ -135,6 +135,7 @@ class LLM:
             max_retries=0,  # retry here instead, so attempts can be logged
         )
         self._max_retries = provider.get("max_retries", 3)
+        self._provider_max_retries = self._max_retries
         # Vendor-specific switches the OpenAI schema has no field for. Qwen needs
         # enable_thinking here: it reasons by default, and on this workload the thinking
         # was 97% of the output tokens for no gain in the answer.
@@ -180,6 +181,14 @@ class LLM:
             "temperature": settings.get("temperature", 0.3),
             "max_tokens": settings.get("max_tokens", 2000),
         }
+        # Per-role, because the roles are not the same shape of call. A customer reply that
+        # takes two minutes is a broken call and should fail fast; the auditor reads the
+        # whole corpus with thinking on and legitimately takes several. One provider-wide
+        # timeout has to be wrong for one of them, and it was wrong for the auditor — the
+        # scan died at 120s and the gate reported it as a failed audit rather than a call
+        # that never completed.
+        if settings.get("timeout_seconds"):
+            kwargs["timeout"] = float(settings["timeout_seconds"])
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice or "auto"
@@ -189,13 +198,18 @@ class LLM:
         if extra_body:
             kwargs["extra_body"] = extra_body
 
+        # Per-role, because not every failure is worth another go. A role whose calls are
+        # long by nature times out for a deterministic reason — it thought for the whole
+        # window — and retrying turns a ten-minute failure into a forty-minute one.
+        retries = int(settings.get("max_retries", self._provider_max_retries))
+
         last_error: Exception | None = None
-        for attempt in range(self._max_retries + 1):
+        for attempt in range(retries + 1):
             try:
                 response = self.client.chat.completions.create(**kwargs)
             except Exception as exc:  # noqa: BLE001 - back off on network and rate-limit errors
                 last_error = exc
-                if attempt >= self._max_retries or _is_fatal(exc):
+                if attempt >= retries or _is_fatal(exc):
                     break
                 time.sleep(min(2**attempt + random.random(), 20))
                 continue

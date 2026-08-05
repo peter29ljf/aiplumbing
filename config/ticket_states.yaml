@@ -148,6 +148,10 @@ transitions:
   "Quote Rejected": []
   "Large Project Documents Requested":
     - "Large Project Documents Received"
+    # They were asked for photos or drawings and never sent them. Without those there is
+    # nothing to price, so the job ends here. The prompt already told the agent to close
+    # it; the edge was missing, so the agent was told to do something the machine refused.
+    - "Closed"
   "Large Project Documents Received":
     - "Large Project Under Review"
   "Large Project Under Review":
@@ -161,6 +165,13 @@ transitions:
     - "Deposit Link Sent"              # payment problem sorted, try again
     - "Awaiting Appointment Selection" # dispute settled, back to picking a slot
     - "Needs Assessment"               # reopened as ordinary work
+    # Intake no longer hands warranty and large projects to a specialist agent — this
+    # deployment runs intake and small_job only, so both escalate to the technician on
+    # duty instead. When those flows are switched back on, the work resumes from here
+    # rather than from where the old direct handoff used to put it. Without these two
+    # edges the receiving agent's first instruction is one the state machine refuses.
+    - "Warranty Eligibility Review"    # technician takes the claim on
+    - "Large Project Documents Requested"
   "Service Completed": []
   "Refund Pending":
     - "Refund Completed"

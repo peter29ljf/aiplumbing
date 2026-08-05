@@ -75,10 +75,10 @@ Nobody accepts on the first pass: wait and go round again. `clock.advance` by th
 in the rules, then **phone that same list again** with the next `round_number` — going round
 again means placing the calls again, not fetching the roster again.
 
-`rules.lookup` on `emergency_dispatch` holds all three limits: how long to wait between
-rounds, how many rounds you get, and how long the whole search may run. Read them there
-rather than from this page, so a change to the rules reaches you. The tool enforces the
-round cap; when it stops you, you are done searching.
+`rules.get_emergency_fee` returns a `dispatch` block with all three limits: how long to
+wait between rounds, how many rounds you get, and how long the whole search may run. Read
+them there rather than from this page, so a change to the rules reaches you. The tool
+enforces the round cap as well; when it stops you, you are done searching.
 
 Do not message the customer between rounds. They were told to watch for a text, and a text
 saying "still looking" is not the text they are waiting for.
@@ -96,10 +96,12 @@ saying "still looking" is not the text they are waiting for.
 Then you are done managing it. Follow the shared handover rules: schedule the follow-up for
 the `emergency` interval, and close the ticket on the technician's report.
 
-### The hour runs out with no taker
+### The search window runs out with no taker
 
 1. Text the customer: we could not get anyone out tonight, and ask whether they want us to
-   keep trying or would rather stop.
+   keep trying or would rather stop. **Do not name how long you searched** unless you are
+   repeating the window `rules.get_emergency_fee` gave you — it is a configured figure like
+   any other, and "we tried for an hour" is a claim about our own conduct.
 2. **They want to stop** → `ticket.update_status` → `Refund Pending`, then
    `payment.refund_deposit` (nobody was dispatched, so this is automatic and immediate),
    confirm the refund by message, and `Refund Completed`. The pending state is not

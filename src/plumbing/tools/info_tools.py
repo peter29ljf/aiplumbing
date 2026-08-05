@@ -104,10 +104,20 @@ def rules_emergency_fee(ctx: ToolContext, at: str = "") -> dict[str, Any]:
         when = _parse_dt(at, ctx.world.tz)
     tier = ctx.world.emergency_fee_tier(when)
     deposit = ctx.world.rules["pricing"]["emergency_deposit"]
+    dispatch = ctx.world.rules["emergency_dispatch"]
     return {
         **tier,
         "display": f"{tier['currency']} {tier['amount']} ({tier['qualifier']})",
         "deposit": deposit,
+        # The limits on the search for a technician. The prompt used to send the agent to a
+        # `rules.lookup` tool that does not exist, so the only way it learned the round cap
+        # was by being rejected at the sixth one, and the wait between rounds it simply
+        # made up. They belong with the other emergency rules the agent already fetches.
+        "dispatch": {
+            "call_interval_minutes": dispatch["technician_call_interval_minutes"],
+            "max_call_rounds": dispatch["max_call_rounds"],
+            "max_search_window_minutes": dispatch["max_search_window_minutes"],
+        },
     }
 
 

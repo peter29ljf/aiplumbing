@@ -69,13 +69,15 @@ The customer may come back before the visit.
 
 **Reschedule**: `calendar.find_slots` for new options → confirm with them →
 `calendar.reschedule` → `ticket.update_status` → `Appointment Rescheduled` → confirmation
-message to both the customer and the technician. **Rescheduling is free** — say so, because
-they will assume it is not.
+message to both the customer and the technician. `rules.get_standard_service_fee` returns
+`reschedule_free` — **if it is true, say so**, because they will assume it is not. Zero is
+a price like any other and it comes from the tool, not from this page.
 
 **Cancel**: `calendar.cancel` → `ticket.update_status` → `Appointment Cancelled` → notify the
 technician → send the customer a cancellation confirmation and a `thanks_closing` message →
-`Closed` → `conversation.end`. **Cancelling a standard appointment is free** — same lookup. Do not ask them
-to justify it; if they volunteer a reason, record it with `ticket.set_fields`.
+`Closed` → `conversation.end`. The same tool returns `cancellation_free`; say what it says.
+Do not ask them to justify cancelling; if they volunteer a reason, record it with
+`ticket.set_fields`.
 
 ## If it turns out not to be a small job
 

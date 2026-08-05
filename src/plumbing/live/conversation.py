@@ -52,6 +52,34 @@ class LiveConversation:
         if not self.messages:
             self.messages = self.agents[self.active_name].initial_messages()
             self.involved = [self.active_name]
+            if self.phone:
+                self.messages.append({"role": "user", "content": self._number_already_known()})
+
+    def _number_already_known(self) -> str:
+        """Every live channel hands us the number before the customer says anything.
+
+        The shared rules open by asking for it, which is right when nothing supplies it and
+        wrong here: asking somebody who typed their number into the form thirty seconds ago,
+        or who is speaking to us *on* the number, is the clearest possible sign that nobody
+        is listening. So the agent is told at the top of the conversation, before the first
+        customer message, and the instruction to look it up immediately still applies.
+
+        How much the number is worth differs by channel and the agent is told which: a
+        carrier vouches for SMS and voice, whereas a chat number is typed and could be
+        anybody's. That does not change what the agent does — the gate on acting without a
+        number is code either way — but it is the truth about the identity, and an agent
+        that believes a typed number is proven will say so to the customer.
+        """
+        source = (
+            "they are contacting us from it, so the carrier vouches for it"
+            if self.channel in {"sms", "voice"}
+            else "they typed it in to open the chat, so it is their claim and not proof"
+        )
+        return (
+            f"[system] This customer's phone number is already known: {self.phone} — "
+            f"{source}. Do not ask them for it. Call crm.lookup_by_phone with it now, "
+            f"before you reply to them."
+        )
 
     # ------------------------------------------------------------------
     @property

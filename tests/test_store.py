@@ -306,3 +306,103 @@ def _a_technician():
     return Technician(id="t_wang", name="Mike Wang", phone="+16045550201",
                       skills=["leak"], areas=["richmond"], max_concurrent_jobs=3,
                       on_duty=True, policy="accept")
+
+
+# ---- the diary the slot search must respect --------------------------
+
+
+def test_a_slot_booked_in_an_earlier_conversation_is_not_offered_again(tmp_path: Path):
+    """Without this every new conversation believes the diary is empty and resells it."""
+    from datetime import datetime as dt
+
+    store = SqliteStore(tmp_path / "prod.db")
+    world = _empty_world(store, now="2026-08-05T08:00:00-07:00")
+    world.technicians["t_wang"] = _a_technician()
+
+    taken = dt.fromisoformat("2026-08-05T09:00:00-07:00")
+    store.save_appointment({"appointment_id": "AP-0001", "kind": "standard",
+                            "ticket_id": "TK-0001", "customer_phone": "+1604",
+                            "technician_id": "t_wang", "start": taken,
+                            "duration_minutes": 120, "address": "x", "description": "y"})
+
+    offered = [s["start"] for s in world.find_slots(limit=5)]
+    assert offered, "the search returned nothing at all"
+    assert not any(s.startswith("2026-08-05T09:00") for s in offered)
+    assert not any(s.startswith("2026-08-05T10:00") for s in offered)   # inside the two hours
+
+
+def test_a_cancelled_appointment_frees_its_slot_again(tmp_path: Path):
+    from datetime import datetime as dt
+
+    store = SqliteStore(tmp_path / "prod.db")
+    world = _empty_world(store, now="2026-08-05T08:00:00-07:00")
+    world.technicians["t_wang"] = _a_technician()
+
+    booking = {"appointment_id": "AP-0001", "kind": "standard", "ticket_id": "TK-0001",
+               "customer_phone": "+1604", "technician_id": "t_wang",
+               "start": dt.fromisoformat("2026-08-05T09:00:00-07:00"),
+               "duration_minutes": 120, "address": "x", "description": "y"}
+    store.save_appointment(booking)
+    store.save_appointment({**booking, "status": "cancelled"})
+
+    assert any(s["start"].startswith("2026-08-05T09:00") for s in world.find_slots(limit=5))
+
+
+def test_what_a_technician_put_in_their_own_calendar_blocks_the_slot(tmp_path, monkeypatch):
+    """The appointment nobody here knows about — blocked out by hand, on a phone."""
+    from datetime import datetime as dt
+    import plumbing.integrations as integrations
+    import plumbing.integrations.google_calendar as gcal
+
+    world = _empty_world(SqliteStore(tmp_path / "prod.db"), now="2026-08-05T08:00:00-07:00")
+    world.technicians["t_wang"] = _a_technician()
+
+    monkeypatch.setattr(integrations, "is_live", lambda name: name == "calendar.find_slots")
+    monkeypatch.setattr(
+        gcal, "busy_periods",
+        lambda start, end: [(dt.fromisoformat("2026-08-05T09:00:00-07:00"),
+                             dt.fromisoformat("2026-08-05T12:00:00-07:00"))],
+    )
+
+    offered = [s["start"] for s in world.find_slots(limit=5)]
+    assert not any("2026-08-05T09" in s or "2026-08-05T10" in s or "2026-08-05T11" in s
+                   for s in offered)
+
+
+def test_an_unreadable_calendar_refuses_rather_than_guessing(tmp_path, monkeypatch):
+    """Offering a time without knowing the diary is how two jobs land on one hour."""
+    import plumbing.integrations as integrations
+    import plumbing.integrations.google_calendar as gcal
+    from plumbing.integrations.gate import LiveToolUnavailable
+    from plumbing.world import ToolRejection
+
+    world = _empty_world(SqliteStore(tmp_path / "prod.db"), now="2026-08-05T08:00:00-07:00")
+    world.technicians["t_wang"] = _a_technician()
+
+    monkeypatch.setattr(integrations, "is_live", lambda name: name == "calendar.find_slots")
+
+    def _down(start, end):
+        raise LiveToolUnavailable("calendar API unreachable")
+
+    monkeypatch.setattr(gcal, "busy_periods", _down)
+
+    with pytest.raises(ToolRejection) as caught:
+        world.find_slots(limit=3)
+    assert "Do not offer a time" in str(caught.value)
+
+
+def test_the_calendar_is_read_once_per_search_not_once_per_slot(tmp_path, monkeypatch):
+    """A fortnight of hourly candidates would otherwise be hundreds of API calls."""
+    import plumbing.integrations as integrations
+    import plumbing.integrations.google_calendar as gcal
+
+    world = _empty_world(SqliteStore(tmp_path / "prod.db"), now="2026-08-05T08:00:00-07:00")
+    world.technicians["t_wang"] = _a_technician()
+
+    calls = []
+    monkeypatch.setattr(integrations, "is_live", lambda name: name == "calendar.find_slots")
+    monkeypatch.setattr(gcal, "busy_periods",
+                        lambda start, end: calls.append((start, end)) or [])
+
+    world.find_slots(limit=3)
+    assert len(calls) == 1

@@ -24,12 +24,24 @@ class FakeConversation:
         return f"echo: {text}"
 
 
+class FakeStore:
+    def __init__(self):
+        self.chat_sessions: dict[str, str] = {}
+
+    def open_chat_session(self, session_id: str, phone: str) -> None:
+        self.chat_sessions[session_id] = phone
+
+    def chat_session_phone(self, session_id: str) -> str:
+        return self.chat_sessions.get(session_id, "")
+
+
 class FakeSessions:
     """Stands in for the real store — these tests are about the channel, not the agent."""
 
     def __init__(self):
         self.conversations: dict[str, FakeConversation] = {}
         self.calls: list[dict] = []
+        self.store = FakeStore()
 
     def get(self, *, channel, phone="", session_id=""):
         self.calls.append({"channel": channel, "phone": phone, "session_id": session_id})
@@ -230,3 +242,57 @@ def test_a_photo_with_no_caption_does_not_crash_the_webhook(monkeypatch):
     code, _ = inbound.telegram(_update(text=""), secret="ok")
     assert code == 200
     assert inbound.sessions.recorded == []
+
+
+# ---- routing ----------------------------------------------------------
+#
+# Worth a real socket rather than calling the methods directly: the three chat endpoints
+# share a prefix, and `startswith("/chat")` sends /chat/new to the handler that demands a
+# phone number in the body — rejecting the one request whose whole job is to supply it.
+
+
+@pytest.fixture()
+def base_url(inbound: Inbound):
+    import threading
+    from http.server import ThreadingHTTPServer
+
+    from plumbing.live.server import make_handler
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(inbound))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{httpd.server_address[1]}"
+    httpd.shutdown()
+
+
+def _post(url: str, payload: dict) -> tuple[int, dict]:
+    import json as _json
+    import urllib.request
+
+    request = urllib.request.Request(
+        url, data=_json.dumps(payload).encode(), headers={"Content-Type": "application/json"}
+    )
+    with urllib.request.urlopen(request) as response:  # noqa: S310
+        return response.status, _json.loads(response.read())
+
+
+def test_each_chat_endpoint_reaches_its_own_handler(base_url: str):
+    code, opened = _post(f"{base_url}/chat/new", {"phone": "604-721-8629"})
+    assert code == 200 and opened["session_id"]
+
+    code, answered = _post(
+        f"{base_url}/chat/message", {"session_id": opened["session_id"], "text": "hi"}
+    )
+    assert code == 200 and answered["reply"] == "echo: hi"
+
+
+def test_a_query_string_does_not_stop_a_route_matching(base_url: str):
+    code, body = _post(f"{base_url}/chat/new?utm_source=google", {"phone": "604-721-8629"})
+    assert code == 200 and body["session_id"]
+
+
+def test_a_path_that_merely_starts_with_chat_is_not_a_chat_endpoint(base_url: str):
+    import urllib.error
+
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _post(f"{base_url}/chatterbox", {"text": "hi"})
+    assert caught.value.code == 404
