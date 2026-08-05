@@ -119,6 +119,7 @@
     <button class="on" data-tab="agents">Agents</button>
     <button data-tab="tools">Tools</button>
     <button data-tab="prompts">Prompts</button>
+    <button data-tab="changes">Doctor changes</button>
     <button data-tab="settings">Models</button>
   </nav>
 </header>
@@ -167,6 +168,27 @@
       The self-healing loop edits the same files — avoid editing here while a loop is running.
     </div>
     <textarea id="editor" spellcheck="false"></textarea>
+  </section>
+
+
+  <!-- ======================== DOCTOR CHANGES ======================== -->
+  <section id="tab-changes" class="hidden">
+    <div class="note">
+      Every edit the self-healing loop has made to a prompt. <b>Live</b> changes are in the
+      files right now; <b>reverted</b> ones were tried and rolled back because they did not
+      fix the scenario or broke another one. The prompts you reviewed are the baseline —
+      this is everything that happened to them since.
+    </div>
+    <div id="changesummary" class="note"></div>
+    <div class="tablewrap"><table id="changetable"></table></div>
+    <div id="changedetail" class="hidden">
+      <div class="editorhead">
+        <b id="cd-title"></b>
+        <button class="act" id="cd-close">Close</button>
+      </div>
+      <div id="cd-reason" class="note"></div>
+      <div id="cd-diffs"></div>
+    </div>
   </section>
 
   <!-- =========================== SETTINGS =========================== -->
@@ -244,9 +266,10 @@ document.querySelectorAll("nav button").forEach((btn) => {
   btn.onclick = () => {
     document.querySelectorAll("nav button").forEach((b) => b.classList.remove("on"));
     btn.classList.add("on");
-    ["agents", "tools", "prompts", "settings"].forEach((t) =>
+    ["agents", "tools", "prompts", "changes", "settings"].forEach((t) =>
       $("tab-" + t).classList.toggle("hidden", t !== btn.dataset.tab));
     if (btn.dataset.tab === "tools") loadTools();
+    if (btn.dataset.tab === "changes") loadChanges();
   };
 });
 
@@ -363,6 +386,55 @@ async function writeGrants(agent, patterns) {
 }
 
 // ---------------- tools tab ----------------
+// ---------------- doctor changes ----------------
+const esc = (t) => String(t ?? "").replace(/[&<>"]/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+async function loadChanges() {
+  let rows;
+  try { rows = await api("/api/prompt-changes"); } catch (e) { return; }
+  const live = rows.filter((r) => r.kept).length;
+  $("changesummary").innerHTML = rows.length
+    ? `<b>${live} live</b>, ${rows.length - live} reverted, ${rows.length} attempted.`
+    : "The self-healing loop has not changed any prompt yet.";
+
+  $("changetable").innerHTML =
+    `<thead><tr><th>When</th><th>Status</th><th>File</th><th>Triggered by</th><th>Why</th></tr></thead><tbody>` +
+    rows.map((r) => `<tr class="crow" data-id="${esc(r.id)}" style="cursor:pointer">
+      <td>${esc(r.when)}</td>
+      <td>${r.kept ? '<span class="pill ok">live</span>'
+                   : '<span class="pill">reverted</span>'}</td>
+      <td>${r.files.map((f) => `<code>${esc(f)}</code>`).join(" ")}</td>
+      <td><code>${esc(r.scenario)}</code></td>
+      <td>${esc(r.reason)}</td></tr>`).join("") + "</tbody>";
+
+  document.querySelectorAll("#changetable .crow").forEach((tr) => {
+    tr.onclick = () => showChange(tr.dataset.id);
+  });
+}
+
+async function showChange(id) {
+  let rec;
+  try { rec = await api("/api/prompt-change?id=" + encodeURIComponent(id)); } catch (e) { return; }
+  $("cd-title").textContent = `${rec.when} — ${rec.kept ? "live" : "reverted"}`;
+  $("cd-reason").innerHTML =
+    `<b>Triggered by</b> <code>${esc(rec.scenario)}</code><br><br>${esc(rec.reason)}`;
+  $("cd-diffs").innerHTML = Object.entries(rec.diffs || {}).map(([file, sides]) => `
+    <h2>${esc(file)}</h2>
+    <div class="tablewrap"><table><thead><tr>
+      <th style="width:50%">before</th><th style="width:50%">after</th></tr></thead>
+      <tbody><tr>
+        <td><pre style="white-space:pre-wrap;font-size:12px;margin:0">${esc(sides.before || "")}</pre></td>
+        <td><pre style="white-space:pre-wrap;font-size:12px;margin:0">${esc(sides.after || "")}</pre></td>
+      </tr></tbody></table></div>`).join("");
+  $("changedetail").classList.remove("hidden");
+  $("changedetail").scrollIntoView({ behavior: "smooth" });
+}
+
+document.addEventListener("click", (e) => {
+  if (e.target && e.target.id === "cd-close") $("changedetail").classList.add("hidden");
+});
+
 async function loadTools() {
   const data = await ensureTools();
   const counts = data.counts || {};

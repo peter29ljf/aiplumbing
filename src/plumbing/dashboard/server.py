@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, urlparse
 import yaml
 
 from plumbing import agent_registry, config, livestatus
+from plumbing import prompt_history
 from plumbing.paths import AGENTS_DIR, CONFIG_DIR, PROMPT_HISTORY_DIR, load_dotenv
 from plumbing.tools import catalog as tool_catalog
 from plumbing.tools import resolve
@@ -146,6 +147,7 @@ def full_state() -> dict[str, Any]:
         "live": livestatus.read(),
         "prompt_files": prompt_files(),
         "llm": llm_settings(),
+        "prompt_changes": prompt_history.summary(),
         "server_time": datetime.now().isoformat(timespec="seconds"),
     }
 
@@ -303,6 +305,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(
                     {"file": rel, "content": (AGENTS_DIR / rel).read_text(encoding="utf-8")}
                 )
+            elif route.path == "/api/prompt-changes":
+                self._json(prompt_history.records())
+            elif route.path == "/api/prompt-change":
+                rec_id = parse_qs(route.query).get("id", [""])[0]
+                found = prompt_history.get(rec_id)
+                if found is None:
+                    self._json({"error": "no such record"}, 404)
+                else:
+                    self._json(found)
             elif route.path == "/api/assembled":
                 name = parse_qs(route.query).get("agent", [""])[0]
                 cfg = config.agents_config()
