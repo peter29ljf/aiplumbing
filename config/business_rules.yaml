@@ -133,13 +133,22 @@ service_policy:
   excluded_property_types:
     - id: "apartment"
       name: "Apartment or condo unit"
-      applies_to: "small_job"          # and emergency; anything that is not a large project
+      # The gate blocks every flow except the two listed here — `_excluded_property` in
+      # world.py is the authority and this mirrors it. It used to read
+      # `applies_to: "small_job"`, a single string that cannot express "everything but
+      # two", so it was wrong about emergency whichever way you read it. Nothing in the
+      # code ever read that field; it was configuration-shaped commentary.
+      except_for:
+        - "large_job"                  # reviewed by a person before we commit
+        - "warranty"                   # we already worked there; insurance settled then
       reason: >-
         Our liability insurance does not cover work inside residential apartment and
         condo units, so we are not able to take on repairs there.
       exception: >-
-        Large projects and engineering work in apartment buildings are still considered —
-        those are reviewed by a person before we commit.
+        Two things are still taken, and both go to a person rather than being declined.
+        A large project or engineering work in an apartment building is reviewed before we
+        commit. A warranty claim on work we already did there is honoured wherever that
+        work was — the insurance question was settled when we took the job.
   decline_guidance: >-
     Say we cannot help and why, briefly and without hedging. Do not offer to make an
     exception, do not suggest they describe the property differently, and do not leave

@@ -284,6 +284,19 @@ def calendar_cancel(ctx: ToolContext, appointment_id: str, reason: str = "") -> 
 def payment_send_link(ctx: ToolContext, ticket_id: str, phone: str) -> dict[str, Any]:
     world = ctx.world
     world.get_ticket(ticket_id)
+
+    # The same property gate the booking enforces, one step earlier. Refusing only at the
+    # booking meant the money had already been asked for, and a refund the customer has to
+    # wait for is a worse answer than never having been charged. A deposit is the point at
+    # which this stops being reversible from their side, so the gate belongs here too.
+    excluded = world._excluded_property(ticket_id, "emergency")
+    if excluded:
+        raise ToolRejection(
+            f"{excluded['reason'].strip()} Do not take a deposit for work we cannot do. "
+            f"{excluded['exception'].strip()}",
+            violation="excluded_property_type",
+        )
+
     deposit_rule = world.rules["pricing"]["emergency_deposit"]
 
     existing = world.find_deposit(ticket_id)

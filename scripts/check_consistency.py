@@ -30,7 +30,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from plumbing.llm import LLM, _extract_json  # noqa: E402
+from plumbing.llm import LLM, LLMError, _extract_json  # noqa: E402
 from plumbing.paths import AGENTS_DIR, CONFIG_DIR, SHARED_DIR  # noqa: E402
 
 
@@ -56,7 +56,12 @@ Report only these kinds of finding:
   instead of telling the agent to look it up, AND that literal could go out of date.
 - `illegal_transition` — a prompt instructs a ticket status change that ticket_states.yaml
   does not allow from the state the prompt has the agent in.
-- `dangling_reference` — a prompt points at a section, tool or rule that does not exist.
+- `dangling_reference` — a prompt points at a **section or rule** that does not exist.
+
+**Tool names are not your job.** `scripts/check_literals.py` resolves every tool reference
+against the registry in a fifth of a second, exactly, with no model involved. A list of the
+tools that exist is given to you only so you never call a real one undefined — do not spend
+effort checking them, and do not report one as missing.
 
 **Read every cut-off, deadline and threshold twice.** The costly disagreements in this
 corpus do not look like disagreements: two rules both say "no X after Y" and read as
@@ -72,8 +77,14 @@ across several agents is a defence in depth, not a finding — unless the repeat
 **say different things**, which is.
 
 For every finding, quote a short span of the actual text you are talking about, copied
-character for character from the file. The quote is how the finding gets verified; a
-paraphrase makes it unverifiable and it will be discarded.
+from the file. The quote is how the finding gets located; punctuation and emphasis are
+normalised before matching, but a paraphrase will not be found and the finding is then
+discarded.
+
+Report the disagreements you are confident about and stop. An exhaustive sweep is not
+wanted here and is not affordable: this runs on every merge, and a scan that thinks for
+five minutes and then runs out of budget reports **nothing at all**, which is strictly
+worse than reporting the three findings it was sure of after one.
 
 Output a single JSON object:
 
@@ -93,6 +104,22 @@ severity `high` means it costs money, breaks a promise to a customer, or makes t
 behave differently run to run. Empty findings list is a valid answer."""
 
 
+def tool_inventory() -> str:
+    """Every registered tool name, as a reference block for the prompt.
+
+    Without it the auditor cannot tell a real tool from an invented one, so it reports the
+    real ones and misses the invented ones — it flagged `handoff.transfer` and
+    `rules.check_service_eligibility` as dangling when both are registered and granted, and
+    the one genuinely dangling reference it did catch it caught by luck. A checker that
+    cries wolf on working code is worse than no checker: the findings stop being read.
+
+    Not part of `files`, so no quote is ever verified against it. It is context, not corpus.
+    """
+    from plumbing.tools import registry  # noqa: PLC0415
+
+    return "\n".join(f"  {name}" for name in sorted(registry.all_tools()))
+
+
 def collect() -> tuple[str, dict[str, str]]:
     """Return the corpus as one prompt-ready string, plus {relpath: text} for verifying."""
     files: dict[str, str] = {}
@@ -105,7 +132,12 @@ def collect() -> tuple[str, dict[str, str]]:
     for path in sorted(AGENTS_DIR.glob("*.md")):
         files[f"agents/{path.name}"] = path.read_text()
 
-    blocks = []
+    blocks = [
+        "===== TOOLS THAT EXIST (reference, not part of the corpus) =====\n"
+        "A name not on this list is a dangling reference. A name on it is not, however "
+        "unfamiliar it looks — do not report one as undefined.\n"
+        + tool_inventory()
+    ]
     for rel, text in files.items():
         numbered = "\n".join(f"{i:4} | {line}" for i, line in enumerate(text.splitlines(), 1))
         blocks.append(f"===== {rel} =====\n{numbered}")
@@ -122,6 +154,20 @@ def locate(files: dict[str, str], rel: str, quote: str) -> int | None:
     and reported real findings as unverifiable whenever the quote was longer than that.
     Anything shorter than a few characters is treated as unverifiable rather than
     trivially matching.
+
+    Three further differences are ignored, all of them measured rather than guessed. Four
+    findings were discarded as unverifiable across one afternoon and every one of them was
+    a true defect that then had to be fixed:
+
+    - **Typographic punctuation.** The model writes `–` where the file has `—`, and
+      straight quotes where the file has curly ones.
+    - **Markdown emphasis.** It quotes `If they never reply, do not chase` from a line that
+      reads `**If they never reply**, do not chase`.
+    - **Comment lines inside a quoted block.** Quoting a YAML list, it leaves out the `#`
+      lines between the entries, because they are not part of what it is pointing at.
+
+    None of those make a finding wrong. Requiring them was the checker holding a reader to
+    a standard of transcription, and paying for it in true positives thrown away.
     """
     text = files.get(rel)
     if text is None or len(quote.strip()) < 8:
@@ -130,7 +176,9 @@ def locate(files: dict[str, str], rel: str, quote: str) -> int | None:
     flat: list[str] = []
     line_of: list[int] = []
     for lineno, line in enumerate(text.splitlines(), 1):
-        for token in line.split():
+        if _is_comment(line):
+            continue
+        for token in _normalise(line).split():
             if flat:
                 flat.append(" ")
                 line_of.append(lineno)
@@ -145,12 +193,33 @@ def locate(files: dict[str, str], rel: str, quote: str) -> int | None:
         offsets.append(pos)
         pos += len(piece)
 
-    idx = haystack.find(" ".join(quote.split()))
+    idx = haystack.find(" ".join(_normalise(quote).split()))
     if idx < 0:
         return None
     import bisect
 
     return line_of[min(bisect.bisect_right(offsets, idx) - 1, len(line_of) - 1)]
+
+
+# Pairs the model writes for pairs the file has. Nothing here changes what a line means.
+_EQUIVALENT = str.maketrans({
+    "\u2013": "-", "\u2014": "-", "\u2212": "-",     # en dash, em dash, minus
+    "\u2018": "'", "\u2019": "'",                    # curly single quotes
+    "\u201c": '"', "\u201d": '"',                    # curly double quotes
+    "\u00a0": " ",                                   # non-breaking space
+})
+
+
+def _normalise(text: str) -> str:
+    """Punctuation and emphasis flattened. Not lowercased — case carries meaning here,
+    and `Closed` being a state name is exactly the sort of thing these findings turn on."""
+    return text.translate(_EQUIVALENT).replace("**", "").replace("`", "")
+
+
+def _is_comment(line: str) -> bool:
+    """A `#` comment on its own line. Dropped so a quoted YAML block still matches when the
+    model leaves the commentary out — it is pointing at the entries, not the prose."""
+    return line.lstrip().startswith("#")
 
 
 def verify(findings: list[dict[str, Any]], files: dict[str, str]) -> list[dict[str, Any]]:
@@ -162,7 +231,10 @@ def verify(findings: list[dict[str, Any]], files: dict[str, str]) -> list[dict[s
             line = locate(files, rel, quote)
             checked.append({**loc, "line": line, "verified": line is not None})
         f["locations"] = checked
-        f["verified"] = bool(checked) and all(c["verified"] for c in checked)
+        # One located quote is enough. Requiring all of them meant a finding that points at
+        # a real line in one file and paraphrases a config block in another was discarded
+        # whole — and the located half was the half that mattered.
+        f["verified"] = any(c["verified"] for c in checked)
     return findings
 
 
@@ -178,13 +250,16 @@ def report(findings: list[dict[str, Any]]) -> None:
     unverified = [f for f in findings if not f.get("verified")]
 
     for f in findings:
-        mark = "" if f.get("verified") else "  [UNVERIFIED — quote not found in file]"
+        mark = "" if f.get("verified") else "  [UNVERIFIED — no quote could be located]"
         print(f"\n{f.get('severity', '?').upper():6} {f.get('kind', '?')}{mark}")
         print(f"  {f.get('summary', '')}")
         if f.get("why_it_matters"):
             print(f"  → {f['why_it_matters']}")
         for loc in f.get("locations") or []:
-            where = f"{loc['file']}:{loc['line']}" if loc.get("line") else f"{loc['file']}:?"
+            where = (
+                f"{loc['file']}:{loc['line']}" if loc.get("line")
+                else f"{loc['file']}:? (not located — paraphrased or from another file)"
+            )
             print(f"     {where}")
             print(f"       {(loc.get('quote') or '')[:120]}")
         if f.get("authority"):
@@ -217,7 +292,15 @@ def main() -> int:
     # A reasoning model bills its thinking against max_tokens. Run it long enough and the
     # budget is gone before it writes anything, which arrives here as an empty string and
     # then as an unhelpful "failed to return valid JSON". Say what actually happened.
-    raw = llm.chat_text_json_mode("auditor", messages)
+    # Exit 2, not 1. A call that never completed says nothing about whether the prompts
+    # agree, and letting the exception escape exits 1 — which the gate reads as "found
+    # disagreements". Somebody then goes looking for a contradiction nobody reported.
+    try:
+        raw = llm.chat_text_json_mode("auditor", messages)
+    except LLMError as exc:
+        print(f"The audit could not run: {exc}", file=sys.stderr)
+        return 2
+
     if not raw.strip():
         print(
             "The model returned nothing. On a reasoning model this means max_tokens ran out\n"

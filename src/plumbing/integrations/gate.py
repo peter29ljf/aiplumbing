@@ -1,6 +1,20 @@
 """The gate that decides simulator vs real service.
 
 Deliberately boring and fail-closed: anything unexpected means "use the simulator".
+
+**Which tools are live belongs to a machine, not to the code.** It used to live in
+`config/tool_catalog.yaml`, which git tracks — so the production server carried two
+modified lines, and every `git pull` was a chance to either conflict or silently revert
+them. Silently is the dangerous half: Telegram notifications stop, technicians stop
+getting jobs, and nothing anywhere reports an error.
+
+So the environment wins when it says anything, the same way `.env` holds credentials:
+
+    PLUMBING_LIVE_ENABLED=true
+    PLUMBING_LIVE_TOOLS=telegram.send,sms.send
+
+Set in the systemd unit on the server. The catalog in git stays all-mocked forever, which
+means pulling code can no longer touch what is switched on.
 """
 
 from __future__ import annotations
@@ -23,7 +37,40 @@ def _catalog() -> dict[str, Any]:
         return {}
 
 
+ENV_MASTER = "PLUMBING_LIVE_ENABLED"
+ENV_TOOLS = "PLUMBING_LIVE_TOOLS"
+
+
+def _env_master() -> bool | None:
+    """The master switch from the environment, or None when it says nothing.
+
+    Only an explicit, recognised value counts. A typo must not read as "on" — being
+    fail-closed matters more here than being forgiving.
+    """
+    load_dotenv()
+    raw = os.environ.get(ENV_MASTER)
+    if raw is None or not raw.strip():
+        return None
+    value = raw.strip().lower()
+    if value in ("true", "1", "yes", "on"):
+        return True
+    if value in ("false", "0", "no", "off"):
+        return False
+    return False
+
+
+def _env_tools() -> set[str] | None:
+    load_dotenv()
+    raw = os.environ.get(ENV_TOOLS)
+    if raw is None:
+        return None
+    return {name.strip() for name in raw.split(",") if name.strip()}
+
+
 def master_enabled() -> bool:
+    from_env = _env_master()
+    if from_env is not None:
+        return from_env
     return bool(_catalog().get("live_tools_enabled", False))
 
 
@@ -31,18 +78,33 @@ def is_live(tool_name: str) -> bool:
     """True only when the master switch is on AND this tool is marked live."""
     if not master_enabled():
         return False
+    from_env = _env_tools()
+    if from_env is not None:
+        return tool_name in from_env
     return (_catalog().get("statuses") or {}).get(tool_name) == "live"
 
 
 def live_status() -> dict[str, Any]:
-    """What is actually live right now — surfaced in the console."""
+    """What is actually live right now — surfaced in the console.
+
+    Reports where each answer came from. A console that says a tool is live while the
+    process believes otherwise is worse than no console: somebody reads it, believes the
+    technician is being notified, and stops checking.
+    """
     catalog = _catalog()
     statuses = catalog.get("statuses") or {}
-    master = bool(catalog.get("live_tools_enabled", False))
-    marked = sorted(k for k, v in statuses.items() if v == "live")
+    env_master = _env_master()
+    env_tools = _env_tools()
+
+    master = master_enabled()
+    marked = sorted(env_tools) if env_tools is not None else sorted(
+        k for k, v in statuses.items() if v == "live"
+    )
     return {
         "master_switch": master,
+        "master_switch_source": "env" if env_master is not None else "file",
         "tools_marked_live": marked,
+        "tools_source": "env" if env_tools is not None else "file",
         "effectively_live": marked if master else [],
         "note": "Master switch is off; everything runs against the simulator."
         if not master

@@ -1136,6 +1136,54 @@ def test_a_warranty_visit_is_not_blocked_by_the_property_type():
     assert _book(world, tid, kind="warranty") is not None
 
 
+def test_an_emergency_in_an_apartment_is_still_blocked():
+    """The case the rules file used to be ambiguous about.
+
+    It said `applies_to: "small_job"`, one string that cannot express "everything but two",
+    so on a plain reading emergencies were not covered — while this gate blocked them. The
+    insurance does not care how urgent it is, so the gate was right and the file was wrong.
+    """
+    from plumbing.world import ToolRejection
+
+    world = World(now=WORKDAY)
+    tid = _ticket_with(world, property_type="apartment", category="emergency")
+    with pytest.raises(ToolRejection) as caught:
+        _book(world, tid, kind="emergency")
+    assert caught.value.violation == "excluded_property_type"
+
+
+def test_the_deposit_is_refused_before_it_is_taken_not_after():
+    """The gates used to run the other way round: the agent was sent to collect a deposit
+    for a job the next call would refuse. The customer pays for something we can never do
+    and then waits for a refund, which is a worse answer than never being charged."""
+    from plumbing.tools.ops_tools import payment_send_link
+    from plumbing.tools.registry import ToolContext
+    from plumbing.world import ToolRejection
+
+    world = World(now=WORKDAY)
+    tid = _ticket_with(world, property_type="apartment", category="emergency")
+
+    with pytest.raises(ToolRejection) as caught:
+        payment_send_link(ToolContext(world=world), ticket_id=tid, phone="+16045550101")
+
+    assert caught.value.violation == "excluded_property_type"
+    assert world.find_deposit(tid) is None          # no money was ever asked for
+
+
+def test_the_exceptions_come_from_the_rules_file_not_from_the_code():
+    """Otherwise `except_for` is configuration-shaped commentary, which is what the field
+    it replaced turned out to be — nothing read it, so it was free to drift."""
+    from plumbing.world import ToolRejection
+
+    world = World(now=WORKDAY)
+    for rule in world.rules["service_policy"]["excluded_property_types"]:
+        rule["except_for"] = []                     # nothing is excepted any more
+
+    tid = _ticket_with(world, property_type="apartment", category="large_job")
+    with pytest.raises(ToolRejection):
+        _book(world, tid)
+
+
 def test_a_townhouse_small_job_books_normally():
     """One and two digit unit numbers are townhouses and are fine."""
     world = World(now=WORKDAY)

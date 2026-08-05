@@ -147,6 +147,20 @@ CREATE TABLE IF NOT EXISTS followups (
 );
 CREATE INDEX IF NOT EXISTS idx_followups_due ON followups(status, due_at);
 
+-- A web chat session and the number the person typed to open it. SMS and voice get the
+-- number from the carrier on every single request; chat gets it once, in a form, and then
+-- sends nothing but text. Holding it in memory would mean a restart makes every open
+-- widget demand the number again mid-sentence, which reads as the site losing the
+-- conversation. The number is still only a claim — that is what `asserted` records.
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    session_id  TEXT PRIMARY KEY,
+    phone       TEXT NOT NULL,
+    phone_key   TEXT NOT NULL,
+    asserted    TEXT NOT NULL DEFAULT 'typed',   -- nothing vouches for it
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_phone ON chat_sessions(phone_key);
+
 -- Append-only. Nothing is ever updated or deleted here: when a booking is wrong, the
 -- question is always what happened in what order, and a mutable log cannot answer it.
 CREATE TABLE IF NOT EXISTS events (
@@ -380,6 +394,23 @@ class SqliteStore:
         return dict(row) if row else None
 
     # ---- messages and events -----------------------------------------
+    # ---- web chat sessions -------------------------------------------
+    def open_chat_session(self, session_id: str, phone: str) -> None:
+        """Idempotent: reopening the same id with the same number is not an error."""
+        with self.connect(write=True) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO chat_sessions (session_id, phone, phone_key,"
+                " asserted, created_at) VALUES (?, ?, ?, 'typed', ?)",
+                (session_id, phone, phone_key(phone), _now()),
+            )
+
+    def chat_session_phone(self, session_id: str) -> str:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT phone FROM chat_sessions WHERE session_id = ?", (session_id,)
+            ).fetchone()
+        return str(row["phone"]) if row else ""
+
     def add_message(
         self, *, channel: str, speaker: str, text: str,
         phone: str = "", ticket_id: str = "", session_id: str = "",

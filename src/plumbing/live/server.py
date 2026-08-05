@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import re
 import time
+import uuid
 import urllib.parse
 from collections import defaultdict, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -43,6 +44,19 @@ CHAT_MESSAGES_PER_MINUTE_PER_IP = 30
 # North American numbers; the business serves British Columbia. Anything that reduces to
 # ten digits is accepted and normalised further down.
 _TEN_DIGITS = re.compile(r"^\+?1?\d{10}$")
+
+# What the widget shows before the first model call, so opening a chat costs nothing.
+CHAT_GREETING = (
+    "Thanks — you're through to Fangxin Plumbing. What can we help you with?"
+)
+
+# The whole JSON surface. `/chat` is the original single-shot form, kept because it works
+# and because a caller that already has the number should not need two round trips.
+_CHAT_ROUTES = {
+    "/chat": "chat",
+    "/chat/new": "chat_new",
+    "/chat/message": "chat_message",
+}
 
 
 class RateLimiter:
@@ -76,6 +90,52 @@ class Inbound:
         self.per_ip = RateLimiter(CHAT_MESSAGES_PER_MINUTE_PER_IP)
 
     # ---- web chat ----------------------------------------------------
+    def chat_new(self, payload: dict[str, Any], *, ip: str = "") -> tuple[int, dict[str, Any]]:
+        """Open a session. The one place the widget asks for a phone number.
+
+        Taking it here rather than mid-conversation is the difference between a field on
+        the form somebody is already filling in and a demand that interrupts them once they
+        have started describing a leak. It also costs nothing: no model call happens until
+        the first message, so opening a session somebody abandons is free.
+
+        The session id is minted here rather than accepted from the caller. A browser that
+        picks its own could pick one already in use and walk into somebody else's
+        conversation.
+        """
+        phone = str(payload.get("phone") or "").strip()
+        if not valid_phone(phone):
+            return 400, {
+                "error": "phone_required",
+                "message": "Please enter a phone number we can reach you on to start the chat.",
+            }
+        if not self.per_ip.allow(ip or "anon"):
+            return 429, {"error": "rate_limited", "message": "Too many requests. One moment."}
+
+        session_id = uuid.uuid4().hex
+        self.sessions.store.open_chat_session(session_id, phone)
+        return 200, {"session_id": session_id, "greeting": CHAT_GREETING}
+
+    def chat_message(self, payload: dict[str, Any], *, ip: str = "") -> tuple[int, dict[str, Any]]:
+        """Say something in a session already opened. Carries no number of its own.
+
+        The number comes from the session, so a caller cannot change whose history they
+        are reading by editing one field of the next request.
+        """
+        session_id = str(payload.get("session_id") or "").strip()
+        if not session_id:
+            return 400, {"error": "session_id is required"}
+
+        phone = self.sessions.store.chat_session_phone(session_id)
+        if not phone:
+            # Also what a widget left open across a restart sees. Saying so plainly lets
+            # the front end open a fresh session instead of showing a dead box.
+            return 404, {
+                "error": "unknown_session",
+                "message": "This chat has expired. Start a new one.",
+            }
+
+        return self.chat({**payload, "session_id": session_id, "phone": phone}, ip=ip)
+
     def chat(self, payload: dict[str, Any], *, ip: str = "") -> tuple[int, dict[str, Any]]:
         session_id = str(payload.get("session_id") or "").strip()
         phone = str(payload.get("phone") or "").strip()
@@ -374,10 +434,15 @@ def make_handler(inbound: Inbound) -> type[BaseHTTPRequestHandler]:
                 self._send(404, b"not found", "text/plain")
 
         def do_POST(self) -> None:  # noqa: N802
+            # Matched exactly, on the path with any query string removed. Prefix matching
+            # would send /chat/new to the handler for /chat, which wants a phone number in
+            # the body and would reject the request that exists to supply one.
+            route = urllib.parse.urlsplit(self.path).path.rstrip("/") or "/"
             try:
-                if self.path.startswith("/chat"):
+                if route in _CHAT_ROUTES:
                     payload = json.loads(self._body() or b"{}")
-                    code, data = inbound.chat(payload, ip=self._client_ip())
+                    handler = getattr(inbound, _CHAT_ROUTES[route])
+                    code, data = handler(payload, ip=self._client_ip())
                     self._send(code, json.dumps(data).encode(), "application/json")
                 elif self.path.startswith("/sms"):
                     form = _parse_form(self._body())

@@ -3,6 +3,12 @@
 Different kinds of work are handled by different colleagues. When you judge that a
 ticket belongs to someone else, use `handoff.transfer`.
 
+**`handoff.transfer` reaches another agent; `escalate.raise` reaches a person.** Both are
+"this is not mine", so pick by who is on the other end. Your own instructions name the
+agents you can transfer to, and this deployment does not run all of them — transferring to
+one that is switched off is refused and you are told which are available. When the work
+belongs to a person, or to nobody left, it is `escalate.raise`.
+
 Two things must be done first:
 
 1. Write everything you have collected into the ticket with `ticket.set_fields`.
