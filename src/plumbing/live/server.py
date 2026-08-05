@@ -148,6 +148,9 @@ class Inbound:
             return 403, {"error": "forbidden"}
 
         if update.get("callback_query"):
+            data = str(update["callback_query"].get("data") or "")
+            if data.startswith("f:"):
+                return self._followup_press(update["callback_query"])
             return self._button_press(update["callback_query"])
 
         message = update.get("message") or {}
@@ -165,6 +168,20 @@ class Inbound:
             return 200, {"ok": True}
         if not text:
             self._telegram_reply(chat_id, "Text only for now, please.")
+            return 200, {"ok": True}
+
+        # A follow-up they were asked and have typed an answer to rather than tapping.
+        outstanding = self.sessions.store.open_followup(chat_id)
+        if outstanding is not None:
+            self.sessions.store.update_followup(
+                outstanding["followup_id"], status="answered", answer=text
+            )
+            self.sessions.store.add_event(
+                "job_outcome_reported", ticket_id=outstanding["ticket_id"], detail=text[:200],
+                followup_id=outstanding["followup_id"],
+            )
+            self._telegram_reply(chat_id, "Thanks — noted.")
+            self.sessions.record_technician_message(chat_id=chat_id, text=text)
             return 200, {"ok": True}
 
         offers = self.sessions.offers
@@ -221,6 +238,38 @@ class Inbound:
         offers.ask_for_reason(offer_id)
         self._answer(callback_id, "")
         self._telegram_reply(chat_id, "No problem — what should I tell the customer?")
+        return 200, {"ok": True}
+
+    def _followup_press(self, callback: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        """The day-after answer: the work happened, or the customer decided against it.
+
+        Those are the only two outcomes that change what the office does. Anything more
+        detailed is a conversation, and the technician can type it.
+        """
+        from plumbing.live.reminders import OUTCOME_DECLINED, OUTCOME_DONE  # noqa: PLC0415
+
+        callback_id = str(callback.get("id") or "")
+        chat_id = str(((callback.get("message") or {}).get("chat") or {}).get("id") or "")
+        parts = str(callback.get("data") or "").split(":")
+        if len(parts) != 3 or self.sessions.technician_by_chat_id(chat_id) is None:
+            self._answer(callback_id, "")
+            return 200, {"ok": True}
+
+        _, followup_id, outcome = parts
+        answer = {OUTCOME_DONE: "done", OUTCOME_DECLINED: "customer_declined"}.get(outcome)
+        if answer is None:
+            self._answer(callback_id, "")
+            return 200, {"ok": True}
+
+        store = self.sessions.store
+        store.update_followup(followup_id, status="answered", answer=answer)
+        with store.connect() as conn:
+            row = conn.execute(
+                "SELECT ticket_id FROM followups WHERE followup_id = ?", (followup_id,)
+            ).fetchone()
+        store.add_event("job_outcome_reported", ticket_id=row["ticket_id"] if row else "",
+                        detail=answer, followup_id=followup_id)
+        self._answer(callback_id, "Thanks — noted.")
         return 200, {"ok": True}
 
     def _settle(self, offer: Any) -> None:

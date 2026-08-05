@@ -169,9 +169,10 @@ job_offer:
   # they are tried first. If jobs still get missed, that is the evidence for buying the
   # calls, rather than a guess.
   #
-  # Minutes after the offer goes out. Escalating gaps: soon enough to matter, spread out
-  # enough not to become noise somebody learns to swipe away.
-  reminder_minutes: [5, 15, 30]
+  # Minutes after the offer goes out. Evenly every ten minutes — a technician on a job
+  # cannot check a phone on someone else's schedule, and an uneven gap only makes the
+  # nudges harder to predict, not easier to notice.
+  reminder_minutes: [10, 20, 30]
   # After the last one, stop. A bot that keeps asking is a bot that gets muted, and a
   # muted bot misses the next job too. The offer is flagged for the office instead.
   give_up_after_last_reminder: true

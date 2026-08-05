@@ -23,6 +23,7 @@ def offers(tmp_path: Path) -> Offers:
 class Sessions:
     def __init__(self, offers: Offers):
         self.offers = offers
+        self.store = offers.store
         self.recorded: list[dict] = []
 
     def technician_by_chat_id(self, chat_id):

@@ -128,6 +128,25 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_phone ON messages(phone_key, at);
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, at);
 
+-- Work the office owes somebody later: the day-after check with the technician on a job
+-- that was booked. The agent schedules these during a conversation that then ends, so
+-- they cannot live in the conversation — a follow-up that only exists in memory fires
+-- exactly never, which is what happened before this table existed.
+CREATE TABLE IF NOT EXISTS followups (
+    followup_id TEXT PRIMARY KEY,
+    ticket_id   TEXT NOT NULL,
+    kind        TEXT NOT NULL,          -- job_outcome
+    chat_id     TEXT NOT NULL DEFAULT '',
+    summary     TEXT NOT NULL DEFAULT '',
+    due_at      TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'scheduled',   -- scheduled | asked | answered | given_up
+    answer      TEXT NOT NULL DEFAULT '',
+    asked_count INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_followups_due ON followups(status, due_at);
+
 -- Append-only. Nothing is ever updated or deleted here: when a booking is wrong, the
 -- question is always what happened in what order, and a mutable log cannot answer it.
 CREATE TABLE IF NOT EXISTS events (
@@ -316,6 +335,50 @@ class SqliteStore:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    # ---- follow-ups --------------------------------------------------
+    def schedule_followup(
+        self, *, ticket_id: str, kind: str, due_at: datetime, chat_id: str = "",
+        summary: str = "",
+    ) -> str:
+        """Owe somebody a question later. Returns the id."""
+        followup_id = self.next_id("FU")
+        now = _now()
+        with self.connect(write=True) as conn:
+            conn.execute(
+                "INSERT INTO followups (followup_id, ticket_id, kind, chat_id, summary,"
+                " due_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                (followup_id, ticket_id, kind, chat_id, summary,
+                 due_at.isoformat(), now, now),
+            )
+        return followup_id
+
+    def due_followups(self, now: datetime) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM followups WHERE status IN ('scheduled','asked') "
+                "AND due_at <= ? ORDER BY due_at",
+                (now.isoformat(),),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_followup(self, followup_id: str, **fields: Any) -> None:
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        with self.connect(write=True) as conn:
+            conn.execute(
+                f"UPDATE followups SET {sets}, updated_at = ? WHERE followup_id = ?",
+                (*fields.values(), _now(), followup_id),
+            )
+
+    def open_followup(self, chat_id: str) -> dict[str, Any] | None:
+        """The question this technician has been asked and not answered."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM followups WHERE chat_id = ? AND status = 'asked' "
+                "ORDER BY updated_at DESC LIMIT 1",
+                (chat_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
     # ---- messages and events -----------------------------------------
     def add_message(
         self, *, channel: str, speaker: str, text: str,
@@ -366,11 +429,12 @@ class SqliteStore:
         The in-memory counter restarts at 1 every process, which is fine for a scenario and
         would hand two different customers the same ticket number in production.
         """
-        table = {"TK": "tickets", "AP": "appointments", "OF": "offers"}.get(prefix)
+        table = {"TK": "tickets", "AP": "appointments", "OF": "offers",
+                 "FU": "followups"}.get(prefix)
         if table is None:
             return f"{prefix}-{int(datetime.now().timestamp() * 1000) % 1_000_000:06d}"
         column = {"tickets": "ticket_id", "appointments": "appointment_id",
-                  "offers": "offer_id"}[table]
+                  "offers": "offer_id", "followups": "followup_id"}[table]
         with self.connect() as conn:
             row = conn.execute(
                 f"SELECT {column} FROM {table} WHERE {column} LIKE ? "

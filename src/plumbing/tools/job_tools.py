@@ -255,6 +255,20 @@ def schedule_create_followup(
         "created_at": world.now().isoformat(),
     }
     world.followups.append(entry)
+
+    # Persist it, or it fires exactly never. The conversation that schedules this ends
+    # minutes later and the World goes with it; only the database is still around
+    # tomorrow when the question is actually due.
+    if world.store is not None:
+        ticket = world.get_ticket(ticket_id)
+        on_duty = next((t for t in world.technicians.values() if t.on_duty), None)
+        world.store.schedule_followup(
+            ticket_id=ticket_id,
+            kind=purpose,
+            due_at=world.now() + timedelta(hours=in_hours),
+            chat_id=getattr(on_duty, "telegram_chat_id", "") if on_duty else "",
+            summary=note or ticket.tags.get("issue", "") or ticket_id,
+        )
     return entry
 
 

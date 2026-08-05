@@ -39,6 +39,13 @@ GAVE_UP = (
     "You can still accept it if you are free."
 )
 
+# The day-after question. Two answers, because those are the only two that change what
+# the office does: the work happened, or the customer decided against it. Anything more
+# detailed is a conversation, and the technician can just type it.
+OUTCOME_PROMPT = "How did this one go?"
+OUTCOME_DONE = "od"
+OUTCOME_DECLINED = "oc"
+
 
 class ReminderLoop:
     """Checks every half minute for offers nobody has answered."""
@@ -64,10 +71,54 @@ class ReminderLoop:
 
     def _run(self) -> None:
         while not self._stop.wait(TICK_SECONDS):
-            try:
-                self.tick()
-            except Exception:  # noqa: BLE001 - a bad tick must not end the loop
+            for step in (self.tick, self.tick_followups):
+                try:
+                    step()
+                except Exception:  # noqa: BLE001 - a bad pass must not end the loop
+                    continue
+
+    # ------------------------------------------------------------------
+    def tick_followups(self, now: datetime | None = None) -> list[dict[str, Any]]:
+        """Ask the technician how a booked job went, once it is due.
+
+        The agent schedules this during a conversation that then ends. Nothing about the
+        conversation survives, so the question has to be driven from here — before this
+        existed the follow-up was recorded in memory and fired exactly never.
+        """
+        now = now or datetime.now().astimezone()
+        asked: list[dict[str, Any]] = []
+        store = self.offers.store
+
+        for followup in store.due_followups(now):
+            if not followup["chat_id"]:
                 continue
+            if followup["status"] == "asked":
+                # Already asked and still unanswered. One reminder, then leave it: the
+                # customer is not waiting on this, so nagging costs more than it gains.
+                if int(followup["asked_count"] or 0) >= 2:
+                    store.update_followup(followup["followup_id"], status="given_up")
+                    store.add_event(
+                        "followup_unanswered", ticket_id=followup["ticket_id"],
+                        detail="no outcome reported", followup_id=followup["followup_id"],
+                    )
+                    continue
+
+            self._send(
+                followup["chat_id"],
+                f"{OUTCOME_PROMPT}\n\n{followup['summary']}",
+                buttons=[[
+                    {"text": "✅ Done", "data": f"f:{followup['followup_id']}:{OUTCOME_DONE}"},
+                    {"text": "🚫 Customer declined",
+                     "data": f"f:{followup['followup_id']}:{OUTCOME_DECLINED}"},
+                ]],
+            )
+            store.update_followup(
+                followup["followup_id"], status="asked",
+                asked_count=int(followup["asked_count"] or 0) + 1,
+            )
+            asked.append({"followup_id": followup["followup_id"]})
+
+        return asked
 
     # ------------------------------------------------------------------
     def tick(self, now: datetime | None = None) -> list[dict[str, Any]]:
@@ -127,7 +178,7 @@ class ReminderLoop:
             )
 
 
-def _send_telegram(chat_id: str, text: str) -> None:
+def _send_telegram(chat_id: str, text: str, buttons: Any = None) -> None:
     from plumbing.integrations import is_live  # noqa: PLC0415
 
     if not is_live("telegram.send"):
@@ -136,7 +187,7 @@ def _send_telegram(chat_id: str, text: str) -> None:
     from plumbing.integrations.gate import LiveToolUnavailable  # noqa: PLC0415
 
     try:
-        telegram.send_message(chat_id, text)
+        telegram.send_message(chat_id, text, buttons=buttons)
     except LiveToolUnavailable:
         return
 

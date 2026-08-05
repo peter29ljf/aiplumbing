@@ -161,6 +161,7 @@ class FakeSessionsWithRoster(FakeSessions):
         self.roster = roster
         self.recorded: list[dict] = []
         self.offers = offers if offers is not None else _real_offers()
+        self.store = self.offers.store
 
     def technician_by_chat_id(self, chat_id):
         return {"id": "t_wang", "telegram_chat_id": chat_id} if chat_id in self.roster else None
