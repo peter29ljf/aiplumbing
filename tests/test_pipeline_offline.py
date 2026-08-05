@@ -1290,3 +1290,22 @@ def test_a_wrong_configured_path_is_not_reported_as_missing_software(monkeypatch
     message = doctor._explain_missing_cli(how, backend)
     assert "/does/not/exist/claude" in message
     assert "not installed" not in message
+
+
+def test_a_real_technician_number_comes_from_the_machine_not_the_repo(monkeypatch):
+    """The seed is in git and the technicians are real people, so it carries fictional 555
+    numbers. Production found this the way it is always found: the dispatch text went out,
+    Twilio answered "Landline or unreachable carrier", nothing raised, and the technician
+    never heard about the job."""
+    monkeypatch.setenv("PLUMBING_TECH_PHONE_T_WANG", "+16041234567")
+
+    world = World(now=WORKDAY)
+
+    assert world.technicians["t_wang"].phone == "+16041234567"
+    assert world.technicians["t_li"].phone.endswith("555-0202")   # untouched
+
+
+def test_without_an_override_the_seed_number_is_used():
+    """So the test suite and every scenario keep the world they have always had."""
+    world = World(now=WORKDAY)
+    assert world.technicians["t_wang"].phone == "+1-604-555-0201"

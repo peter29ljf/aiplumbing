@@ -17,6 +17,9 @@
 | Google Calendar | ✅ 读 + 写 | 建 → 改 → 重读能看见 → 删干净 |
 | Twilio | ✅ | 账户 active；`+17782004962` sms=True voice=True |
 | Gmail | ✅ 搜索 | 搜到真实邮件。**发信没验** |
+| CORS | ✅ | 白名单来源 204/200，陌生来源 403（公网实测） |
+| 8 个工具 | ✅ 全部 live | 真实对话跑通：写进 Google 日历、两条短信真的发出去 |
+| 数据备份 | ✅ 每日 03:17 | `sqlite3 .backup` + integrity_check，留 7 天 |
 | Telegram | ✅ 端到端 | 真派单 `OF-0004` 到师傅手机，带按钮 |
 | Stripe | ⚠️ 能连，**测试模式** | `livemode=False` |
 | 提醒循环 | ✅ 在跑 | `ReminderLoop` 在 `serve()` 里启动 |
@@ -28,9 +31,11 @@
 
 ## 🔴 拦路的
 
-### 1. 8 个工具全是 mock —— agent 会承诺它做不到的事
+### ~~1. 8 个工具全是 mock~~ ✅ 2026-08-05 全部打开
 
-唯一 live 的 `telegram.send` **不在 agent 路径上**（`notify.py` 直接调）。两个启用的 agent 能碰到的工具，一个都不是真的：
+跑了一轮真实对话验收：客户从网站说"厨房水龙头在滴水"，agent 查日历 → 报价 → 约到周三 8–10 点 → 写进 Google 日历（`2026-08-05T08:00:00-07:00`，和告诉客户的一致）→ 发出两条短信。
+
+留档，将来加工具时按同样的顺序：
 
 | 工具 | 谁用 | 现在打开会怎样 |
 |---|---|---|
@@ -54,7 +59,11 @@
 
 > **不要改 `config/tool_catalog.yaml`。** 那是 git 跟踪的文件，`git pull` 会把开关悄悄关回去，而没有任何地方报错。见 [CHANGE_GUIDE.md](CHANGE_GUIDE.md#生产开关不在-git-里)。
 
-### 2. 数据没有备份
+### ~~2. 数据没有备份~~ ✅ 2026-08-05
+
+`plumbing-backup.timer` 每天 03:17 跑 `scripts/backup_db.sh`，留 7 天，验过 integrity_check 才删旧的。
+
+原来的问题：
 
 `data/plumbing.db` 里是客户、工单、预约、消息、followups、offers。**没有任何自动备份。**
 
@@ -66,19 +75,37 @@
 
 ## 🟠 会咬人的
 
-### 3. 没有监控
+### 3. 师傅的电话是虚构的 555 号
+
+`config/world_seed.yaml` 在 git 里，师傅是真人，所以里面的号码是编的。生产上第一次真实派单就撞上了：
+
+```
++16045550202  undelivered  "Landline or unreachable carrier"
+```
+
+短信发出去了，Twilio 拒了，**没有任何地方报错**，师傅根本不知道有活。Telegram 那条通道是好的（`small_job` 会同时发两条），所以不是全断，但少了一半。
+
+要做：在服务器上设 `PLUMBING_TECH_PHONE_<ID>`（大写），例如
+
+```
+Environment=PLUMBING_TECH_PHONE_T_WANG=+1604...
+```
+
+真号码属于这台机器，不属于仓库——和 `.env` 里的凭据同类。没设就退回 seed 里的号，测试和场景一行不用改。
+
+### 4. 没有监控
 
 服务挂了、Telegram 发不出去、模型报错——**没有任何地方会告诉你**。`notify.py` 刻意从不抛异常（免得一条通知失败拖垮派单），代价就是失败是静默的。
 
 最小可用：cron 每 5 分钟 curl `/health`，失败发 Telegram 给你。用已经 live 的那条通道，不引新依赖。
 
-### 4. 进行中的对话不跨重启
+### 5. 进行中的对话不跨重启
 
 客户、工单、预约、chat session 的号码都在库里。**正在进行的对话在内存**（`LiveConversation.messages`）。重启会让客户说到一半的话丢掉——不丢工单，但读起来像「它把我说的忘了」。
 
 已知取舍，`live/conversation.py` 文件头写明了。**有流量再说。**
 
-### 5. Gmail 发信没验过
+### 6. Gmail 发信没验过
 
 搜索验过，`send_email` 没有。第一次真发是在一个客户身上，不理想。
 

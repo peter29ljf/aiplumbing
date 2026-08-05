@@ -24,6 +24,25 @@ from zoneinfo import ZoneInfo
 from plumbing import config
 
 
+def _technician_phone(spec: dict[str, Any]) -> str:
+    """The seed's number, unless this machine has a real one for that technician.
+
+    The seed is in git and the technicians are real people, so their numbers do not
+    belong in it — the ones there are fictional 555 numbers. Production discovered this
+    the way these things are always discovered: the dispatch text went out, Twilio
+    answered "Landline or unreachable carrier", nothing raised, and the technician simply
+    never heard about the job.
+
+    Set `PLUMBING_TECH_PHONE_<ID>` on the machine, upper-cased, e.g.
+    `PLUMBING_TECH_PHONE_T_WANG=+16045550101`. Same idea as the credentials in .env: it
+    belongs to the deployment, not to the repository.
+    """
+    import os  # noqa: PLC0415
+
+    override = os.environ.get(f"PLUMBING_TECH_PHONE_{str(spec['id']).upper()}", "").strip()
+    return override or str(spec["phone"])
+
+
 class ToolRejection(Exception):
     """A tool refused to run. Returned to the agent as an error, and recorded as a violation."""
 
@@ -162,7 +181,7 @@ class World:
             self.technicians[spec["id"]] = Technician(
                 id=spec["id"],
                 name=spec["name"],
-                phone=spec["phone"],
+                phone=_technician_phone(spec),
                 skills=list(spec.get("skills", [])),
                 areas=list(spec.get("areas", [])),
                 max_concurrent_jobs=spec.get("max_concurrent_jobs", 3),
