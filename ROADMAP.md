@@ -195,14 +195,28 @@
 
 | 规则 | 现在在哪 | 下沉成 |
 |---|---|---|
-| **公寓小活不做** | 三份 prompt **59 行** | 资格闸：`property_type=apartment && category=small` → 拒绝 |
+| ~~**公寓小活不做**~~ ✅ | 已下沉 | `world._excluded_property` —— `calendar.create_appointment` 直接拒绝 |
 | 保修裁决必须师傅做 | warranty.md | 权限闸 |
 | 价格必须来自工具 | core_rules + tool_protocol + judge | 数值来源闸 |
 | 不许承诺赔偿 | 4 份 prompt | 权限闸 |
 | 大活不许报价 | large_job.md | 权限闸 |
 | 没电话不许预约 | core_rules | 前置条件闸 |
 
-公寓那条单独就能**把 59 行 prompt 变成 1 行**，且保证不漏。
+### 公寓那条已完成 ✅ 2026-08-04
+
+`calendar.create_appointment` 现在读工单上 agent 自己记的 `property_type` / `category`，
+命中 `business_rules.yaml` 的 `excluded_property_types` 就拒绝。**不接参数**——否则不提
+物业类型就能绕过去。
+
+两个放行口，都是规则文件本来就写着的：**大项目**（有人工审核）、**保修**（活是我们自己做的，
+保险问题当初就结了）。**没记物业类型的不拦**——那是另一种错，把这个闸变成"没物业类型就不许约"
+会让它在根本没有物业可记的流程上乱响。
+
+5 个单测覆盖：公寓小活被拒 / 公寓大项目放行 / 保修放行 / 联排小活正常 / 未记录不拦。
+
+**prompt 里的那段没删。** 闸在"要下单了"才响，对客户体验来说太晚——prompt 仍然负责
+*尽早识别*（3 位数 unit 号追问）和*体面拒绝*。这条规则是本项目唯一有责任风险的，
+值得两层都留着。
 
 **验收**：每条一个单测证明工具层会拒绝；对应 prompt 段落删掉后 21/24 不退步。
 

@@ -512,6 +512,17 @@ class World:
                     violation="dispatch_before_deposit",
                 )
 
+        # Hard gate: nothing gets booked into a property our insurance does not cover.
+        # This is the only failure left in the intake+small_job pair that carries real
+        # liability rather than lost business, so it does not live in a prompt. Three
+        # prompts carry the rule as guidance and the tool refuses regardless.
+        excluded = self._excluded_property(ticket_id, kind)
+        if excluded:
+            raise ToolRejection(
+                f"{excluded['reason'].strip()} Do not book this. {excluded['exception'].strip()}",
+                violation="excluded_property_type",
+            )
+
         # Hard gate: no standard bookings on Sundays or public holidays
         if kind in ("standard", "warranty") and not self.is_working_day(start.date()):
             ctx = self.day_context(start)
@@ -560,6 +571,35 @@ class World:
         for payment in self.payments.values():
             if payment.ticket_id == ticket_id and payment.kind == "deposit":
                 return payment
+        return None
+
+    def _excluded_property(self, ticket_id: str, kind: str) -> dict[str, Any] | None:
+        """The excluded-property rule that blocks this booking, or None.
+
+        Reads what the agent recorded on the ticket rather than taking an argument, so a
+        booking cannot slip past by simply not mentioning the property type.
+
+        Two things are deliberately let through. A **large project** in an apartment
+        building is reviewed by a person before we commit, which is the exception the
+        rules file states. A **warranty** visit goes wherever the original job was — we
+        already worked there, so the insurance question was settled then.
+
+        A property type nobody recorded is **not** blocked here. Booking without one is a
+        different fault, and turning this gate into "no property type, no appointment"
+        would make it fire on flows that never had a property to record. That check
+        belongs with whoever decides bookings must carry one.
+        """
+        ticket = self.tickets.get(ticket_id)
+        if ticket is None or kind == "warranty":
+            return None
+        tags = ticket.tags or {}
+        property_type = str(tags.get("property_type", "")).strip().lower()
+        category = str(tags.get("category", "")).strip().lower()
+        if not property_type or "large" in category:
+            return None
+        for rule in self.rules.get("service_policy", {}).get("excluded_property_types", []):
+            if rule["id"] == property_type:
+                return rule
         return None
 
     def dispatch_confirmed(self, ticket_id: str) -> bool:

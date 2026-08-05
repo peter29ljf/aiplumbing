@@ -1084,3 +1084,68 @@ def test_a_short_result_gets_no_figure_appendix():
           "result": {"amount": 100, "currency": "CAD"}}]
     )
     assert "all figures" not in rendered
+
+
+def _ticket_with(world, **tags):
+    world.create_ticket("+16045550101")
+    tid = next(iter(world.tickets))
+    world.tickets[tid].tags.update(tags)
+    return tid
+
+
+def _book(world, tid, kind="standard"):
+    from datetime import datetime, timedelta
+
+    return world.create_appointment(
+        kind=kind, ticket_id=tid, phone="+16045550101",
+        start=world.now() + timedelta(days=1), technician_id="t_wang",
+        address="1204 - 800 Broadway, Vancouver", description="dripping tap",
+    )
+
+
+def test_an_apartment_small_job_cannot_be_booked():
+    """The one failure here that is liability rather than lost business, so it is a gate.
+
+    Three prompts carry this rule as guidance. Prompt rules have been measured misfiring
+    all day; the seven hard gates have not been got past once.
+    """
+    from plumbing.world import ToolRejection
+
+    world = World(now=WORKDAY)
+    tid = _ticket_with(world, property_type="apartment", category="small_job")
+    try:
+        _book(world, tid)
+    except ToolRejection as exc:
+        assert exc.violation == "excluded_property_type"
+        assert "insurance" in str(exc).lower()
+    else:
+        raise AssertionError("an uninsured apartment repair was booked")
+
+
+def test_a_large_project_in_an_apartment_is_still_allowed():
+    """The exception the rules file states: a person reviews those before we commit."""
+    world = World(now=WORKDAY)
+    tid = _ticket_with(world, property_type="apartment", category="large_job")
+    assert _book(world, tid) is not None
+
+
+def test_a_warranty_visit_is_not_blocked_by_the_property_type():
+    """We already worked there, so the insurance question was settled then."""
+    world = World(now=WORKDAY)
+    tid = _ticket_with(world, property_type="apartment", category="small_job")
+    assert _book(world, tid, kind="warranty") is not None
+
+
+def test_a_townhouse_small_job_books_normally():
+    """One and two digit unit numbers are townhouses and are fine."""
+    world = World(now=WORKDAY)
+    tid = _ticket_with(world, property_type="townhouse", category="small_job")
+    assert _book(world, tid) is not None
+
+
+def test_an_unrecorded_property_type_is_not_blocked_here():
+    """Booking without one is a different fault; this gate would misfire on flows that
+    never had a property to record."""
+    world = World(now=WORKDAY)
+    tid = _ticket_with(world, category="small_job")
+    assert _book(world, tid) is not None
