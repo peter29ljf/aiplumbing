@@ -925,17 +925,25 @@ def test_upload_tools_are_gone():
     assert not [name for name in all_tools() if name.startswith("upload.")]
 
 
-def test_only_warranty_and_large_job_can_collect_materials():
-    """Asking a customer with water on the floor to go and photograph it is worse than
-    useless, so triage, small repairs and emergencies simply cannot reach these tools."""
+def test_a_small_repair_or_an_emergency_never_asks_for_photographs():
+    """Somebody is going out to look at those anyway.
+
+    Asking a customer with water on the floor to go and photograph it is worse than
+    useless, so small_job and emergency cannot reach these tools at all.
+    """
     from plumbing import config
     from plumbing.tools import resolve
 
     cfg = config.agents_config()
-    for agent in ("intake", "small_job", "emergency"):
+    for agent in ("small_job", "emergency"):
         names = {t.name for t in resolve(cfg["agents"][agent]["tools"])}
         assert "email.request_materials" not in names, agent
         assert "email.get_materials" not in names, agent
+
+    # intake can. A large project is escalated to a person now rather than handed to an
+    # agent, and a person cannot price one from a sentence.
+    intake = {t.name for t in resolve(cfg["agents"]["intake"]["tools"])}
+    assert "email.request_materials" in intake
 
     for agent in ("warranty", "large_job"):
         names = {t.name for t in resolve(cfg["agents"][agent]["tools"])}
@@ -949,9 +957,9 @@ def test_materials_guidance_only_reaches_the_agents_that_collect():
     from plumbing import agent_registry, config
 
     cfg = config.agents_config()
-    for agent in ("warranty", "large_job"):
+    for agent in ("warranty", "large_job", "intake"):
         assert "request_materials" in agent_registry.build_system_prompt(agent, cfg)
-    for agent in ("intake", "small_job", "emergency"):
+    for agent in ("small_job", "emergency"):
         assert "request_materials" not in agent_registry.build_system_prompt(agent, cfg)
 
 

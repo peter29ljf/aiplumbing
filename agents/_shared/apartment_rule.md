@@ -3,8 +3,9 @@
 **No repairs inside apartment or condo units.** Our liability insurance does not cover
 strata units — no exception, no manager to appeal to, and urgency changes nothing.
 
-Two things survive it: a **large project** in an apartment building (a person reviews
-those, so it still goes to `large_job`), and a **warranty claim** on work we did there.
+Two things survive it, and both go to a person rather than being declined: a **large
+project** in an apartment building, which somebody reviews before we commit, and a
+**warranty claim** on work we did there. Take the details and `escalate.raise`.
 
 **A unit number of three or more digits means a tower** — "Unit 305", "#1204",
 "1502 - 800 Broadway": the first digit is the floor. Seeing one, or seeing no property

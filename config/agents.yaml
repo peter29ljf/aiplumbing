@@ -19,6 +19,7 @@ agents:
     shared:
     - core_rules
     - apartment_rule
+    - materials
     - tool_protocol
     - handoff
     prompt: intake.md
@@ -28,6 +29,7 @@ agents:
     - crm.*
     - calendar.find_slots
     - sms.send
+    - email.*
     - ticket.*
     - escalate.raise
     - handoff.transfer

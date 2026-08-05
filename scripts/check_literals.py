@@ -104,6 +104,37 @@ def agent_names() -> tuple[set[str], set[str]]:
     return set(config.agents_config()["agents"]), set(config.enabled_agents())
 
 
+def granted_tools_by_file() -> dict[str, set[str]]:
+    """For each prompt file, the tools whoever loads it is actually allowed to call.
+
+    A prompt telling an agent to call a tool it has not been granted is exactly as broken
+    as one naming a tool that does not exist — the call is refused at the registry and the
+    agent has no idea why. The existing dangling-tool check only proved the tool existed
+    somewhere, which is how `email.request_materials` ended up in intake's prompt while
+    intake had no `email.*` grant.
+
+    A shared fragment is loaded by several agents, so it is judged against the union: a
+    line only one of them can act on is that agent's problem to phrase conditionally, not
+    a fault in the fragment.
+    """
+    from plumbing import config  # noqa: PLC0415
+    from plumbing.tools import registry  # noqa: PLC0415
+
+    cfg = config.agents_config()["agents"]
+    granted: dict[str, set[str]] = {}
+    for name in config.enabled_agents():
+        spec = cfg.get(name) or {}
+        try:
+            tools = {t.name for t in registry.resolve(spec.get("tools") or [])}
+        except ValueError:
+            continue
+        for path in [f"agents/{spec.get('prompt', name + '.md')}"] + [
+            f"agents/_shared/{f}.md" for f in (spec.get("shared") or [])
+        ]:
+            granted.setdefault(path, set()).update(tools)
+    return granted
+
+
 def live_prompt_files() -> set[str]:
     """Just the files an enabled agent actually assembles.
 
@@ -135,6 +166,7 @@ def scan() -> list[tuple[str, str, int, str, str]]:
     all_agents, live_agents = agent_names()
     switched_off = all_agents - live_agents
     in_production = live_prompt_files()
+    granted = granted_tools_by_file()
 
     for path in prompt_files():
         for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
@@ -161,6 +193,11 @@ def scan() -> list[tuple[str, str, int, str, str]]:
                     findings.append(
                         ("HIGH", "dangling-tool", n, where,
                          f"`{name}` is not a live tool — the agent is being sent somewhere that does not answer")
+                    )
+                elif rel(path) in granted and name not in granted[rel(path)]:
+                    findings.append(
+                        ("HIGH", "ungranted-tool", n, where,
+                         f"`{name}` exists but is not in the allow-list of the agent loading this file — the call is refused and the agent is not told why")
                     )
             # A prompt that routes to an agent this deployment does not run sends the
             # customer into silence. The tool refuses the transfer, but by then the agent
