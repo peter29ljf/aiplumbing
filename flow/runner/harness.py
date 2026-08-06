@@ -203,6 +203,10 @@ def main(argv: list[str] | None = None) -> int:
     # smallest node in the graph.
     parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--transcript", action="store_true", help="print every exchange")
+    # A verdict from one run has been wrong here before, and a whole day's failure list was
+    # thrown away because of it. Repeats also fill the workers: six scenarios cannot use
+    # ten of them, so nothing was ever actually running ten at a time.
+    parser.add_argument("--repeat", type=int, default=1, help="run each scenario N times")
     args = parser.parse_args(argv)
 
     from plumbing.llm import LLM
@@ -214,10 +218,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"No scenario matches {args.only!r}")
         return 2
 
-    print(f"Running {len(paths)} scenario(s), {args.workers} at a time ...\n", flush=True)
+    jobs = [p for p in paths for _ in range(args.repeat)]
+    print(f"Running {len(paths)} scenario(s) x{args.repeat} = {len(jobs)} runs, "
+          f"{args.workers} at a time ...\n", flush=True)
     began = time.monotonic()
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        results = list(pool.map(lambda p: run_one(p, LLM), paths))
+        results = list(pool.map(lambda p: run_one(p, LLM), jobs))
 
     failed = [r for r in results if not r.passed]
     for result in results:
@@ -230,6 +236,17 @@ def main(argv: list[str] | None = None) -> int:
             print(f"         → {verdict}")
         for smell in result.smells:
             print(f"         ! {smell}")
+
+    if args.repeat > 1:
+        # Passing sometimes is not passing. A scenario that goes four for four is a
+        # different thing from one that goes three, and only the second is worth a
+        # morning — the first was never broken, it was unlucky.
+        print("\nAcross repeats:")
+        for name in sorted({r.id for r in results}):
+            runs = [r for r in results if r.id == name]
+            won = sum(1 for r in runs if r.passed)
+            verdict = "PASS " if won == len(runs) else ("FLAKY" if won else "FAIL ")
+            print(f"  {verdict} {name:<28} {won}/{len(runs)}")
 
     if args.transcript:
         for result in results:

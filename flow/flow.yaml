@@ -86,7 +86,7 @@ nodes:
     sets_status: Needs Assessment
     branch:
       large: large_project
-      small: scheduling
+      small: offer_options
 
   large_project:
     goal: Ask for photographs by email and put it in front of the technician.
@@ -100,14 +100,22 @@ nodes:
     tools: [ticket.set_fields, escalate.raise]
     sets_status: Escalated to Supervisor
 
-  scheduling:
-    # The one place the two service levels are laid out. The customer picks; nothing here
-    # judges how urgent their problem is.
-    goal: Offer the earliest normal slot and both service levels, and let them choose.
-    rules: [scheduling]
-    # One fee tool, not two. Fetching half the picture is not something to ask the
-    # prompt to avoid — it is something to make impossible.
-    tools: [clock.now, calendar.find_slots, rules.get_service_options, ticket.set_fields, step.finished]
+  # Split in two. As one node it was the fattest in the graph, the only flaky scenario,
+  # the only remaining model fault and the slowest stretch of the conversation — four
+  # signals at one place. Saying what is on offer and reading which one they picked are
+  # different jobs, and putting both in one prompt buried the decision.
+  offer_options:
+    goal: Put the two ways of being seen side by side, and ask which they want.
+    rules: [offering]
+    tools: [clock.now, calendar.find_slots, rules.get_service_options, ticket.set_fields,
+            step.finished]
+    sets_status: Awaiting Appointment Selection
+    next: service_choice
+
+  service_choice:
+    goal: Read which one they chose, and any time they named with it.
+    rules: [choosing]
+    tools: [ticket.set_fields, step.finished]
     sets_status: Awaiting Appointment Selection
     branch:
       chose_emergency: emergency
