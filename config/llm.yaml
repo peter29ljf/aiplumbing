@@ -9,7 +9,7 @@
 #
 # If a model id returns 404, run `python3 scripts/check_llm.py` to list the real ids.
 
-active: bailian-deepseek
+active: deepseek
 
 providers:
   # Not active. A full 24-scenario baseline came back 4/24 against DeepSeek's 21/24, with
@@ -43,6 +43,15 @@ providers:
     timeout_seconds: 120
     max_retries: 3
 
+  # Active. Same model family as the Bailian entry below it, and measurably not the same
+  # thing: on the flow suite, twenty-three of twenty-four against nineteen, with no model
+  # faults at all against four. Cache hits 81% against 62%, which more than halves the
+  # input billed at full price — a single probe showed it caching 1,536 of 1,555 tokens
+  # where Bailian cached 1,024 of 1,476, so the prefix is cut more finely.
+  #
+  # Worth writing down because it was nearly missed: the endpoint had been treated as an
+  # implementation detail of the model, and the gap between them was read as the ceiling
+  # of what this model could do.
   deepseek:
     base_url: "https://api.deepseek.com/v1"
     api_key_env: "DEEPSEEK_API_KEY"
