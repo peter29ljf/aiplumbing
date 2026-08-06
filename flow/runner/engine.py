@@ -95,6 +95,13 @@ class Conversation:
 
     def say(self, text: str) -> Turn:
         """Feed one customer message and get back what to send them."""
+        if self.finished:
+            # They came back. A booked job and a new leak a week later are two pieces of
+            # work, and continuing into a closed one would put the second on a ticket
+            # already settled — a record nobody looks at again. Starting over costs
+            # nothing: the lookup finds them in a moment and they are asked nothing twice.
+            self._start_again()
+
         turn = Turn(reply="")
         self.messages.append({"role": "user", "content": text})
 
@@ -174,6 +181,13 @@ class Conversation:
         return None
 
     # ------------------------------------------------------------------
+    def _start_again(self) -> None:
+        """A fresh conversation, on a fresh ticket, from the top of the graph."""
+        self.finished = False
+        self.node = self.flow[self.flow.entry]
+        self.messages = []
+        self.ticket_id = self.world.open_ticket().id
+
     # Bookkeeping, not work: writing a field down is not doing the thing.
     NOT_WORK = frozenset({"ticket.set_fields", "step.finished"})
 

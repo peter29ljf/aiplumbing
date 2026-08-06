@@ -359,3 +359,41 @@ def test_bookkeeping_is_not_work(flow):
 
     assert "escalate.raise" in Conversation._undone(
         type("C", (), {"NOT_WORK": Conversation.NOT_WORK})(), node, turn)
+
+
+def test_a_last_step_is_told_to_let_them_go(flow):
+    """One scenario ended on "could you email a few photos?" and the conversation was over
+    — they answer into nothing and nobody reads it. Another stated a refusal and simply
+    stopped, leaving the customer watching a chat that had already ended."""
+    from flow.runner.assemble import build
+
+    for node in flow.nodes.values():
+        if node.is_terminal:
+            prompt = build(node)
+            assert "no need to stay online" in prompt.lower(), node.name
+            assert "Never finish on a question" in prompt, node.name
+
+
+def test_coming_back_after_it_ended_starts_a_new_one(flow):
+    """A booked job and a new leak a week later are two pieces of work. Continuing into
+    the closed one would put the second on a ticket already settled, which is a record
+    nobody looks at again."""
+    llm = ScriptedLLM(
+        calls(("step.finished", {"outcome": "done"})),
+        calls(("step.finished", {"outcome": "existing"})),
+        calls(("step.finished", {"outcome": "claim"})),
+        calls(("escalate.raise", {"ticket_id": "TK-0001", "reason": "warranty",
+                                  "details": "tap drips"}),
+              text="With the technician now — no need to stay online."),
+        says("Hello again — what has happened?"),
+    )
+    conversation = _talk(llm, flow)
+    conversation.say("my repair failed")
+    first = conversation.ticket_id
+
+    turn = conversation.say("actually the boiler has gone now too")
+
+    assert not conversation.finished
+    assert conversation.node.name == flow.entry
+    assert conversation.ticket_id != first        # a second job, a second ticket
+    assert turn.reply == "Hello again — what has happened?"

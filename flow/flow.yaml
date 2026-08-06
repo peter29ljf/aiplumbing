@@ -43,7 +43,7 @@ nodes:
     rules: [new_customer]
     tools: [crm.create_customer, ticket.set_fields, step.finished]
     sets_status: Customer Identified
-    next: property_check
+    next: property_ask
 
   warranty_check:
     goal: Find out whether this is about work we already did for them.
@@ -52,19 +52,28 @@ nodes:
     sets_status: Customer Identified
     branch:
       claim: warranty_handover
-      none: property_check
+      none: property_ask
 
-  property_check:
-    # Straight after the address, which is the natural moment to ask and the cheapest
-    # moment to decline. Any later and they have described a whole problem we cannot take.
-    goal: Establish what kind of building this is, and decline the one kind we cannot work in.
-    rules: [property]
+  # Split, for the same reason scheduling was: one node holding both "how to ask" and
+  # "which of three ways out" was steady at refusing and unsteady at accepting — the
+  # commercial unit in a tower passed half the time. Asking and routing are different jobs.
+  property_ask:
+    goal: Establish what kind of property this is, and write it down.
+    rules: [property_asking]
     tools: [ticket.set_fields, step.finished]
+    sets_status: Needs Assessment
+    next: property_route
+
+  property_route:
+    goal: Read the property type off the ticket and take the matching way out.
+    rules: [property_routing]
+    tools: [step.finished]
     sets_status: Needs Assessment
     branch:
       ok: problem
       building_project: large_project
       declined: declined
+
 
   declined:
     goal: Say we cannot take it and why, then close.

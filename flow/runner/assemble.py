@@ -47,9 +47,19 @@ def build(node: Node, *, tags: dict | None = None, ticket_id: str = "") -> str:
         parts.append(
             "# Finishing\n\n"
             "**This is the last step, and your next plain reply ends the conversation.** "
-            "Do everything this step needs first, in one go, then say the one message that "
-            "leaves them knowing what has been arranged and what happens next. There is no "
-            "turn after it, so nothing may be left for later."
+            "Do everything this step needs first, in one go, then write the one message "
+            "they are left with. It has to carry three things:\n\n"
+            "1. **What has been arranged** — the time, the address, who is coming, or that "
+            "we cannot take it and why.\n"
+            "2. **What happens next and who does it** — the technician will ring, a text is "
+            "on its way, somebody will price it from the photographs.\n"
+            "3. **That they do not need to wait here.** Say it plainly: no need to stay "
+            "online, we will come to you. Otherwise they sit watching a chat that has "
+            "already ended, and nobody told them.\n\n"
+            "**Never finish on a question.** If you ask for anything — an email, a photo, a "
+            "preference — they will answer it into a conversation that is over and nobody "
+            "will ever read it. Ask for it as something to do in their own time, addressed "
+            "somewhere a person will see, and say who will pick it up."
         )
     else:
         # A step with one way on and a step choosing between several are not in the same
