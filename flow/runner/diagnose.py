@@ -91,12 +91,18 @@ def diagnose(result: Any, flow: Flow) -> list[Verdict]:
 
 
 # Things only a later step can do, and the words that claim them.
+# The wordings a node reaches for when it describes the next step's work as done. Widened
+# after `offer_options` said "your scheduled visit is set for today at 11:00" — which is a
+# booking announced by a step that only lists what is free, and reads to a customer exactly
+# like a confirmation.
 CLAIMS = {
     "booked": ("calendar.create_appointment",),
-    "booked you in": ("calendar.create_appointment",),
+    "is set for": ("calendar.create_appointment",),
+    "you're all set": ("calendar.create_appointment",),
+    "you are all set": ("calendar.create_appointment",),
+    "i've put you down": ("calendar.create_appointment",),
     "i've sent": ("sms.send", "escalate.raise"),
-    "cannot help": ("conversation.end",),
-    "can't help": ("conversation.end",),
+    "i've passed": ("escalate.raise",),
 }
 
 
