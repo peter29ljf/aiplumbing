@@ -131,8 +131,15 @@ class Conversation:
             turn.steps.append(step)
 
             messages.append(_assistant(message, calls))
+            said = (message.content or "").strip()
+
             if not calls:
-                said = (message.content or "").strip()
+                if node.is_terminal and said:
+                    if self._ends_here(node, turn, messages):
+                        return said
+                    # Told what it still has to do. Go round again rather than sending a
+                    # sign-off the customer would believe.
+                    continue
                 self.messages = messages[1:]        # keep the exchange, drop the system
                 return said or None
 
@@ -155,16 +162,53 @@ class Conversation:
                 self._advance(str(outcome))
                 return said or None
 
-            if self.finished:
-                # A terminal node never advances, so its own status would never be
-                # applied — the ticket would stop at whatever the step before it set.
-                self.world.set_status(self.ticket_id, node.sets_status)
-                return (message.content or "").strip() or None
+            # A last step may do its work and say its piece in one message. Checked here
+            # as well as above, because a reply that arrives alongside tool calls used to
+            # take the other path and the conversation stayed open.
+            if node.is_terminal and said:
+                if self._ends_here(node, turn, messages):
+                    return said
+                continue
 
         self.messages = messages[1:]
         return None
 
     # ------------------------------------------------------------------
+    # Bookkeeping, not work: writing a field down is not doing the thing.
+    NOT_WORK = frozenset({"ticket.set_fields", "step.finished"})
+
+    def _ends_here(self, node: Node, turn: Turn, messages: list[dict[str, Any]]) -> bool:
+        """A last step's reply ends the conversation — once its work is actually done.
+
+        Ending used to need a tool call the model kept forgetting, so everything got done
+        and the conversation stayed open. Making the reply end it opened the opposite
+        hole: `booking` told a customer "you're all set" having created no appointment,
+        sent no text and told no technician, and that was the end of it.
+
+        The tools a last step holds are its job. Nothing here reads the wording.
+        """
+        outstanding = self._undone(node, turn)
+        if outstanding:
+            messages.append({
+                "role": "user",
+                "content": f"[system] Not yet — you have not called: "
+                           f"{', '.join(outstanding)}. Do that now, then say your closing "
+                           f"message.",
+            })
+            return False
+
+        self.world.set_status(self.ticket_id, node.sets_status)
+        self.finished = True
+        return True
+
+    def _undone(self, node: Node, turn: Turn) -> list[str]:
+        """The node's own tools it has not used yet, in this node, this conversation."""
+        used = {tool for step in turn.steps if step.node == node.name for tool in step.tools}
+        return [
+            name for name in node.tools
+            if name not in self.NOT_WORK and name.replace(".", "_", 1) not in used
+        ]
+
     def _system(self) -> str:
         return assemble.build(self.node, tags=self.tags, ticket_id=self.ticket_id)
 

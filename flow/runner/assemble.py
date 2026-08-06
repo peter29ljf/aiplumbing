@@ -46,8 +46,10 @@ def build(node: Node, *, tags: dict | None = None, ticket_id: str = "") -> str:
     if node.is_terminal:
         parts.append(
             "# Finishing\n\n"
-            "When there is nothing left to do, say your closing words to the customer and "
-            "call `conversation.end` in the same turn."
+            "**This is the last step, and your next plain reply ends the conversation.** "
+            "Do everything this step needs first, in one go, then say the one message that "
+            "leaves them knowing what has been arranged and what happens next. There is no "
+            "turn after it, so nothing may be left for later."
         )
     else:
         # A step with one way on and a step choosing between several are not in the same

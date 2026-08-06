@@ -449,13 +449,3 @@ def step_finished(world: World, outcome: str) -> dict[str, Any]:
     return {"finished": True, "outcome": outcome}
 
 
-@tool(
-    "conversation.end",
-    "Finish. Say something to the customer in the same turn — ending is the last thing you "
-    "do, not the only thing.",
-    {"reason": {"type": "string"}},
-)
-def conversation_end(world: World, reason: str) -> dict[str, Any]:
-    world.ended = True
-    world.end_reason = reason
-    return {"ended": True}

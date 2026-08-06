@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT))
 
 from flow.runner.graph import BrokenFlow, load  # noqa: E402
 
-TOOLS = {"a.one", "a.two", "step.finished", "conversation.end"}
+TOOLS = {"a.one", "a.two", "step.finished"}
 
 GOOD: dict[str, Any] = {
     "entry": "start",
@@ -38,7 +38,7 @@ GOOD: dict[str, Any] = {
         },
         "finish": {
             "goal": "Say goodbye.",
-            "tools": ["conversation.end"],
+            "tools": ["a.two"],
             "sets_status": "Closed",
         },
     },
@@ -126,7 +126,7 @@ def test_a_node_nothing_leads_to(tmp_path: Path):
     graph = copy.deepcopy(GOOD)
     graph["nodes"]["stranded"] = {
         "goal": "Nobody comes here.",
-        "tools": ["conversation.end"],
+        "tools": ["a.two"],
         "sets_status": "Closed",
     }
 
@@ -134,11 +134,14 @@ def test_a_node_nothing_leads_to(tmp_path: Path):
         _load(tmp_path, graph)
 
 
-def test_an_ending_that_cannot_end(tmp_path: Path):
-    """A terminal node without conversation.end leaves the customer looking at their own
-    last message forever."""
-    with pytest.raises(BrokenFlow, match="conversation.end"):
-        _load(tmp_path, _but(finish={"tools": ["a.two"]}))
+def test_a_terminal_node_needs_no_way_to_end(tmp_path: Path):
+    """Being terminal is what ends it. The engine closes the conversation on the reply,
+    because asking the model to announce a fact the graph already holds is one more thing
+    it can forget — and it did: the booking, the text, the technician and the follow-up
+    all done, the confirmation said, and the conversation left open."""
+    flow = _load(tmp_path, _but(finish={"tools": ["a.two"]}))
+
+    assert flow["finish"].is_terminal
 
 
 def test_a_node_with_no_goal(tmp_path: Path):
@@ -180,12 +183,13 @@ def test_the_real_flow_is_sound():
     assert any(node.is_terminal for node in flow.nodes.values())
 
 
-def test_every_ending_says_something_before_it_ends():
+def test_no_node_still_carries_an_ending_tool():
+    """It was removed everywhere at once; a node keeping it would be offering the model a
+    tool that no longer exists."""
     flow = load()
 
     for node in flow.nodes.values():
-        if node.is_terminal:
-            assert "conversation.end" in node.tools, node.name
+        assert "conversation.end" not in node.tools, node.name
 
 
 def test_no_node_carries_more_than_a_handful_of_tools():

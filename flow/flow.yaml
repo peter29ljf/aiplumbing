@@ -69,7 +69,7 @@ nodes:
   declined:
     goal: Say we cannot take it and why, then close.
     rules: [declining]
-    tools: [sms.send, ticket.set_fields, conversation.end]
+    tools: [sms.send, ticket.set_fields]
     sets_status: Closed
 
   problem:
@@ -91,13 +91,13 @@ nodes:
   large_project:
     goal: Ask for photographs by email and put it in front of the technician.
     rules: [large_project, handover]
-    tools: [ticket.set_fields, escalate.raise, conversation.end]
+    tools: [ticket.set_fields, escalate.raise]
     sets_status: Escalated to Supervisor
 
   warranty_handover:
     goal: Put the warranty claim in front of the technician with the old job attached.
     rules: [warranty, handover]
-    tools: [ticket.set_fields, escalate.raise, conversation.end]
+    tools: [ticket.set_fields, escalate.raise]
     sets_status: Escalated to Supervisor
 
   scheduling:
@@ -116,7 +116,7 @@ nodes:
   emergency:
     goal: Give safety advice if there is a risk, and get it to the technician now.
     rules: [emergency, handover]
-    tools: [rules.get_safety_advisory, ticket.set_fields, escalate.raise, conversation.end]
+    tools: [rules.get_safety_advisory, ticket.set_fields, escalate.raise]
     sets_status: Escalated to Supervisor
 
   booking:
@@ -126,5 +126,5 @@ nodes:
     # agent ends up describing an action it never took.
     rules: [booking]
     tools: [calendar.create_appointment, ticket.set_fields, sms.send,
-            technician.notify, schedule.create_followup, conversation.end]
+            technician.notify, schedule.create_followup]
     sets_status: Appointment Booked

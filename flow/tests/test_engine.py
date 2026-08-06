@@ -304,3 +304,58 @@ def test_a_tool_that_handles_nothing_lasting_keeps_nothing(flow):
 
     assert st._TOOLS["clock.now"]["remembers"] == ()
     assert st._TOOLS["rules.get_job_sizing"]["remembers"] == ()
+
+
+def test_a_terminal_node_ends_the_conversation_by_replying(flow):
+    """It had done the booking, the text, the technician and the follow-up, said the
+    confirmation — and left the conversation open because one tool call was missing. The
+    graph already knows which nodes are the end; the model does not need to say so."""
+    llm = ScriptedLLM(
+        calls(("step.finished", {"outcome": "done"})),                      # greeting
+        calls(("step.finished", {"outcome": "existing"})),                  # identify
+        calls(("step.finished", {"outcome": "claim"})),                     # warranty_check
+        calls(("escalate.raise", {"ticket_id": "TK-0001", "reason": "warranty",
+                                  "details": "the tap they fixed drips again"}),
+              text="That's with the technician now — he'll come back to you."),
+    )
+    conversation = _talk(llm, flow)
+
+    turn = conversation.say("my repair has failed again")
+
+    assert conversation.finished
+    assert turn.reply.startswith("That's with the technician")
+    assert conversation.world.escalations
+
+
+def test_a_last_step_cannot_sign_off_with_its_work_undone(flow):
+    """`booking` told a customer "you're all set" having created no appointment, sent no
+    text and told no technician — and because a reply ends the conversation, that was the
+    end of it. The tools a last step holds are its job."""
+    llm = ScriptedLLM(
+        calls(("step.finished", {"outcome": "done"})),
+        calls(("step.finished", {"outcome": "existing"})),
+        calls(("step.finished", {"outcome": "claim"})),
+        says("All done, somebody will be in touch."),        # nothing actually done
+        calls(("escalate.raise", {"ticket_id": "TK-0001", "reason": "warranty",
+                                  "details": "tap drips again"}),
+              text="Passed to the technician — he'll come back to you."),
+    )
+    conversation = _talk(llm, flow)
+
+    turn = conversation.say("my repair has failed again")
+
+    assert conversation.world.escalations                  # it was made to do the work
+    assert turn.reply.startswith("Passed to the technician")
+    assert conversation.finished
+
+
+def test_bookkeeping_is_not_work(flow):
+    """Writing a field down is not doing the thing, so set_fields alone does not count as
+    a last step having finished."""
+    from flow.runner.engine import Conversation
+
+    node = flow["warranty_handover"]
+    turn = type("T", (), {"steps": []})()
+
+    assert "escalate.raise" in Conversation._undone(
+        type("C", (), {"NOT_WORK": Conversation.NOT_WORK})(), node, turn)

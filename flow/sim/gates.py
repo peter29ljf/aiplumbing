@@ -15,7 +15,14 @@ had already stopped following.
 
     | gate | what it refuses | the run that caused it | test |
     |------|-----------------|------------------------|------|
-    |      | nothing yet     |                        |      |
+    | unfinished ending | a last step signing off with its own work not done | 20260806-012652: `booking` said "you're all set" having created no appointment, sent no text and told no technician | test_engine.py::test_a_last_step_cannot_sign_off_with_its_work_undone |
+
+The first one, and it arrived the way the method says they should. Ending used to need a
+tool call the model kept forgetting, so the conversation stayed open after everything was
+done. Making the reply end it fixed that and opened the opposite hole: a reply that comes
+first ends everything with the job untouched — and the customer has been told they are
+booked. Neither wording nor a tool fixes this; the node's own tool list already says what
+its job is, so the engine checks against it.
 """
 
 from __future__ import annotations

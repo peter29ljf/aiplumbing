@@ -139,11 +139,9 @@ def _check(entry: str, nodes: dict[str, Node], known_tools: set[str] | None) -> 
                 f"no way to say it is done"
             )
 
-        if node.is_terminal and "conversation.end" not in node.tools:
-            problems.append(
-                f"{node.name} is the end of a path but cannot call conversation.end, "
-                f"so the conversation would just stop with nothing said"
-            )
+        # Terminal nodes need no way to end. Being terminal is what ends them — the
+        # engine closes the conversation on the reply. Asking the model to announce a
+        # fact the graph already holds is one more thing it can forget, and it did.
 
     # A node nobody can reach is either a typo in somebody's `branch` or a leftover. Both
     # are worth knowing about: it will never run, and it will be maintained forever.
