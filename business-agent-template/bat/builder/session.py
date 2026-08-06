@@ -160,6 +160,7 @@ def turn(build: Build, said: str, *, report: str = "", model: str = "",
         # too — worth knowing, and the reason nothing valuable lives there but templates.
         extra_dirs=(PRESETS,),
         on_event=on_event, stop=stop,
+        ledger=project_dir / "spend.jsonl", phase=build.phase,
     )
 
     build.session_id = reply.session_id or build.session_id
@@ -170,7 +171,6 @@ def turn(build: Build, said: str, *, report: str = "", model: str = "",
         "replied": reply.text,
         "usd": reply.spend.usd,
     })
-    claude.record(reply, project_dir / "spend.jsonl", phase=build.phase, prompt=said)
     if not reply.ok:
         build.waiting = FAILED
         build.note = reply.error

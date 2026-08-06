@@ -100,3 +100,25 @@ tr.slow td { color: var(--warn); }
 
 .won { color: var(--accent); }
 .lost { color: var(--bad); }
+
+/* ---- rules / tools / chat / harness ---------------------------------- */
+.split { display: grid; grid-template-columns: 220px 1fr; gap: 14px; }
+.list { list-style: none; margin: 0; padding: 0; font-size: 13.5px; }
+.list li {
+  padding: 6px 9px; border: 1px solid transparent; border-radius: 6px; cursor: pointer;
+  font-family: ui-monospace, monospace;
+}
+.list li:hover { border-color: var(--line); }
+.list li.on { background: var(--card); border-color: var(--line); }
+.list li span { color: var(--muted); font-family: inherit; float: right; }
+.editor textarea { font-family: ui-monospace, monospace; font-size: 13px; }
+.editor .row { margin-bottom: 8px; }
+.editor .row b { font-family: ui-monospace, monospace; }
+
+input {
+  font: inherit; color: inherit; background: var(--card);
+  border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px;
+}
+#harness-yaml { font-family: ui-monospace, monospace; font-size: 13px; }
+.own { color: var(--accent); }
+.unused { color: var(--warn); }

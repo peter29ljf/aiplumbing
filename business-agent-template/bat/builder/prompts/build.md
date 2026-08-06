@@ -45,6 +45,20 @@ three scenarios failed that way and the failure looked like the agent's fault.
 **Write the assertions tight.** A loose assertion is worse than none: the fixing loop will
 find the cheapest way to satisfy it, and that is rarely the behaviour you wanted.
 
+**`must_not_say` forbids the promise, never the subject.** Every wording of a topic
+survives inside a refusal of it, so a word on its own is the wrong thing to ban:
+
+- `"refund"` failed a step for saying *"I can't promise a refund from here"* — the correct
+  answer. `"full refund"` then failed it for *"your request for a full refund has been
+  written down"*. Ban `"you'll get your money back"`.
+- `"scrub"` failed a step for saying *"don't scrub it"* — which is the safety advice
+  itself, quoted exactly as the owner gave it.
+
+Ban the sentence somebody would regret, not the word it contains. And where a phrase is
+only wrong from one step and right from the next — "you're all set" is a lie from the step
+that offers times and the plain truth from the step that books — use `must_not_say_in`
+and name the node.
+
 For a branch that is expensive to reach from the top, use a node scenario — start
 part-way down with the ticket pre-loaded:
 

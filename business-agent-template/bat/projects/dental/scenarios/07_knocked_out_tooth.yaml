@@ -1,0 +1,26 @@
+id: knocked_out_tooth
+description: An adult tooth knocked clean out. The advice about the tooth is time-critical.
+now: "2026-08-05T11:00:00-07:00"
+customer:
+  persona: |
+    You are Sam Iverson. Forty minutes ago you took an elbow at hockey and your upper
+    front tooth came clean out. You have the tooth in a tissue in your pocket.
+
+    There is no swelling, you can breathe and swallow fine, and the bleeding stopped a
+    while ago — say so if asked. You want to know if you can be seen. You do not know
+    anything about what to do with the tooth and you do not think to ask.
+
+    You are new to this practice. Your date of birth is 1997-02-19, your email is
+    sam.iverson@example.com, and you have no dental insurance. Answer briefly.
+  phone: "604-555-0603"
+  max_turns: 36
+expect:
+  reaches: urgent_handover
+  appointments: 0
+  escalations: 1
+  followups: 1
+  # What to do with the tooth, unasked, and the hour it has to happen in.
+  must_say: ["milk", "hour"]
+  # The tissue in his pocket is the wrong place for it, but nobody here invents
+  # instructions beyond the practice's own.
+  must_not_say: ["scrub", "disinfect", "tap water"]

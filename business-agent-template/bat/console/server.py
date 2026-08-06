@@ -20,10 +20,13 @@ import queue
 import threading
 import traceback
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
+
+import yaml
 
 from bat.builder import claude, session
 from bat.runtime import project as projects
@@ -226,6 +229,209 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
+def rules_state(name: str) -> dict[str, Any]:
+    """Every rules file, and `always.md`, with which nodes read each one."""
+    try:
+        project = projects.find(name)
+    except projects.NoSuchProject as missing:
+        return {"error": str(missing)}
+
+    used: dict[str, list[str]] = {}
+    try:
+        for node in load(project, known_tools=registry.load_tools(project)).nodes.values():
+            for rule in node.rules:
+                used.setdefault(rule, []).append(node.name)
+    except BrokenFlow:
+        pass                      # a broken graph still has files worth editing
+
+    files = [{"name": "always.md", "text": project.always(), "used_by": ["every node"],
+              "chars": len(project.always())}]
+    for path in sorted(project.rules_dir.glob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        files.append({"name": path.name, "text": text, "chars": len(text),
+                      "used_by": used.get(path.stem, [])})
+    return {"files": files}
+
+
+def save_rule(name: str, filename: str, text: str) -> dict[str, Any]:
+    """Write it, keeping the version it replaced.
+
+    History because a rules file is the thing most often changed on a hunch, and the
+    fastest way back from a hunch that made things worse is the file as it was.
+    """
+    try:
+        project = projects.find(name)
+    except projects.NoSuchProject as missing:
+        return {"error": str(missing)}
+
+    safe = Path(filename).name
+    if not safe.endswith(".md"):
+        return {"error": "rules are markdown"}
+    target = project.dir / safe if safe == "always.md" else project.rules_dir / safe
+
+    if target.exists():
+        history = project.dir / "history" / safe.removesuffix(".md")
+        history.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        (history / f"{stamp}.md").write_text(target.read_text(encoding="utf-8"),
+                                             encoding="utf-8")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8")
+    return {"saved": safe, "chars": len(text)}
+
+
+def tools_state(name: str) -> dict[str, Any]:
+    """What this project can do, and which step does it.
+
+    A tool nothing uses is either a step nobody wrote yet or a leftover, and both are
+    worth seeing. A node with eight tools is usually two nodes.
+    """
+    try:
+        project = projects.find(name)
+    except projects.NoSuchProject as missing:
+        return {"error": str(missing)}
+
+    known = registry.load_tools(project)
+    own = set()
+    if project.tools_dir.exists():
+        for path in project.tools_dir.glob("*.py"):
+            own |= {line.split('"')[1] for line in path.read_text(encoding="utf-8")
+                    .splitlines() if line.strip().startswith('"') and '.' in line}
+
+    used: dict[str, list[str]] = {}
+    try:
+        for node in load(project, known_tools=known).nodes.values():
+            for tool in node.tools:
+                used.setdefault(tool, []).append(node.name)
+    except BrokenFlow:
+        pass
+
+    return {"tools": [
+        {"name": tool, "own": tool in own, "used_by": used.get(tool, [])}
+        for tool in sorted(known)
+    ]}
+
+
+def harness_state(name: str) -> dict[str, Any]:
+    try:
+        project = projects.find(name)
+    except projects.NoSuchProject as missing:
+        return {"error": str(missing)}
+    scenarios = []
+    for path in sorted(project.scenarios_dir.glob("*.yaml")):
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        scenarios.append({
+            "file": path.name, "id": raw.get("id", path.stem),
+            "description": raw.get("description", ""),
+            "node_level": bool(raw.get("start")),
+            "expects": sorted((raw.get("expect") or {}).keys()),
+        })
+    return {"settings": project.harness(), "scenarios": scenarios,
+            "yaml": _read(project.dir / "harness.yaml")
+                    or _read(projects.PRESETS / "harness.yaml")}
+
+
+def save_harness(name: str, text: str) -> dict[str, Any]:
+    try:
+        yaml.safe_load(text)
+    except yaml.YAMLError as bad:
+        return {"error": f"not valid YAML: {bad}"}
+    (session.directory(name) / "harness.yaml").write_text(text, encoding="utf-8")
+    return {"saved": True}
+
+
+def run_harness(name: str, only: str = "", repeat: int = 0) -> dict[str, Any]:
+    """Start a harness run on its own thread, forwarding its output to the same stream
+    the build uses. It is the same question — is this working yet — so it belongs in the
+    same window."""
+    running = live(name)
+    if running.busy:
+        return {"error": "already working"}
+
+    try:
+        project = projects.find(name)
+    except projects.NoSuchProject as missing:
+        return {"error": str(missing)}
+
+    settings = project.harness()
+    argv = [
+        "python3", "-m", "bat.runtime.harness", "--project", name,
+        "--repeat", str(repeat or settings.get("repeat", 4)),
+        "--workers", str(settings.get("workers", 10)),
+    ]
+    if only:
+        argv.append(only)
+
+    def work() -> None:
+        import subprocess
+        running.emit({"type": "bat.started", "phase": "harness"})
+        proc = subprocess.Popen(argv, cwd=str(projects.PROJECTS.parents[1]),
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, bufsize=1)
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            running.emit({"type": "bat.harness", "text": line.rstrip()})
+            if running.stop.is_set():
+                proc.terminate()
+                break
+        proc.wait()
+        running.emit({"type": "bat.finished", "ok": proc.returncode == 0,
+                      "error": "" if proc.returncode == 0 else "some scenarios failed",
+                      "usd": 0.0})
+
+    running.stop.clear()
+    running.thread = threading.Thread(target=work, daemon=True)
+    running.thread.start()
+    return {"started": True, "command": " ".join(argv)}
+
+
+# ---- the test chat ----------------------------------------------------
+# One live conversation per project, held in memory. Not persisted: this is somebody
+# trying the agent out, and a half-finished trial is not worth surviving a restart.
+CHATS: dict[str, Any] = {}
+
+
+def chat(name: str, text: str, *, restart: bool = False) -> dict[str, Any]:
+    from bat.runtime.engine import Conversation
+    from bat.runtime.llm import LLM
+    from bat.runtime.paths import load_dotenv
+    from bat.runtime.sim import World
+
+    try:
+        project = projects.find(name)
+    except projects.NoSuchProject as missing:
+        return {"error": str(missing)}
+
+    if restart or name not in CHATS:
+        load_dotenv()
+        try:
+            flow = load(project, known_tools=registry.load_tools(project))
+        except BrokenFlow as broken:
+            return {"error": str(broken)}
+        rules = project.business_rules()
+        world = World(now=datetime.now().astimezone().isoformat(timespec="seconds"),
+                      rules=rules)
+        CHATS[name] = Conversation(world, LLM(project.model()), flow)
+
+    talk = CHATS[name]
+    if not text:
+        return {"reply": "", "node": talk.node.name, "ticket": talk.ticket_id}
+
+    turn = talk.say(text)
+    ticket = talk.world.tickets.get(talk.ticket_id)
+    return {
+        "reply": turn.reply,
+        "node": talk.node.name,
+        "nodes": turn.nodes,
+        "finished": talk.finished,
+        "seconds": turn.seconds,
+        "status": ticket.status if ticket else "",
+        "tags": dict(ticket.tags) if ticket else {},
+        "steps": [{"node": s.node, "seconds": s.seconds, "tools": s.tools,
+                   "refusals": s.refusals} for s in turn.steps],
+    }
+
+
 # ----------------------------------------------------------------------
 # doing things
 # ----------------------------------------------------------------------
@@ -300,6 +506,9 @@ ROUTES_GET: dict[str, Callable[[str], dict[str, Any]]] = {
     "build": build_state,
     "flow": flow_state,
     "dashboard": dashboard,
+    "rules": rules_state,
+    "tools": tools_state,
+    "harness": harness_state,
 }
 ROUTES_POST: dict[str, Callable[[str], dict[str, Any]]] = {
     "approve": approve,
@@ -405,6 +614,21 @@ class Handler(BaseHTTPRequestHandler):
         if len(parts) == 4 and parts[0] == "api" and parts[1] == "build" \
                 and parts[3] == "say":
             return self._json(say(parts[2], str(body.get("text") or "")))
+
+        if len(parts) == 3 and parts[0] == "api" and parts[1] == "rules":
+            return self._json(save_rule(parts[2], str(body.get("name") or ""),
+                                        str(body.get("text") or "")))
+
+        if len(parts) == 3 and parts[0] == "api" and parts[1] == "harness":
+            return self._json(save_harness(parts[2], str(body.get("yaml") or "")))
+
+        if len(parts) == 3 and parts[0] == "api" and parts[1] == "run":
+            return self._json(run_harness(parts[2], str(body.get("only") or ""),
+                                          int(body.get("repeat") or 0)))
+
+        if len(parts) == 3 and parts[0] == "api" and parts[1] == "chat":
+            return self._json(chat(parts[2], str(body.get("text") or ""),
+                                   restart=bool(body.get("restart"))))
 
         if len(parts) == 3 and parts[0] == "api" and parts[1] in ROUTES_POST:
             return self._json(ROUTES_POST[parts[1]](parts[2]))

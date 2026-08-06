@@ -52,6 +52,8 @@ function show(event) {
   } else if (event.type === "bat.crashed") {
     line(event.trace, "bad");
     refresh();
+  } else if (event.type === "bat.harness") {
+    line(event.text, "tool");
   } else if (event.type === "bat.stderr") {
     line(event.text, "bad");
   }
@@ -184,10 +186,116 @@ async function loadDash() {
   ).join("") || `<tr><td class="muted">nothing has been run yet</td></tr>`;
 }
 
+// ---- rules ------------------------------------------------------------
+
+let ruleFiles = [];
+
+async function loadRules() {
+  const data = await get(`/api/rules/${current}`);
+  ruleFiles = data.files || [];
+  const list = $("rule-list");
+  list.innerHTML = "";
+  ruleFiles.forEach((f, i) => {
+    const li = document.createElement("li");
+    li.textContent = f.name.replace(/\.md$/, "");
+    li.innerHTML += `<span>${f.chars.toLocaleString()}</span>`;
+    li.onclick = () => showRule(i);
+    list.appendChild(li);
+  });
+  if (ruleFiles.length) showRule(0);
+}
+
+function showRule(i) {
+  const f = ruleFiles[i];
+  document.querySelectorAll("#rule-list li").forEach((li, j) =>
+    li.classList.toggle("on", j === i));
+  $("rule-name").textContent = f.name;
+  // Which nodes read it, because the same file can be shared and a change lands on all
+  // of them at once.
+  $("rule-used").textContent = f.used_by.length
+    ? `read by ${f.used_by.join(", ")}` : "read by nothing — a leftover?";
+  $("rule-text").value = f.text;
+  $("rule-save").onclick = async () => {
+    const said = await post(`/api/rules/${current}`,
+                            { name: f.name, text: $("rule-text").value });
+    $("rule-used").textContent = said.error || `saved, ${said.chars} chars`;
+    loadRules();
+  };
+}
+
+// ---- tools ------------------------------------------------------------
+
+async function loadTools() {
+  const data = await get(`/api/tools/${current}`);
+  const body = $("tool-table").querySelector("tbody");
+  if (data.error) {
+    body.innerHTML = `<tr><td colspan="3" class="lost">${data.error}</td></tr>`;
+    return;
+  }
+  body.innerHTML = data.tools.map((t) =>
+    `<tr><td><code>${t.name}</code></td>
+     <td class="${t.own ? "own" : "muted"}">${t.own ? "this project" : "the kit"}</td>
+     <td class="${t.used_by.length ? "" : "unused"}">
+       <code>${t.used_by.join(", ") || "nothing uses it"}</code></td></tr>`
+  ).join("");
+}
+
+// ---- test chat --------------------------------------------------------
+
+function chatLine(text, kind) {
+  const log = $("chat-log");
+  const p = document.createElement("p");
+  p.className = "line " + (kind || "");
+  p.textContent = text;
+  log.appendChild(p);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function sendChat(text, restart) {
+  const said = await post(`/api/chat/${current}`, { text, restart });
+  if (said.error) return chatLine(said.error, "bad");
+  // What the customer never sees and the person testing always wants: which node
+  // answered, what it called, and how long they waited for it.
+  for (const step of said.steps || []) {
+    chatLine(`${step.node}  ${step.seconds}s  ${step.tools.join(" ") || "—"}` +
+             (step.refusals.length ? `  refused: ${step.refusals.join("; ")}` : ""),
+             step.refusals.length ? "bad" : "tool");
+  }
+  if (said.reply) chatLine(said.reply);
+  if (said.finished) chatLine("— the conversation ended —", "note");
+  $("chat-where").textContent = `${said.node}${said.status ? " · " + said.status : ""}`;
+  $("chat-ticket").textContent = Object.entries(said.tags || {})
+    .filter(([k]) => k !== "flow_node")
+    .map(([k, v]) => `${k}=${v}`).join("  ");
+}
+
+// ---- harness ----------------------------------------------------------
+
+async function loadHarness() {
+  const data = await get(`/api/harness/${current}`);
+  const body = $("scenario-table").querySelector("tbody");
+  if (data.error) {
+    body.innerHTML = `<tr><td colspan="4" class="lost">${data.error}</td></tr>`;
+    return;
+  }
+  body.innerHTML = data.scenarios.map((s) =>
+    `<tr><td><code>${s.id}</code></td><td>${s.description}</td>
+     <td class="muted">${s.node_level ? "node" : "end to end"}</td>
+     <td><code>${s.expects.join(", ")}</code></td></tr>`
+  ).join("") || `<tr><td class="muted">no scenarios yet</td></tr>`;
+  $("harness-yaml").value = data.yaml || "";
+}
+
+// ---- which tab --------------------------------------------------------
+
 function loadTab() {
   const open = document.querySelector("nav button.on").dataset.tab;
   if (open === "flow") loadFlow();
   if (open === "dash") loadDash();
+  if (open === "rules") loadRules();
+  if (open === "tools") loadTools();
+  if (open === "harness") loadHarness();
+  if (open === "chat" && !$("chat-log").children.length) sendChat("", false);
 }
 
 // ---- wiring -----------------------------------------------------------
@@ -233,6 +341,36 @@ $("approve").onclick = async () => {
   await post(`/api/approve/${current}`);
   line("— plan approved —", "note");
   refresh();
+};
+
+$("chat-say").onsubmit = (e) => {
+  e.preventDefault();
+  const text = $("chat-text").value.trim();
+  if (!text) return;
+  chatLine(text, "you");
+  $("chat-text").value = "";
+  sendChat(text, false);
+};
+$("chat-text").onkeydown = (e) => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("chat-say").requestSubmit();
+};
+$("chat-restart").onclick = () => { $("chat-log").innerHTML = ""; sendChat("", true); };
+
+$("run-all").onclick = () => runHarness("");
+$("run-nodes").onclick = () => runHarness("node_");
+$("run-only").onkeydown = (e) => { if (e.key === "Enter") runHarness($("run-only").value); };
+
+async function runHarness(only) {
+  const started = await post(`/api/run/${current}`, { only });
+  // The output belongs in the Build log — "is this working yet" is the same question the
+  // build is answering, so it goes in the same window.
+  document.querySelector('nav button[data-tab="build"]').click();
+  line(started.error || `$ ${started.command}`, started.error ? "bad" : "note");
+}
+
+$("harness-save").onclick = async () => {
+  const said = await post(`/api/harness/${current}`, { yaml: $("harness-yaml").value });
+  $("harness-said").textContent = said.error || "saved";
 };
 
 loadProjects();

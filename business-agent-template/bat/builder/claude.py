@@ -183,12 +183,21 @@ def stream(prompt: str, *, project_dir: Path, session_id: str = "", model: str =
 def run(prompt: str, *, project_dir: Path, session_id: str = "", model: str = "",
         extra_dirs: tuple[Path, ...] = (),
         on_event: Callable[[dict[str, Any]], None] | None = None,
-        stop: threading.Event | None = None) -> Reply:
-    """Drain the stream and hand back the one thing a caller usually wants."""
+        stop: threading.Event | None = None,
+        ledger: Path | None = None, phase: str = "") -> Reply:
+    """Drain the stream and hand back the one thing a caller usually wants.
+
+    `ledger` is written the moment the result arrives rather than after this returns. A
+    ten-minute build killed by an impatient timeout has already been billed by Anthropic;
+    recording it only on a clean return meant the money was spent and the ledger said
+    nothing, which is the one thing a ledger must never do.
+    """
     reply = Reply(session_id=session_id)
     for event in stream(prompt, project_dir=project_dir, session_id=session_id,
                         model=model, extra_dirs=extra_dirs, on_event=on_event, stop=stop):
         reply = absorb(reply, event)
+        if event.get("type") == "result" and ledger is not None:
+            record(reply, ledger, phase=phase, prompt=prompt)
     return reply
 
 
