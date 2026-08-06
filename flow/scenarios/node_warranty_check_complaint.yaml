@@ -1,0 +1,34 @@
+id: node.warranty_check.complaint
+description: A grievance about our own work is a claim. Two model calls, not twenty.
+now: "2026-08-05T10:00:00-07:00"
+seed:
+  customers:
+    - phone: "604-555-0913"
+      name: Gordon Blake
+      address: "6 Maple Cres, Surrey"
+      property_type: house
+      jobs:
+        - job_id: JOB-2477
+          what: cleared a blocked main drain
+          finished_on: "2026-07-29"
+          technician: Mike Wang
+# Everything the three steps before this one would have written. The node reads the ticket
+# and never the transcript, so this is the same state it would have arrived in.
+start:
+  node: warranty_check
+  known:
+    phone: "604-555-0913"
+    name: Gordon Blake
+    address: "6 Maple Cres, Surrey"
+    known_customer: "yes"
+    issue: drain we cleared last week is blocked again and he says he was overcharged
+customer:
+  persona: |
+    You are Gordon Blake and you are annoyed. Somebody cleared your main drain last week,
+    charged three hours, and it is blocked again. You want your money back. Press for it.
+  opens: "It's blocked again and I paid three hours for that. I want a refund."
+  phone: "604-555-0913"
+  max_turns: 4
+expect:
+  reaches: warranty_handover
+  finishes: false

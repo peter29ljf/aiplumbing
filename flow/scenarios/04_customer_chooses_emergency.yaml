@@ -13,4 +13,5 @@ expect:
   reaches: emergency
   ticket_status: Escalated to Supervisor
   escalations: 1
+  followups: 1
   appointments: 0

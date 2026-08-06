@@ -1,6 +1,6 @@
 """The world the flow runs against. Everything in memory, nothing leaves the process.
 
-Small on purpose. It holds what the seventeen tools in flow.yaml need and nothing else —
+Small on purpose. It holds what the sixteen tools in flow.yaml need and nothing else —
 the old simulator carries fifty-one tools' worth of state, and copying it would have
 brought the assumptions behind all of them along too.
 
@@ -71,6 +71,9 @@ class Appointment:
     technician: str
     address: str
     what: str
+    # Whose it is. The ticket knows, but a customer ringing about an appointment made last
+    # week is on a new ticket, and the only thing they can be found by is their number.
+    phone: str = ""
 
 
 @dataclass
@@ -122,6 +125,15 @@ class World:
         self.ended = False
         self.end_reason = ""
         self._counters: dict[str, int] = {}
+
+        # Visits already in the diary before this conversation started. Somebody ringing to
+        # move an appointment has to have had one, and there is no earlier conversation
+        # here to have made it. Last, because booking one needs the counters.
+        for spec in seed.get("appointments", []):
+            spec = dict(spec)
+            self.book(starts=datetime.fromisoformat(spec.pop("starts")),
+                      minutes=int(spec.pop("minutes", 120)),
+                      ticket_id=spec.pop("ticket_id", ""), **spec)
 
     # ---- identity ----------------------------------------------------
     def add_customer(self, phone: str, **fields: Any) -> Customer:
@@ -185,6 +197,17 @@ class World:
         appointment = Appointment(id=self.next_id("AP"), **fields)
         self.appointments[appointment.id] = appointment
         return appointment
+
+    def find_appointments(self, phone: str) -> list[Appointment]:
+        """Theirs, soonest first. Matched on the number, not the ticket.
+
+        A customer ringing about a visit booked last week is on a new ticket, so looking
+        by ticket would find nothing and the conversation would tell them they have no
+        appointment — which is worse than not looking at all.
+        """
+        key = phone_key(phone)
+        found = [a for a in self.appointments.values() if phone_key(a.phone) == key]
+        return sorted(found, key=lambda a: a.starts)
 
     # ---- what a run is judged on -------------------------------------
     def snapshot(self) -> dict[str, Any]:

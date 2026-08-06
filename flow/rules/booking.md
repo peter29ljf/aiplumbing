@@ -10,7 +10,7 @@ Then, with that answer in front of you, these three together:
 2. **The customer**, by `sms.send`: the date and time, the address, the technician's name,
    and the fee terms in short — the call-out fee as the tool gave it to you, credited
    against the repair if they go ahead, payable if they decline.
-3. `schedule.create_followup`, so somebody checks how it went.
+3. `schedule.create_followup` at 24 hours, so somebody checks it actually happened.
 
 **The technician before the customer.** A confirmation for a visit nobody has been told
 about is worse than no confirmation: they stop worrying about something nobody is coming to.

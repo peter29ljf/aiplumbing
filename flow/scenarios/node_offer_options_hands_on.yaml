@@ -1,0 +1,32 @@
+id: node.offer_options.hands_on
+description: Lists the two ways of being seen and hands on. It kept stopping here instead.
+now: "2026-08-05T10:00:00-07:00"
+start:
+  node: offer_options
+  known:
+    phone: "604-555-0755"
+    name: Nadia Osman
+    address: "240 Willow St"
+    email: nadia@example.com
+    property_type: house
+    issue: the ensuite toilet runs constantly
+    size: small
+customer:
+  persona: |
+    You are Nadia. Your ensuite toilet runs constantly. You want a normal appointment and
+    you want a date and time. Push for one — "when can somebody come?", "so is that
+    booked?" — and do not accept being told it is coming later.
+  opens: "So when can somebody come out?"
+  phone: "604-555-0755"
+  max_turns: 5
+expect:
+  # Its whole job is to say what is on offer and hand on. Stopping here is the failure.
+  # `appointments: 0` was asserted first and was wrong: handing on promptly is exactly
+  # what carries the conversation into service_choice and booking inside the same run, so
+  # the appointment appearing is the success, not a leak.
+  reaches: service_choice
+  finishes: false
+  must_not_say:
+    - "that's booked"
+    - "you're all set"
+    - "i've booked"

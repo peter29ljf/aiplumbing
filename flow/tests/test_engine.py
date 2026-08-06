@@ -108,12 +108,20 @@ def test_a_node_prompt_does_not_mention_the_rest_of_the_graph(flow):
         assert other not in prompt
 
 
-def test_a_node_prompt_stays_small(flow):
-    """The whole reason for the rewrite. The old agents send 42,968 characters a call."""
-    llm = ScriptedLLM(says("Hello."))
-    _talk(llm, flow).say("hi")
+def test_every_node_prompt_stays_small(flow):
+    """The whole reason for the rewrite. The old agents send 42,968 characters a call.
 
-    assert len(llm.prompts[0]) < 4_000
+    This measured the first node only, against 4,000 — a figure taken when `greeting` was
+    the one node with no rules file at all. It has one now, and that file is why three
+    scenarios stopped failing, so the number moved. It moved to a ceiling over every node
+    rather than a reading of one, which is the thing actually worth holding: 8,000 is
+    under a fifth of what a single old call cost, and the fattest node here is 6,600.
+    """
+    from flow.runner.assemble import build
+
+    biggest = max((len(build(node)), node.name) for node in flow.nodes.values())
+
+    assert biggest[0] < 8_000, biggest
 
 
 # ---- moving on --------------------------------------------------------
@@ -160,8 +168,8 @@ def test_what_survives_is_the_summary_not_the_words(flow):
 
 def test_a_branch_is_taken_by_name(flow):
     llm = ScriptedLLM(
-        calls(("step.finished", {"outcome": "done"})),
-        calls(("step.finished", {"outcome": "existing"})),
+        calls(("step.finished", {"outcome": "done"})),           # greeting
+        calls(("step.finished", {"outcome": "existing"})),       # identify
         says("Welcome back."),
     )
     conversation = _talk(llm, flow)
@@ -177,15 +185,15 @@ def test_an_outcome_nobody_named_is_handed_back(flow):
     llm = ScriptedLLM(
         calls(("step.finished", {"outcome": "done"})),
         calls(("step.finished", {"outcome": "maybe"})),
-        says("Sorry — are you an existing customer?"),
+        says("Sorry — have we worked for you before?"),
     )
     conversation = _talk(llm, flow)
 
     turn = conversation.say("hi")
 
-    assert conversation.node.name == "identify"       # did not move
+    assert conversation.node.name == "identify"             # did not move
     assert "maybe" in json.dumps(conversation.messages)
-    assert turn.reply == "Sorry — are you an existing customer?"
+    assert turn.reply == "Sorry — have we worked for you before?"
 
 
 # ---- the ticket -------------------------------------------------------
@@ -208,14 +216,15 @@ def test_the_status_follows_the_node(flow):
 
 def test_the_ways_out_are_an_enum_the_model_cannot_step_outside(flow):
     """Naming a branch that does not exist stops being possible rather than being asked
-    for. The identify node can answer `new` or `existing` and nothing else."""
+    for. The identify node has exactly four ways out and no fifth."""
     from flow.sim import tools as st
 
-    schemas = st.schemas_for(flow["identify"].tools, outcomes=flow["identify"].choices)
+    node = flow["identify"]
+    schemas = st.schemas_for(node.tools, outcomes=node.choices)
     finished = [s for s in schemas if s["function"]["name"] == "step_finished"][0]
 
     assert finished["function"]["parameters"]["properties"]["outcome"]["enum"] == [
-        "new", "existing"]
+        "new", "existing", "booking_change", "no_number"]
 
 
 def test_the_outcome_does_not_stay_on_the_ticket(flow):
@@ -316,6 +325,7 @@ def test_a_terminal_node_ends_the_conversation_by_replying(flow):
         calls(("step.finished", {"outcome": "claim"})),                     # warranty_check
         calls(("escalate.raise", {"ticket_id": "TK-0001", "reason": "warranty",
                                   "details": "the tap they fixed drips again"}),
+              ("schedule.create_followup", {"ticket_id": "TK-0001", "hours": 24}),
               text="That's with the technician now — he'll come back to you."),
     )
     conversation = _talk(llm, flow)
@@ -338,6 +348,7 @@ def test_a_last_step_cannot_sign_off_with_its_work_undone(flow):
         says("All done, somebody will be in touch."),        # nothing actually done
         calls(("escalate.raise", {"ticket_id": "TK-0001", "reason": "warranty",
                                   "details": "tap drips again"}),
+              ("schedule.create_followup", {"ticket_id": "TK-0001", "hours": 24}),
               text="Passed to the technician — he'll come back to you."),
     )
     conversation = _talk(llm, flow)
@@ -384,6 +395,7 @@ def test_coming_back_after_it_ended_starts_a_new_one(flow):
         calls(("step.finished", {"outcome": "claim"})),
         calls(("escalate.raise", {"ticket_id": "TK-0001", "reason": "warranty",
                                   "details": "tap drips"}),
+              ("schedule.create_followup", {"ticket_id": "TK-0001", "hours": 24}),
               text="With the technician now — no need to stay online."),
         says("Hello again — what has happened?"),
     )

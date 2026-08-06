@@ -32,5 +32,9 @@ fine. But a message that quotes what a tool is about to return has to wait for i
 the same breath, it is written before the answer exists, and what fills the gap is a guess
 that reads exactly like a fact.
 
+**A demand you cannot meet does not hold you here.** Say once that it is not yours to
+settle, write down what they want, and finish the step. The part that can answer them is
+further on and cannot be reached from an argument.
+
 **Say something to the customer every turn.** Working in silence looks, from their side,
 exactly like the chat being broken.

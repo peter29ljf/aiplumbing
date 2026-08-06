@@ -76,7 +76,13 @@ def run_one(path: Path, llm_factory) -> Result:
 
     world = World(now=spec["now"], seed=spec.get("seed"))
     llm = llm_factory()
-    talk = Conversation(world, llm, load(known_tools=sim_tools.names()))
+    # `start:` drops the conversation in part-way down the graph with the ticket already
+    # carrying what the earlier steps would have written. A node that has failed four days
+    # running should not cost twenty model calls to reach, nineteen of which exercise
+    # nodes nobody is worried about.
+    start = spec.get("start") or {}
+    talk = Conversation(world, llm, load(known_tools=sim_tools.names()),
+                        start_at=start.get("node", ""), known=start.get("known"))
 
     customer = spec["customer"]
     # The number is a field on the scenario and was never handed to the persona, so the
@@ -86,7 +92,13 @@ def run_one(path: Path, llm_factory) -> Result:
     if customer.get("phone"):
         persona += f"\n\nYour phone number is {customer['phone']}. Give it when asked."
     history = [{"role": "system", "content": CUSTOMER_BRIEF % persona}]
-    said = "hi"
+    # "hi" from the top; a node scenario starts mid-conversation and opens with whatever
+    # the customer would actually be saying at that point.
+    said = str(customer.get("opens") or "hi")
+    # What they say when they come back after it was all settled. Scripted rather than
+    # left to the persona, because the persona has been told to stop at DONE — and the
+    # engine's `_start_again` had never once been exercised.
+    comes_back = str(customer.get("comes_back") or "")
     began = time.monotonic()
 
     for _ in range(int(customer.get("max_turns", 12))):
@@ -102,7 +114,20 @@ def run_one(path: Path, llm_factory) -> Result:
         result.transcript.append(("agent", turn.reply))
 
         if talk.finished:
-            break
+            if not comes_back:
+                break
+            history.append({"role": "user", "content": turn.reply or "(said nothing)"})
+            said, comes_back = comes_back, ""
+            history.append({"role": "assistant", "content": said})
+            # The persona has already replied DONE once, for the job that is settled, and
+            # left to itself it says it again on its next breath — so the second
+            # conversation got two turns and no appointment. Re-arm it against the new job.
+            history.append({"role": "system", "content":
+                "That first job is settled and you have moved on. What you have just "
+                "raised is a separate job and none of it is arranged yet. Do not reply "
+                "DONE again until this new one has been booked, refused, or handed to a "
+                "technician on its own account."})
+            continue
 
         history.append({"role": "user", "content": turn.reply or "(said nothing)"})
         reply = llm.chat("customer", history)
@@ -111,6 +136,7 @@ def run_one(path: Path, llm_factory) -> Result:
         if said.upper().startswith("DONE"):
             break
 
+    _afterwards(spec, world)
     result.seconds = round(time.monotonic() - began, 1)
     result.snapshot = world.snapshot()
     result.snapshot.setdefault("ended", world.ended)
@@ -126,6 +152,32 @@ def run_one(path: Path, llm_factory) -> Result:
     return result
 
 
+def _afterwards(spec: dict, world: World) -> None:
+    """The days after the conversation, if the scenario asks for them.
+
+    The follow-up loop is where a ticket actually closes, and it runs on a clock nobody
+    was winding. Each step is either time passing — which makes an ask fall due — or the
+    technician finally saying something back.
+
+        after:
+          - { hours: 24 }            # he is asked
+          - { hours: 24 }            # no answer, asked again
+          - { technician: done }     # closes the ticket, thanks the customer
+    """
+    from datetime import timedelta
+
+    from flow.runner import followup
+
+    for step in spec.get("after") or []:
+        if "hours" in step:
+            world.now += timedelta(hours=int(step["hours"]))
+            followup.tick(world)
+        if "technician" in step:
+            done = str(step["technician"]).lower() in ("done", "yes", "finished", "true")
+            for record in [f for f in world.followups if not f.get("answered")]:
+                followup.technician_says(world, record["ticket_id"], done=done)
+
+
 def _judge(result: Result, expect: dict, talk: Conversation, world: World) -> None:
     if (wanted := expect.get("reaches")) and wanted not in result.nodes:
         result.wrong(f"never reached `{wanted}` — went {' → '.join(result.nodes)}")
@@ -138,11 +190,28 @@ def _judge(result: Result, expect: dict, talk: Conversation, world: World) -> No
         if got != wanted:
             result.wrong(f"ticket ended `{got}`, expected `{wanted}`")
 
+    if (wanted := expect.get("tickets")) is not None:
+        got = len(result.snapshot["tickets"])
+        if got != wanted:
+            result.wrong(f"{got} ticket(s), expected {wanted}")
+
+    if (wanted := expect.get("followup_asks")) is not None:
+        got = sum(1 for m in result.snapshot["technician_messages"]
+                  if m.get("kind") == "followup")
+        if got != wanted:
+            result.wrong(f"the technician was chased {got} time(s), expected {wanted}")
+
     for key, label in (("appointments", "appointment"), ("texts", "text"),
                        ("technician_messages", "message to the technician"),
                        ("escalations", "escalation"), ("followups", "follow-up")):
         if key in expect:
-            got = len(result.snapshot[key])
+            entries = result.snapshot[key]
+            if key == "technician_messages":
+                # Being told about a job and being chased about it afterwards are two
+                # different things; counting them together would make this number mean
+                # nothing the moment a scenario runs the follow-up clock.
+                entries = [m for m in entries if m.get("kind") != "followup"]
+            got = len(entries)
             if got != expect[key]:
                 result.wrong(f"{got} {label}(s), expected {expect[key]}")
 
@@ -154,7 +223,9 @@ def _judge(result: Result, expect: dict, talk: Conversation, world: World) -> No
         if phrase.lower() in spoken:
             result.wrong(f"said {phrase!r}, which it must not")
 
-    if not talk.finished and expect.get("reaches"):
+    # A node scenario stops at a node in the middle of the graph, which is not an ending
+    # and must not be reported as a failure to reach one.
+    if not talk.finished and expect.get("reaches") and expect.get("finishes", True):
         result.wrong("the conversation never finished")
 
 

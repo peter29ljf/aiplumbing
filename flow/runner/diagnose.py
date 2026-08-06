@@ -20,6 +20,10 @@ from typing import Any
 from flow.runner import assemble
 from flow.runner.graph import Flow
 
+# One model call, not one customer turn. A turn spanning four nodes says nothing about
+# which of them was slow, and a node is what you can actually go and fix.
+SLOW_CALL_SECONDS = 20.0
+
 CONFIG = "config"          # it was never given the means
 MODEL = "model"            # it had the means and the instruction, and did otherwise
 HARNESS = "harness"        # the scenario or the runner, not the system under test
@@ -101,8 +105,14 @@ CLAIMS = {
     "you're all set": ("calendar.create_appointment",),
     "you are all set": ("calendar.create_appointment",),
     "i've put you down": ("calendar.create_appointment",),
+    # `offer_options` answered "Normal appointment at 11:00 AM today it is, Nadia" and the
+    # customer, reasonably, stopped talking. A time repeated back as settled is a booking,
+    # whatever grammar it arrives in.
+    "it is,": ("calendar.create_appointment",),
     "i've sent": ("sms.send", "escalate.raise"),
-    "i've passed": ("escalate.raise",),
+    # `technician.notify` too: `appointment_change` genuinely passes work to a person and
+    # has no escalate.raise, so listing only the one called this a fault when it was not.
+    "i've passed": ("escalate.raise", "technician.notify"),
 }
 
 
@@ -219,7 +229,9 @@ def summarise(results: list[Any]) -> str:
                 node["smell"] = node.get("smell", 0) + 1
 
     if not counts and not per_node:
-        return "Nothing to diagnose — everything passed clean."
+        # Still print the timing. A suite that passes everything slowly is a suite that
+        # passes, and the waiting is the next thing worth knowing about.
+        return "Nothing to diagnose — everything passed clean.\n" + how_slow(results)
 
     lines = ["", "Where the faults are:"]
     total = sum(counts.values()) or 1
@@ -238,6 +250,43 @@ def summarise(results: list[Any]) -> str:
         if sum(kinds.values()) > 1:
             lines.append(f"\n  Most of the trouble is in `{worst}`. Start there.")
 
+    lines.append(how_slow(results))
+    return "\n".join(lines)
+
+
+def how_slow(results: list[Any]) -> str:
+    """How long each node keeps the customer waiting.
+
+    The slow-turn smell says "turn 9 took 24s across five calls in property_route →
+    problem → sizing → offer_options", which is four nodes and no answer. What is actually
+    wanted is which node is slow, and that is a property of the node, not of the turn it
+    happened to fall in. Ranked by the worst single call, because a node that is usually
+    quick and occasionally takes half a minute is the one people notice.
+    """
+    per_node: dict[str, list[float]] = {}
+    for result in results:
+        for step in getattr(result, "steps", []):
+            per_node.setdefault(step.node, []).append(step.seconds)
+    if not per_node:
+        return ""
+
+    rows = []
+    for node, times in per_node.items():
+        over = sum(1 for t in times if t > SLOW_CALL_SECONDS)
+        rows.append((max(times), node, sum(times) / len(times), len(times), over))
+    rows.sort(reverse=True)
+
+    lines = ["", f"How long each node takes (worst call first, {SLOW_CALL_SECONDS:.0f}s is "
+                 f"the line):", f"  {'node':<20}{'worst':>7}{'mean':>7}{'calls':>7}"
+                 f"{'over':>7}"]
+    for worst, node, mean, calls, over in rows:
+        mark = "  <-- " if over else ""
+        lines.append(f"  {node:<20}{worst:>6.0f}s{mean:>6.1f}s{calls:>7}{over:>7}{mark}")
+
+    slow = [node for worst, node, *_ in rows if worst > SLOW_CALL_SECONDS]
+    if slow:
+        lines.append(f"\n  Over {SLOW_CALL_SECONDS:.0f}s at least once: "
+                     f"{', '.join(slow)}.")
     return "\n".join(lines)
 
 

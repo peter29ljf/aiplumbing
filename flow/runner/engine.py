@@ -37,6 +37,7 @@ from flow.sim.world import World
 MAX_CALLS_PER_TURN = 8
 # A node that finishes without saying anything hands straight on to the next. More than a
 # few of those in one turn means the graph is walking itself, which is worth stopping.
+#
 MAX_NODES_PER_TURN = 4
 
 NOTHING_SAID = (
@@ -74,16 +75,31 @@ class Turn:
 
 
 class Conversation:
-    def __init__(self, world: World, llm: Any, flow: Flow | None = None) -> None:
+    def __init__(self, world: World, llm: Any, flow: Flow | None = None, *,
+                 start_at: str = "", known: dict[str, Any] | None = None) -> None:
+        """`start_at` begins part-way down the graph, with `known` already on the ticket.
+
+        Reaching `booking` from the top costs eight nodes and twenty model calls, and
+        nineteen of them are testing nodes that have not failed in days. Starting at the
+        node under test is only sound because of how this is built: a node reads the
+        ticket, never the transcript, so a ticket carrying the right facts is
+        indistinguishable from having walked there. If that ever stops being true, these
+        stop being valid — which is itself worth knowing.
+        """
         self.world = world
         self.llm = llm
         self.flow = flow or load(known_tools=sim_tools.names())
-        self.node: Node = self.flow[self.flow.entry]
+        self.node: Node = self.flow[start_at or self.flow.entry]
         # Opened here, not by a tool. It was a tool, and twice out of six the model
         # finished the first step without calling it — after which every set_fields had
         # nowhere to write and the whole conversation kept no record at all. Opening a
         # ticket is bookkeeping, not a decision, and nothing is served by asking.
         self.ticket_id = world.open_ticket().id
+        self.entry = self.node.name
+        if known:
+            self.world.tickets[self.ticket_id].tags.update(known)
+            if known.get("phone"):
+                self.world.tickets[self.ticket_id].phone = str(known["phone"])
         self.messages: list[dict[str, Any]] = []
         self.finished = False
 
@@ -121,6 +137,8 @@ class Conversation:
         node = self.node
         turn.nodes.append(node.name)
         messages = [{"role": "system", "content": self._system()}, *self.messages]
+        if (nudge := self._still_here(node)):
+            messages.append({"role": "user", "content": nudge})
 
         for _ in range(MAX_CALLS_PER_TURN):
             began = time.monotonic()
@@ -182,11 +200,41 @@ class Conversation:
 
     # ------------------------------------------------------------------
     def _start_again(self) -> None:
-        """A fresh conversation, on a fresh ticket, from the top of the graph."""
+        """A fresh conversation, on a fresh ticket, from where this one began."""
         self.finished = False
-        self.node = self.flow[self.flow.entry]
+        self.node = self.flow[self.entry]
         self.messages = []
         self.ticket_id = self.world.open_ticket().id
+
+    # How many replies a step gets before it is asked what it is still waiting for. Three
+    # is generous: no step here needs four exchanges to do its one job.
+    REPLIES_BEFORE_A_NUDGE = 3
+
+    def _still_here(self, node: Node) -> str:
+        """A step that keeps talking and never finishes, told so.
+
+        The mirror of `_ends_here`. That one stops a last step signing off before its work
+        is done; this one stops every other step doing the opposite — talking indefinitely
+        with the way out in front of it. `greeting` spent seventeen model calls
+        sympathising with an angry customer, and `offer_options`, cornered by "so is it
+        booked?", answered yes. Both had step.finished the whole time.
+
+        A step is not stuck because it lacks patience. It is stuck because what the
+        customer is pressing for lives further down the graph, and the only way to reach
+        it is to finish.
+        """
+        if node.is_terminal:
+            return ""
+        spoke = sum(1 for m in self.messages
+                    if m.get("role") == "assistant" and (m.get("content") or "").strip())
+        if spoke < self.REPLIES_BEFORE_A_NUDGE:
+            return ""
+        return (
+            f"[system] You have replied {spoke} times from this step without calling "
+            f"step.finished. If this step's goal is met, call it now. If you are waiting "
+            f"on something this step has no tool for, a later step has it — finishing is "
+            f"how they get it, and repeating yourself is not."
+        )
 
     # Bookkeeping, not work: writing a field down is not doing the thing.
     NOT_WORK = frozenset({"ticket.set_fields", "step.finished"})

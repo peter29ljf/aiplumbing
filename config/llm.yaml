@@ -9,7 +9,11 @@
 #
 # If a model id returns 404, run `python3 scripts/check_llm.py` to list the real ids.
 
-active: deepseek
+# Bailian while the new paths are being shaken out, and DeepSeek's own endpoint for the
+# verdict. The two are not equal — see the note on `deepseek` below — so a figure measured
+# here is a floor, not the result. Switch back once this reaches 80%; a suite that cannot
+# clear that on the cheaper endpoint is failing for reasons the better one will not fix.
+active: bailian-deepseek
 
 providers:
   # Not active. A full 24-scenario baseline came back 4/24 against DeepSeek's 21/24, with

@@ -1,4 +1,4 @@
-"""The seventeen tools flow.yaml names. All simulated; nothing leaves the process.
+"""The sixteen tools flow.yaml names. All simulated; nothing leaves the process.
 
 **No gates.** Nothing here refuses anything on business grounds — not an apartment
 booking, not a dispatch to a technician who cannot be reached, not a ticket walking into a
@@ -137,14 +137,18 @@ def _ticket(world: World, ticket_id: str):
     "crm.lookup_by_phone",
     "Look a customer up by phone number. Tells you whether we know them already.",
     {"phone": {"type": "string"}},
-    remembers=("phone", "name", "address", "email", "property_type"),
+    # `known_customer` too, not just their details. Whether we have worked for them before
+    # decides which way the conversation goes, and it was left to the model to write down:
+    # it did not, and a customer with four years of history was asked to introduce herself.
+    remembers=("phone", "name", "address", "email", "property_type", "known_customer"),
 )
 def crm_lookup(world: World, phone: str) -> dict[str, Any]:
     customer = world.find_customer(phone)
     if customer is None:
-        return {"found": False, "phone": phone}
+        return {"found": False, "known_customer": "no", "phone": phone}
     return {
         "found": True,
+        "known_customer": "yes",
         "phone": customer.phone,
         "name": customer.name,
         "address": customer.address,
@@ -325,6 +329,33 @@ def calendar_find_slots(world: World) -> dict[str, Any]:
 
 
 @tool(
+    "calendar.find_booking",
+    "Find a visit already in the diary for this customer. Look before you say anything "
+    "about it — the technician cannot act on 'they want to move it' without knowing which.",
+    {"phone": {"type": "string"}},
+    remembers=("appointment_id", "reads_as", "technician", "technician_id"),
+)
+def calendar_find_booking(world: World, phone: str) -> dict[str, Any]:
+    found = world.find_appointments(phone)
+    if not found:
+        return {"found": False, "appointments": []}
+
+    soonest = found[0]
+    technician = world.technicians.get(soonest.technician)
+    return {
+        "found": True,
+        "appointment_id": soonest.id,
+        "starts": soonest.starts.isoformat(),
+        "reads_as": soonest.starts.strftime("%A %d %B, %-I:%M %p"),
+        "technician": technician.name if technician else "",
+        "technician_id": soonest.technician,
+        "address": soonest.address,
+        "what": soonest.what,
+        "how_many": len(found),
+    }
+
+
+@tool(
     "calendar.create_appointment",
     "Put the visit in the diary.",
     {
@@ -344,6 +375,7 @@ def calendar_create(world: World, ticket_id: str, starts: str, address: str,
     appointment = world.book(
         ticket_id=ticket.id, starts=when, minutes=120,
         technician=technician.id if technician else "", address=address, what=what,
+        phone=ticket.phone,
     )
     return {
         "appointment_id": appointment.id,

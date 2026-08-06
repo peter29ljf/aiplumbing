@@ -12,5 +12,6 @@ expect:
   reaches: large_project
   ticket_status: Escalated to Supervisor
   escalations: 1
+  followups: 1
   appointments: 0
   must_say: ["sdf024846@gmail.com"]
