@@ -74,6 +74,12 @@ providers:
 # Per-role settings. The model comes from the active provider; add `model: "..."` to a
 # role only when that role should differ from the rest.
 roles:
+  builder:                                # The generator's own tool loop (bat/builder/agent.py)
+    # Thinking ON. Deciding which file to write next from what the last one contained is
+    # reasoning, and this role writes twenty-odd files off one brief.
+    extra_body: { enable_thinking: true }
+    temperature: 0.2                      # Writing config and prose to a spec, not chatting
+    max_tokens: 8000                      # A rules file plus a flow.yaml in one answer
   agent:                                  # Business agents (intake / small_job / ...)
     # Thinking ON. It was off on the grounds that this is a conversational role, and the
     # full baseline came back 4/24 against DeepSeek's 21/24 — every failure the agent's,

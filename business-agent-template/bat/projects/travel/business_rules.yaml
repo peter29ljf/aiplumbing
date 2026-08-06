@@ -1,0 +1,42 @@
+# Pacific Compass Travel — every figure, policy, and refusal the agent will ever touch.
+# Nothing in here may be repeated in a rules file. Tools read it directly.
+
+company:
+  name: Pacific Compass Travel
+  place: Burnaby BC
+  timezone: America/Vancouver
+  currency: CAD
+  open: "Mon–Sat 10:00–18:00"
+  languages: [English, Mandarin]
+
+quoting:
+  fee: "0"            # quoting is free — no fee, no card, nothing taken in the chat
+  deposit_percent: 20 # of the trip, taken by the consultant, never here
+  insurance: quoted separately, always mentioned alongside a trip
+
+# The three refusals, verbatim. The agent repeats these nearly word-for-word.
+refusals:
+  destination: "We're not able to arrange travel to Cuba, I'm afraid — it's not somewhere we book. If there's anywhere else you're considering, I'd be glad to help."
+  visa: "We don't handle visa applications, so that part you'd do yourself. Your consultant will tell you which visas you need when they come back with the options."
+  insurance_only: "We only arrange travel insurance alongside a trip we've booked for you, so on its own it isn't something we can sell. If you're planning a trip, we'd be glad to quote both together."
+
+# Which destinations we refuse outright. Whole destination.
+refused_destinations:
+  - Cuba
+  - Iran
+
+# Region -> consultant. Anything not listed goes to the rota.
+consultants:
+  region:
+    Asia: Sam
+    Europe: Priya
+    Americas: Priya
+  rota: whoever is on the enquiry rota
+
+# The five things that must be on the ticket before an enquiry can be sent.
+required_for_quote:
+  - party
+  - route
+  - budget
+  - passports
+  - scope

@@ -11,6 +11,10 @@ up after it stopped — which happens, and the two reasons it happens are worth 
     python3 -m bat.builder fix dental                       # test, read, fix, repeat
     python3 -m bat.builder auto dental --brief ~/dental.md  # all of it, unattended
 
+`--backend own-loop` writes the files with whatever `model.yaml` points at instead of with
+Claude Code. Use it when the CLI cannot reach the provider you want, or when an Anthropic
+account has run dry and a build should not wait a day for it.
+
 Every command is safe to run twice. The phase and the Claude Code session id live in the
 project directory, so picking up after a laptop closed, a timeout fired, or an account ran
 out of credit is the same command again — it resumes rather than starting over.
@@ -99,16 +103,30 @@ def cmd_status(args: argparse.Namespace) -> int:
         spend, calls = claude.total(directory / "spend.jsonl")
         broken = _loads(directory.name)
         rows.append((directory.name, build.phase, build.waiting or "-",
-                     f"${spend.usd:.2f}", calls, "yes" if not broken else "NO"))
-    _say(f"{'project':<14}{'phase':<11}{'waiting':<16}{'spent':>8}{'calls':>7}{'loads':>7}")
+                     f"${spend.usd:.2f}", calls, "yes" if not broken else "NO",
+                     build.backend))
+    _say(f"{'project':<13}{'backend':<12}{'phase':<10}{'waiting':<15}"
+         f"{'spent':>8}{'calls':>7}{'loads':>7}")
     for row in rows:
-        _say(f"{row[0]:<14}{row[1]:<11}{row[2]:<16}{row[3]:>8}{row[4]:>7}{row[5]:>7}")
+        _say(f"{row[0]:<13}{row[6]:<12}{row[1]:<10}{row[2]:<15}"
+             f"{row[3]:>8}{row[4]:>7}{row[5]:>7}")
     return 0
+
+
+def _backend(build: session.Build, args: argparse.Namespace) -> session.Build:
+    """Set once, then remembered. Switching backends mid-build is possible but loses the
+    thread: Claude Code resumes by session id and the own loop by its message list, and
+    neither can pick up the other's."""
+    wanted = getattr(args, "backend", "") or ""
+    if wanted and wanted != build.backend:
+        build.backend, build.session_id, build.messages = wanted, "", []
+        session.save(build)
+    return build
 
 
 def cmd_new(args: argparse.Namespace) -> int:
     brief = Path(args.brief).read_text(encoding="utf-8")
-    build = session.start(args.name)
+    build = _backend(session.start(args.name), args)
     for preset in ("model.yaml", "harness.yaml"):
         target = session.directory(args.name) / preset
         if not target.exists():
@@ -130,7 +148,7 @@ def cmd_new(args: argparse.Namespace) -> int:
 
 
 def cmd_answer(args: argparse.Namespace) -> int:
-    build = session.load(args.name)
+    build = _backend(session.load(args.name), args)
     build.waiting, build.note = "", ""
     session.save(build)
     _say(f"== {args.name}: {build.phase}")
@@ -138,7 +156,7 @@ def cmd_answer(args: argparse.Namespace) -> int:
 
 
 def cmd_plan(args: argparse.Namespace) -> int:
-    build = session.load(args.name)
+    build = _backend(session.load(args.name), args)
     if build.phase == session.INTERVIEW:
         session.advance(build)
     build.waiting, build.note = "", ""
@@ -155,7 +173,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
 def cmd_go(args: argparse.Namespace) -> int:
     """Approve the plan and build. The one command that needs a person to have read
     something first, which is why it is not folded into `plan`."""
-    build = session.load(args.name)
+    build = _backend(session.load(args.name), args)
     if build.phase in (session.INTERVIEW, session.PLAN):
         session.advance(build)
     build.phase = session.BUILD
@@ -248,16 +266,22 @@ def main(argv: list[str] | None = None) -> int:
         one.add_argument("--repeat", type=int, default=0)
         one.add_argument("--rounds", type=int, default=4)
         one.add_argument("--only", default="")
+        one.add_argument("--backend", choices=[session.CLAUDE_CODE, session.OWN_LOOP],
+                         default="")
         one.set_defaults(run=run)
 
     for name, run in (("plan", cmd_plan), ("go", cmd_go)):
         one = sub.add_parser(name)
         one.add_argument("name")
+        one.add_argument("--backend", choices=[session.CLAUDE_CODE, session.OWN_LOOP],
+                         default="")
         one.set_defaults(run=run)
 
     answer = sub.add_parser("answer", help="reply to what it asked")
     answer.add_argument("name")
     answer.add_argument("text")
+    answer.add_argument("--backend", choices=[session.CLAUDE_CODE, session.OWN_LOOP],
+                        default="")
     answer.set_defaults(run=cmd_answer)
 
     test = sub.add_parser("test")
@@ -270,6 +294,8 @@ def main(argv: list[str] | None = None) -> int:
     fix.add_argument("name")
     fix.add_argument("--repeat", type=int, default=0)
     fix.add_argument("--rounds", type=int, default=4)
+    fix.add_argument("--backend", choices=[session.CLAUDE_CODE, session.OWN_LOOP],
+                     default="")
     fix.set_defaults(run=cmd_fix)
 
     args = parser.parse_args(argv)

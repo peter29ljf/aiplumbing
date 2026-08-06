@@ -24,8 +24,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from bat.builder import claude
+from bat.builder import agent, claude
 from bat.runtime.project import PRESETS, PROJECTS, Project
+
+# Which backend writes the files. `claude` hands the job to Claude Code, which brings its
+# own confinement; `agent` is a tool loop over whatever `model.yaml` points at, confined
+# in code. The second exists because the first cannot reach an OpenAI-compatible endpoint,
+# and because an account running out of credit should not stop a build for a day.
+CLAUDE_CODE, OWN_LOOP = "claude-code", "own-loop"
 
 PROMPTS = Path(__file__).resolve().parent / "prompts"
 TEMPLATE_ROOT = PRESETS.parent.parent
@@ -55,6 +61,10 @@ class Build:
     flat_rounds: int = 0
     transcript: list[dict[str, Any]] = field(default_factory=list)
     note: str = ""                        # what it is waiting for, in words
+    backend: str = CLAUDE_CODE
+    # The own-loop backend has no session id to resume from, so continuity is the message
+    # list. Kept here rather than in memory: a build survives the console restarting.
+    messages: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def running(self) -> bool:
@@ -66,6 +76,7 @@ class Build:
             "session_id": self.session_id, "rounds": self.rounds,
             "best_score": self.best_score, "flat_rounds": self.flat_rounds,
             "note": self.note, "transcript": self.transcript,
+            "backend": self.backend, "messages": self.messages,
         }
 
 
@@ -153,6 +164,28 @@ def turn(build: Build, said: str, *, report: str = "", model: str = "",
         project = Project(project_dir)
 
     asked = prompt_for(build.phase, said, project=project, report=report)
+
+    if build.backend == OWN_LOOP:
+        reply, build.messages = agent.run(
+            asked, project_dir=project_dir, settings=project.model(),
+            project_name=build.name, history=build.messages or None,
+            # Reads only. The kit is what a build copies its shapes from.
+            readable=(PRESETS,),
+            max_steps=agent.BUILD_STEPS if build.phase == BUILD else agent.MAX_STEPS,
+            on_event=on_event, stop=stop,
+            ledger=project_dir / "spend.jsonl", phase=build.phase,
+        )
+        build.transcript.append({
+            "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "phase": build.phase, "said": said, "replied": reply.text,
+            "usd": reply.spend.usd,
+        })
+        if not reply.ok:
+            build.waiting = FAILED
+            build.note = reply.error
+        save(build)
+        return reply
+
     reply = claude.run(
         asked, project_dir=project_dir, session_id=build.session_id, model=model,
         # Read access to the kit: the preset tools and the reference project are what it
