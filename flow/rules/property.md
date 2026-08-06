@@ -11,11 +11,14 @@ of property it is. Do not assume either way:
 > Is that a home inside an apartment or condo building over three storeys, or is it a
 > house, a townhouse, or a commercial property?
 
-Three ways out:
+Your job here is only to find out which of three it is. Record it with
+`ticket.set_fields` so nobody has to ask again, and hand on:
 
-- **House, townhouse, low-rise, commercial or retail** — carry on.
+- **House, townhouse, low-rise, commercial or retail** — ordinary work.
 - **A project for the building itself** — a strata wanting the risers repiped is not work
-  inside somebody's home. That goes to a person to price, like any large project.
-- **A home inside a tall apartment or condo building** — decline.
+  inside somebody's home. Priced by a person, like any large project.
+- **A home inside a tall apartment or condo building** — the one we cannot take.
 
-Record what they told you with `ticket.set_fields` either way, so nobody has to ask again.
+**Do not turn them down here, even when you know the answer.** Say nothing about insurance
+or what we can and cannot do — the next step delivers that, properly and on the record. A
+refusal given here is one nothing on our side has any note of.

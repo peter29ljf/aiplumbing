@@ -133,12 +133,6 @@ def _ticket(world: World, ticket_id: str):
 # ======================================================================
 
 
-@tool("ticket.create", "Open a ticket for this conversation. Do this first.", {})
-def ticket_create(world: World) -> dict[str, Any]:
-    ticket = world.open_ticket()
-    return {"ticket_id": ticket.id, "status": ticket.status}
-
-
 @tool(
     "crm.lookup_by_phone",
     "Look a customer up by phone number. Tells you whether we know them already.",

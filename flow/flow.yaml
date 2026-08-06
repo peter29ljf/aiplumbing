@@ -22,7 +22,8 @@ nodes:
       details, no diagnosis, no name, no number. Most people say what is wrong in their
       first message, and when they have, this step is over on your very first reply.
     rules: []
-    tools: [ticket.create, ticket.set_fields, step.finished]
+    # No ticket.create — the engine opens one before the first word is said.
+    tools: [ticket.set_fields, step.finished]
     sets_status: New Inquiry
     next: identify
 

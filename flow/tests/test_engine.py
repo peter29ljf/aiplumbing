@@ -96,7 +96,7 @@ def test_a_node_is_given_only_its_own_tools(flow):
     llm = ScriptedLLM(says("Hello — what has gone wrong?"))
     _talk(llm, flow).say("hi")
 
-    assert llm.tool_sets[0] == ["ticket_create", "ticket_set_fields", "step_finished"]
+    assert llm.tool_sets[0] == ["ticket_set_fields", "step_finished"]
 
 
 def test_a_node_prompt_does_not_mention_the_rest_of_the_graph(flow):
@@ -121,7 +121,6 @@ def test_a_node_prompt_stays_small(flow):
 
 def test_a_node_ends_when_the_outcome_is_set(flow):
     llm = ScriptedLLM(
-        calls(("ticket.create", {})),
         calls(("step.finished", {"outcome": "done"}), text="Right."),
         says("May I have your phone number?"),
     )
@@ -136,7 +135,6 @@ def test_the_previous_node_s_conversation_is_dropped(flow):
     """Where the context saving actually comes from. Without this the fourth node would
     be carrying the first three nodes' exchanges and the small prompts stop being small."""
     llm = ScriptedLLM(
-        calls(("ticket.create", {})),
         calls(("step.finished", {"outcome": "done"})),
         says("May I have your phone number?"),
     )
@@ -149,7 +147,6 @@ def test_the_previous_node_s_conversation_is_dropped(flow):
 
 def test_what_survives_is_the_summary_not_the_words(flow):
     llm = ScriptedLLM(
-        calls(("ticket.create", {})),
         calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"customer_name": "Lin"}}),
               ("step.finished", {"outcome": "done"})),
         says("Thanks Lin."),
@@ -163,7 +160,6 @@ def test_what_survives_is_the_summary_not_the_words(flow):
 
 def test_a_branch_is_taken_by_name(flow):
     llm = ScriptedLLM(
-        calls(("ticket.create", {})),
         calls(("step.finished", {"outcome": "done"})),
         calls(("step.finished", {"outcome": "existing"})),
         says("Welcome back."),
@@ -179,7 +175,6 @@ def test_an_outcome_nobody_named_is_handed_back(flow):
     """Rather than picking a branch on the model's behalf, which is a decision made by
     accident and impossible to find afterwards."""
     llm = ScriptedLLM(
-        calls(("ticket.create", {})),
         calls(("step.finished", {"outcome": "done"})),
         calls(("step.finished", {"outcome": "maybe"})),
         says("Sorry — are you an existing customer?"),
@@ -200,7 +195,6 @@ def test_the_status_follows_the_node(flow):
     """Nothing calls a status tool. The ticket goes where the node says it goes, which is
     one fewer thing for the model to get wrong."""
     llm = ScriptedLLM(
-        calls(("ticket.create", {})),
         calls(("step.finished", {"outcome": "done"})),
         says("Number please?"),
     )
@@ -228,7 +222,6 @@ def test_the_outcome_does_not_stay_on_the_ticket(flow):
     """It is a signal to the engine, not a fact about the customer. Left behind, the next
     node reads it as a decision that has already been made."""
     llm = ScriptedLLM(
-        calls(("ticket.create", {})),
         calls(("step.finished", {"outcome": "done"})),
         says("Number please?"),
     )
@@ -275,7 +268,6 @@ def test_a_fact_a_tool_handled_is_kept_without_being_asked(flow):
     same thing is the clearest sign nobody is listening, and it should not depend on the
     model remembering to write things down."""
     llm = ScriptedLLM(
-        calls(("ticket.create", {})),
         calls(("step.finished", {"outcome": "done"}), text="Noted — one moment."),
         calls(("crm.lookup_by_phone", {"phone": "604 555 0166"})),
         says("You're not on file yet."),
@@ -290,7 +282,6 @@ def test_a_fact_a_tool_handled_is_kept_without_being_asked(flow):
 
 def test_what_a_lookup_found_is_kept_too(flow):
     llm = ScriptedLLM(
-        calls(("ticket.create", {})),
         calls(("step.finished", {"outcome": "done"}), text="Noted — one moment."),
         calls(("crm.lookup_by_phone", {"phone": "604-555-7788"})),
         says("Welcome back, Emily."),
@@ -311,5 +302,5 @@ def test_a_tool_that_handles_nothing_lasting_keeps_nothing(flow):
     goes past would put the contents of a rules lookup on the ticket."""
     from flow.sim import tools as st
 
-    assert st._TOOLS["ticket.create"]["remembers"] == ()
     assert st._TOOLS["clock.now"]["remembers"] == ()
+    assert st._TOOLS["rules.get_job_sizing"]["remembers"] == ()

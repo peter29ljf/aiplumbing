@@ -45,6 +45,16 @@ def summarise(tags: dict[str, Any], *, ticket_id: str = "") -> str:
         if value not in (None, "", []):
             lines.append(f"{label}: {value}")
 
+    # Everything else that has been written down. The named ones above are only there to
+    # be read in a sensible order — a whitelist alone means a step records something and
+    # the next step cannot see it, which is how a node came to offer appointment times and
+    # the one that books them said it did not have any.
+    for key, value in tags.items():
+        if key in ("flow_node", "outcome") or any(key == k for k, _ in CARRIED):
+            continue
+        if value not in (None, "", [], {}):
+            lines.append(f"{key.replace('_', ' ').capitalize()}: {value}")
+
     missing = [label for key, label in CARRIED if not tags.get(key)]
     if not lines or (ticket_id and len(lines) == 1):
         return "Nothing is known about this customer yet — this is the start."

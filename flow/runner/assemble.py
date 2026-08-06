@@ -60,7 +60,12 @@ def build(node: Node, *, tags: dict | None = None, ticket_id: str = "") -> str:
                 "# When this step is done\n\n"
                 f"Call `step.finished` with `outcome` set to one of {named}.\n\n"
                 "Be sure before you choose — one more question is cheaper than sending "
-                "somebody down the wrong path, and you cannot come back."
+                "somebody down the wrong path, and you cannot come back.\n\n"
+                "**Decide, then hand on. Do not act on the decision yourself.** Whatever "
+                "follows from it — turning the work down, offering times, asking for "
+                "photographs — is the next step's, and it has the tools and the words for "
+                "it. Saying it here instead means the customer is told something and "
+                "nothing on our side records that it happened."
             )
         else:
             parts.append(

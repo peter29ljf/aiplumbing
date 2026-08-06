@@ -70,7 +70,11 @@ class Conversation:
         self.llm = llm
         self.flow = flow or load(known_tools=sim_tools.names())
         self.node: Node = self.flow[self.flow.entry]
-        self.ticket_id = ""
+        # Opened here, not by a tool. It was a tool, and twice out of six the model
+        # finished the first step without calling it — after which every set_fields had
+        # nowhere to write and the whole conversation kept no record at all. Opening a
+        # ticket is bookkeeping, not a decision, and nothing is served by asking.
+        self.ticket_id = world.open_ticket().id
         self.messages: list[dict[str, Any]] = []
         self.finished = False
 
@@ -136,6 +140,9 @@ class Conversation:
                 return said or None
 
             if self.finished:
+                # A terminal node never advances, so its own status would never be
+                # applied — the ticket would stop at whatever the step before it set.
+                self.world.set_status(self.ticket_id, node.sets_status)
                 return (message.content or "").strip() or None
 
         self.messages = messages[1:]
@@ -153,11 +160,8 @@ class Conversation:
         phone number twice in one conversation because a step ended before anybody had
         recorded it.
         """
-        if isinstance(result, dict):
-            if not self.ticket_id and result.get("ticket_id"):
-                self.ticket_id = str(result["ticket_id"])
-            if result.get("ended"):
-                self.finished = True
+        if isinstance(result, dict) and result.get("ended"):
+            self.finished = True
 
         if keep and self.ticket_id:
             self.world.tickets[self.ticket_id].tags.update(keep)
