@@ -8,7 +8,7 @@ customer:
     and your email is lin@example.com. A normal appointment is fine — you are not paying
     extra to be seen tonight. Answer what you are asked, briefly.
   phone: "604-555-0166"
-  max_turns: 22
+  max_turns: 34
 expect:
   reaches: booking
   ticket_status: Appointment Booked

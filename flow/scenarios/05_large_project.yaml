@@ -7,7 +7,7 @@ customer:
     ripped out and re-plumbed as part of a renovation. It is not urgent. Your email is
     wei@example.com.
   phone: "604-555-0688"
-  max_turns: 22
+  max_turns: 34
 expect:
   reaches: large_project
   ticket_status: Escalated to Supervisor

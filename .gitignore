@@ -9,3 +9,4 @@ runs/*/
 # Runtime state, not source
 runs/live.json
 .claude/
+flow/runs/

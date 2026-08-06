@@ -60,6 +60,9 @@ class Result:
     transcript: list[tuple[str, str]] = field(default_factory=list)
     snapshot: dict[str, Any] = field(default_factory=dict)
     usage: dict[str, Any] = field(default_factory=dict)
+    steps: list[Any] = field(default_factory=list)
+    verdicts: list[Any] = field(default_factory=list)
+    smells: list[Any] = field(default_factory=list)
 
     def wrong(self, problem: str) -> None:
         self.passed = False
@@ -90,6 +93,7 @@ def run_one(path: Path, llm_factory) -> Result:
             result.wrong(f"the conversation raised {type(exc).__name__}: {exc}")
             break
         result.nodes.extend(n for n in turn.nodes if n not in result.nodes)
+        result.steps.extend(turn.steps)
         result.transcript.append(("agent", turn.reply))
 
         if talk.finished:
@@ -104,8 +108,16 @@ def run_one(path: Path, llm_factory) -> Result:
 
     result.seconds = round(time.monotonic() - began, 1)
     result.snapshot = world.snapshot()
+    result.snapshot.setdefault("ended", world.ended)
     result.usage = llm.usage.as_dict() if hasattr(llm, "usage") else {}
     _judge(result, expect, talk, world)
+    from flow.runner.smells import sniff
+
+    result.smells = sniff(result)
+    if not result.passed:
+        from flow.runner.diagnose import diagnose
+
+        result.verdicts = diagnose(result, talk.flow)
     return result
 
 
@@ -141,6 +153,42 @@ def _judge(result: Result, expect: dict, talk: Conversation, world: World) -> No
         result.wrong("the conversation never finished")
 
 
+def _write_report(results: list[Result]) -> Path:
+    """Every exchange, every model call and every verdict, kept.
+
+    The console prints a summary and a summary is not enough to argue with. Reading why
+    something was called the model's fault means seeing what it was offered on that call,
+    and that is gone the moment the process exits.
+    """
+    import json
+    from datetime import datetime
+
+    runs = ROOT / "flow" / "runs"
+    runs.mkdir(exist_ok=True)
+    path = runs / f"{datetime.now():%Y%m%d-%H%M%S}.json"
+    path.write_text(json.dumps([
+        {
+            "id": r.id,
+            "passed": r.passed,
+            "problems": r.problems,
+            "verdicts": [{"source": v.source, "because": v.because, "where": v.where}
+                         for v in r.verdicts],
+            "nodes": r.nodes,
+            "turns": r.turns,
+            "seconds": r.seconds,
+            "usage": r.usage,
+            "smells": [{"kind": s.kind, "detail": s.detail} for s in r.smells],
+            "transcript": [{"who": who, "text": text} for who, text in r.transcript],
+            "calls": [{"node": s.node, "seconds": s.seconds, "used": s.tools,
+                       "offered": s.offered, "said": s.said, "refusals": s.refusals}
+                      for s in r.steps],
+            "snapshot": r.snapshot,
+        }
+        for r in results
+    ], indent=2, default=str), encoding="utf-8")
+    return path
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the flow against its scenarios")
     parser.add_argument("only", nargs="?", default="", help="substring of a scenario id")
@@ -169,6 +217,10 @@ def main(argv: list[str] | None = None) -> int:
               f"  {' → '.join(result.nodes)}")
         for problem in result.problems:
             print(f"         - {problem}")
+        for verdict in result.verdicts:
+            print(f"         → {verdict}")
+        for smell in result.smells:
+            print(f"         ! {smell}")
 
     if args.transcript:
         for result in results:
@@ -178,6 +230,11 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"\n{len(results) - len(failed)}/{len(results)} passed "
           f"in {time.monotonic() - began:.0f}s wall clock")
+
+    from flow.runner.diagnose import summarise
+
+    print(summarise(results))
+    print(f"\nfull record: {_write_report(results)}")
 
     # What it cost. The cache hit rate is the number to watch: a node's prompt is the same
     # every time it runs, so most of what goes up should be a repeat the provider already

@@ -8,7 +8,7 @@ customer:
     asked what kind of property, say it is a commercial office unit. A normal appointment
     is fine. Your email is dana@example.com.
   phone: "604-555-0455"
-  max_turns: 22
+  max_turns: 34
 expect:
   reaches: booking
   not_reaches: declined

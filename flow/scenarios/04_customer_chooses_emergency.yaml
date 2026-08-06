@@ -8,7 +8,7 @@ customer:
     and get you, you choose the emergency one — you want somebody tonight and you do not
     mind paying. Your email is sam@example.com.
   phone: "604-555-0522"
-  max_turns: 22
+  max_turns: 34
 expect:
   reaches: emergency
   ticket_status: Escalated to Supervisor

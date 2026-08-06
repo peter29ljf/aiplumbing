@@ -46,11 +46,20 @@ NOTHING_SAID = (
 
 @dataclass
 class Step:
-    """What one model call cost and asked for. The Chat tab reads these."""
+    """What one model call was given, what it did with it, and what that cost.
+
+    `offered` matters as much as `tools`. Telling a failure caused by a missing tool from
+    one caused by a tool that was there and not used is the whole difference between
+    fixing the configuration and changing the model, and it cannot be told afterwards
+    from the transcript.
+    """
 
     node: str
     seconds: float
     tools: list[str] = field(default_factory=list)
+    offered: list[str] = field(default_factory=list)
+    said: bool = False
+    refusals: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -108,14 +117,18 @@ class Conversation:
 
         for _ in range(MAX_CALLS_PER_TURN):
             began = time.monotonic()
-            message = self.llm.chat(
-                "agent", messages,
-                tools=sim_tools.schemas_for(node.tools,
-                                            outcomes=node.choices or ("done",)) or None,
-            )
+            offered = sim_tools.schemas_for(node.tools,
+                                             outcomes=node.choices or ("done",))
+            message = self.llm.chat("agent", messages, tools=offered or None)
             calls = list(getattr(message, "tool_calls", None) or [])
-            turn.steps.append(Step(node.name, round(time.monotonic() - began, 1),
-                                   [c.function.name for c in calls]))
+            step = Step(
+                node=node.name,
+                seconds=round(time.monotonic() - began, 1),
+                tools=[c.function.name for c in calls],
+                offered=[t["function"]["name"] for t in (offered or [])],
+                said=bool((message.content or "").strip()),
+            )
+            turn.steps.append(step)
 
             messages.append(_assistant(message, calls))
             if not calls:
@@ -129,8 +142,11 @@ class Conversation:
                     self.world, call.function.name, call.function.arguments, node.tools
                 )
                 self._absorb(result, keep)
-                if isinstance(result, dict) and result.get("finished"):
-                    outcome = str(result.get("outcome", ""))
+                if isinstance(result, dict):
+                    if result.get("finished"):
+                        outcome = str(result.get("outcome", ""))
+                    if result.get("ok") is False:
+                        step.refusals.append(f"{call.function.name}: {result['error']}")
                 messages.append({"role": "tool", "tool_call_id": call.id,
                                  "content": json.dumps(result, default=str)})
 

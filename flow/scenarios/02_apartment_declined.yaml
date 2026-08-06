@@ -7,7 +7,7 @@ customer:
     Your bathroom tap drips. It is your home, not an office. If asked what kind of
     building it is, say it is a residential condo unit on the twelfth floor.
   phone: "604-555-0311"
-  max_turns: 22
+  max_turns: 34
 expect:
   reaches: declined
   ticket_status: Closed

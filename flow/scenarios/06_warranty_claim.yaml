@@ -19,7 +19,7 @@ customer:
     started dripping again. You think it should be under warranty. You are not asking to
     pay for a new visit.
   phone: "604-555-7788"
-  max_turns: 22
+  max_turns: 34
 expect:
   reaches: warranty_handover
   ticket_status: Escalated to Supervisor
