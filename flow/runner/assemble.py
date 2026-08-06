@@ -61,11 +61,17 @@ def build(node: Node, *, tags: dict | None = None, ticket_id: str = "") -> str:
                 f"Call `step.finished` with `outcome` set to one of {named}.\n\n"
                 "Be sure before you choose — one more question is cheaper than sending "
                 "somebody down the wrong path, and you cannot come back.\n\n"
-                "**Decide, then hand on. Do not act on the decision yourself.** Whatever "
-                "follows from it — turning the work down, offering times, asking for "
-                "photographs — is the next step's, and it has the tools and the words for "
-                "it. Saying it here instead means the customer is told something and "
-                "nothing on our side records that it happened."
+                "**Decide, then hand on. Do not act on the decision, and do not "
+                "announce it either.** Whatever follows — turning the work down, putting "
+                "it in the diary, asking for photographs — is the next step's, and it has "
+                "the tools and the words for it.\n\n"
+                "This is not about tidiness. Told \"I've booked you in\" by a step with no "
+                "diary, a customer believes it and stops talking, and the step that would "
+                "actually have booked it never runs. Nothing gets booked and they find out "
+                "when nobody arrives.\n\n"
+                "**When you have nothing to add beyond what comes next, say nothing at "
+                "all** and call `step.finished` on its own. The next step replies in the "
+                "same breath and the customer sees one continuous answer."
             )
         else:
             parts.append(

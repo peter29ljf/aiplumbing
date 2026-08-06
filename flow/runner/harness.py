@@ -79,8 +79,13 @@ def run_one(path: Path, llm_factory) -> Result:
     talk = Conversation(world, llm, load(known_tools=sim_tools.names()))
 
     customer = spec["customer"]
-    history = [{"role": "system",
-                "content": CUSTOMER_BRIEF % customer["persona"].strip()}]
+    # The number is a field on the scenario and was never handed to the persona, so the
+    # simulated customer truthfully said they did not have one — and the agent, correctly,
+    # refused to book. Three scenarios failed on a fact the test never told anybody.
+    persona = customer["persona"].strip()
+    if customer.get("phone"):
+        persona += f"\n\nYour phone number is {customer['phone']}. Give it when asked."
+    history = [{"role": "system", "content": CUSTOMER_BRIEF % persona}]
     said = "hi"
     began = time.monotonic()
 
@@ -192,7 +197,11 @@ def _write_report(results: list[Result]) -> Path:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the flow against its scenarios")
     parser.add_argument("only", nargs="?", default="", help="substring of a scenario id")
-    parser.add_argument("--workers", type=int, default=6)
+    # Ten, since two scenarios started going end to end. They are independent, so the
+    # only cost of more is what the provider will take at once — and the first call of
+    # every scenario landing together already shows as fifty seconds of contention in the
+    # smallest node in the graph.
+    parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--transcript", action="store_true", help="print every exchange")
     args = parser.parse_args(argv)
 

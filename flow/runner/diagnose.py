@@ -69,6 +69,10 @@ def diagnose(result: Any, flow: Flow) -> list[Verdict]:
                     node,
                 ))
 
+    # 3. It described an action from a node that has no way to take one. The customer
+    #    believes it, stops talking, and the step that would have done it never runs.
+    verdicts.extend(_spoke_out_of_turn(result, flow))
+
     if not result.passed and not result.snapshot.get("ended"):
         verdicts.extend(_why_it_stalled(result, flow, steps))
 
@@ -84,6 +88,41 @@ def diagnose(result: Any, flow: Flow) -> list[Verdict]:
             seen.add(key)
             unique.append(verdict)
     return unique
+
+
+# Things only a later step can do, and the words that claim them.
+CLAIMS = {
+    "booked": ("calendar.create_appointment",),
+    "booked you in": ("calendar.create_appointment",),
+    "i've sent": ("sms.send", "escalate.raise"),
+    "cannot help": ("conversation.end",),
+    "can't help": ("conversation.end",),
+}
+
+
+def _spoke_out_of_turn(result: Any, flow: Flow) -> list[Verdict]:
+    """Claims made from a node that has no tool to back them."""
+    found = []
+    said_in: dict[str, list[str]] = {}
+    turn_nodes = [s.node for s in result.steps if s.said]
+    agent_lines = [text for who, text in result.transcript if who == "agent" and text]
+    for node_name, line in zip(turn_nodes, agent_lines):
+        said_in.setdefault(node_name, []).append(line.lower())
+
+    for node_name, lines in said_in.items():
+        node = flow.nodes.get(node_name)
+        if node is None:
+            continue
+        for phrase, needs in CLAIMS.items():
+            if any(phrase in line for line in lines) and not set(needs) & set(node.tools):
+                found.append(Verdict(
+                    MODEL,
+                    f"said {phrase!r} from a node with no {needs[0]} — the customer "
+                    f"believes it and the step that would have done it never runs",
+                    node_name,
+                ))
+                break
+    return found
 
 
 def _the_fork_before(wanted: str, flow: Flow, visited: list[str]) -> tuple[str, str] | None:
