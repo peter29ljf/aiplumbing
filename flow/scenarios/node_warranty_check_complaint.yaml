@@ -26,7 +26,7 @@ customer:
   persona: |
     You are Gordon Blake and you are annoyed. Somebody cleared your main drain last week,
     charged three hours, and it is blocked again. You want your money back. Press for it.
-  opens: "It's blocked again and I paid three hours for that. I want a refund."
+  opens: "604-555-0913"
   phone: "604-555-0913"
   max_turns: 4
 expect:

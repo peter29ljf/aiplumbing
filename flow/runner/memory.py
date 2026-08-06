@@ -24,7 +24,12 @@ CARRIED = (
     ("address", "Address"),
     ("email", "Email"),
     ("property_type", "Property"),
-    ("issue", "Problem"),
+    # "Problem" once, and it framed everything as a fault waiting to be fixed — a ticket
+    # reading "Problem: wants Friday's appointment moved to next week" pulled `identify`
+    # onto the ordinary repair path in half the runs, while the same node handed the same
+    # words straight to `booking_change` when the customer said them out loud. What the
+    # label calls it is what the branch believes it is.
+    ("issue", "They came about"),
     ("risk", "Risk"),
     ("size", "Job size"),
     ("warranty_status", "Warranty"),

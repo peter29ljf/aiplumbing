@@ -53,7 +53,13 @@ nodes:
   no_number:
     goal: Answer what can be answered, say what cannot be done without a number, and close.
     rules: [no_number]
-    tools: [ticket.set_fields]
+    # `rules.get_service_options` because the rule tells this step to say what a call-out
+    # costs and always.md forbids saying any figure without looking it up — and this node
+    # had nothing to look anything up with. Between the two it refused to answer at all
+    # ("I can't give you a fixed visit fee or a set of opening hours"), which is the one
+    # thing it exists to do, and took nineteen seconds composing the refusal. A rules file
+    # and a tool list disagreeing is a configuration fault, not the model's.
+    tools: [rules.get_service_options, ticket.set_fields]
     sets_status: Closed
 
   # Moving or cancelling a visit. We do not touch the diary — the technician does, because

@@ -23,7 +23,11 @@ customer:
     You are Tom Reid. Somebody is booked to come this Friday afternoon to replace a valve
     under your kitchen sink and you have to be out. You want it moved to next week, any
     day. You are not cancelling and you do not want a second appointment made.
-  opens: "I need to move my Friday appointment to some time next week."
+  # Just the number, the way it arrives in a real run: greeting has already taken their
+  # opening sentence, so identify hears an answer to its own question and must route from
+  # the ticket. Said out loud this branch was 4/4 while the full scenario was 2/4, and
+  # that gap was the whole difference.
+  opens: "604-555-0490"
   phone: "604-555-0490"
   max_turns: 4
 expect:
