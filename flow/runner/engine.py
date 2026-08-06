@@ -206,9 +206,15 @@ class Conversation:
         self.messages = []
         self.ticket_id = self.world.open_ticket().id
 
-    # How many replies a step gets before it is asked what it is still waiting for. Three
-    # is generous: no step here needs four exchanges to do its one job.
-    REPLIES_BEFORE_A_NUDGE = 3
+    # How many replies a step gets before it is asked what it is still waiting for.
+    #
+    # Two, not three. `warranty_check` looked the old job up on its first call, wrote it
+    # down on its second, and then argued with an angry customer for four turns — the
+    # nudge landed on the fourth and it finished on the fifth, by which time the customer
+    # had asked the same question four ways. A step whose work is done is not made better
+    # by another exchange, and the one node here that genuinely needs several rounds
+    # (`new_customer`, three fields) is asking questions rather than repeating itself.
+    REPLIES_BEFORE_A_NUDGE = 2
 
     def _still_here(self, node: Node) -> str:
         """A step that keeps talking and never finishes, told so.

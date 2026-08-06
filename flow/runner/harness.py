@@ -152,6 +152,14 @@ def run_one(path: Path, llm_factory) -> Result:
     return result
 
 
+def _lines_from(result: Result, node_name: str) -> list[str]:
+    """What one node said. The agent's replies line up, in order, with the steps that
+    spoke — the same pairing `diagnose._spoke_out_of_turn` relies on."""
+    spoke = [step.node for step in result.steps if step.said]
+    lines = [text for who, text in result.transcript if who == "agent" and text]
+    return [line for node, line in zip(spoke, lines) if node == node_name]
+
+
 def _afterwards(spec: dict, world: World) -> None:
     """The days after the conversation, if the scenario asks for them.
 
@@ -222,6 +230,16 @@ def _judge(result: Result, expect: dict, talk: Conversation, world: World) -> No
     for phrase in expect.get("must_not_say", []):
         if phrase.lower() in spoken:
             result.wrong(f"said {phrase!r}, which it must not")
+
+    # Per node, because a phrase can be a lie from one step and the plain truth from the
+    # next. "You're all set" out of `offer_options` is a booking that has not happened;
+    # out of `booking`, which has just made one, it is what the customer should hear. The
+    # whole-transcript check called the second a failure of the first.
+    for node_name, phrases in (expect.get("must_not_say_in") or {}).items():
+        said_there = " ".join(_lines_from(result, node_name)).lower()
+        for phrase in phrases:
+            if phrase.lower() in said_there:
+                result.wrong(f"`{node_name}` said {phrase!r}, which it must not")
 
     # A node scenario stops at a node in the middle of the graph, which is not an ending
     # and must not be reported as a failure to reach one.

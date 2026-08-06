@@ -26,7 +26,12 @@ expect:
   # the appointment appearing is the success, not a leak.
   reaches: service_choice
   finishes: false
-  must_not_say:
-    - "that's booked"
-    - "you're all set"
-    - "i've booked"
+  # Scoped to this node. Handing on promptly carries the same run into `booking`, which
+  # then says "you're all set" — correctly, having just made the appointment. Checked
+  # across the whole transcript, that truthful sentence failed this scenario twice.
+  must_not_say_in:
+    offer_options:
+      - "that's booked"
+      - "you're all set"
+      - "i've booked"
+      - "is confirmed"

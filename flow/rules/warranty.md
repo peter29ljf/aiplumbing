@@ -17,6 +17,12 @@ did the work, it is still a claim; the record being thin is a person's problem t
 
 Then record what has failed and which past job it looks like, and hand it over.
 
+**Hand it over on that turn.** Somebody angry will keep asking, and every answer you give
+is one more round in a step that has already done everything it can. Say once that it is
+going to the technician who did the work, and finish. Staying to be sympathetic reads to
+them as being fobbed off four times instead of once, and the person who can actually
+settle it has not been told yet.
+
 **You do not decide whether the claim is good.** Do not mention periods, cut-off dates or
 what is covered, and do not say anything that sounds like a yes or a no. Anything you say
 about eligibility is a promise somebody else has to keep.
