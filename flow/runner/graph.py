@@ -130,6 +130,15 @@ def _check(entry: str, nodes: dict[str, Node], known_tools: set[str] | None) -> 
                 if tool not in known_tools:
                     problems.append(f"{node.name} wants the tool '{tool}', which does not exist")
 
+        # A node signals it is finished by writing `outcome` with ticket.set_fields. One
+        # that cannot call it has no way to say so and the conversation stops there —
+        # which reads, from outside, as the model refusing to move on.
+        if not node.is_terminal and "ticket.set_fields" not in node.tools:
+            problems.append(
+                f"{node.name} has to move on but cannot call ticket.set_fields, so it has "
+                f"no way to say it is done"
+            )
+
         if node.is_terminal and "conversation.end" not in node.tools:
             problems.append(
                 f"{node.name} is the end of a path but cannot call conversation.end, "

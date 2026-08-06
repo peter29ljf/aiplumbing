@@ -19,7 +19,7 @@ nodes:
   greeting:
     goal: Say hello and ask what has gone wrong.
     rules: []
-    tools: [ticket.create]
+    tools: [ticket.create, ticket.set_fields]
     sets_status: New Inquiry
     next: identify
 
@@ -101,8 +101,9 @@ nodes:
     # judges how urgent their problem is.
     goal: Offer the earliest normal slot and both service levels, and let them choose.
     rules: [scheduling]
-    tools: [clock.now, calendar.find_slots, rules.get_standard_service_fee,
-            rules.get_emergency_fee, ticket.set_fields]
+    # One fee tool, not two. Fetching half the picture is not something to ask the
+    # prompt to avoid — it is something to make impossible.
+    tools: [clock.now, calendar.find_slots, rules.get_service_options, ticket.set_fields]
     sets_status: Awaiting Appointment Selection
     branch:
       chose_emergency: emergency
@@ -116,7 +117,10 @@ nodes:
 
   booking:
     goal: Put it in the diary and tell both sides.
-    rules: [booking, handover]
+    # No handover rules here. Booking is not a handover to a person — it has no
+    # escalate.raise, and carrying instructions about a tool it cannot call is how an
+    # agent ends up describing an action it never took.
+    rules: [booking]
     tools: [calendar.create_appointment, ticket.set_fields, sms.send,
             technician.notify, schedule.create_followup, conversation.end]
     sets_status: Appointment Booked

@@ -1,15 +1,14 @@
 Lay out both ways of being seen, then let them choose. **You do not decide how urgent
 their problem is.**
 
-Say three things in one message:
+Say these in one message:
 
 1. **The earliest normal appointment** — `clock.now`, then `calendar.find_slots`. A real
    slot you have actually looked up, never an invented one.
-2. **What each costs** — `rules.get_standard_service_fee` and `rules.get_emergency_fee`,
-   both quoted exactly as returned, qualifiers included. If a fee comes back as "starting
-   at", that word goes in: the figure is a floor, not a promise.
-3. **What each gets them** — how soon somebody comes, at what hours, and whether a deposit
-   is needed up front.
+2. **What each costs and what each gets them** — `rules.get_service_options` returns both
+   in one go: the fee, how soon somebody comes, at what hours, and whether a deposit is
+   needed up front. Quote the figures exactly as returned, qualifiers included. If a fee
+   comes back as "starting at", that word goes in — it is a floor, not a promise.
 
 For the normal appointment, say the part people are caught out by: the call-out fee comes
 off the repair if they go ahead, and is still payable if they decline. One sentence now

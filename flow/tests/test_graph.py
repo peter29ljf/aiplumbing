@@ -25,14 +25,14 @@ sys.path.insert(0, str(ROOT))
 
 from flow.runner.graph import BrokenFlow, load  # noqa: E402
 
-TOOLS = {"a.one", "a.two", "conversation.end"}
+TOOLS = {"a.one", "a.two", "ticket.set_fields", "conversation.end"}
 
 GOOD: dict[str, Any] = {
     "entry": "start",
     "nodes": {
         "start": {
             "goal": "Say hello.",
-            "tools": ["a.one"],
+            "tools": ["a.one", "ticket.set_fields"],
             "sets_status": "New Inquiry",
             "next": "finish",
         },
@@ -101,7 +101,7 @@ def test_a_rules_file_that_is_there(tmp_path: Path):
 
 def test_a_tool_that_does_not_exist(tmp_path: Path):
     with pytest.raises(BrokenFlow, match="a.three"):
-        _load(tmp_path, _but(start={"tools": ["a.one", "a.three"]}))
+        _load(tmp_path, _but(start={"tools": ["a.one", "ticket.set_fields", "a.three"]}))
 
 
 def test_an_entry_that_is_not_a_node(tmp_path: Path):
@@ -149,6 +149,13 @@ def test_a_node_with_no_goal(tmp_path: Path):
 def test_a_node_with_no_status(tmp_path: Path):
     with pytest.raises(BrokenFlow, match="sets_status"):
         _load(tmp_path, _but(finish={"sets_status": ""}))
+
+
+def test_a_node_that_cannot_say_it_is_done(tmp_path: Path):
+    """Without ticket.set_fields it has no way to signal an outcome, so the conversation
+    stops there — which reads, from outside, as the model refusing to move on."""
+    with pytest.raises(BrokenFlow, match="no way to say it is done"):
+        _load(tmp_path, _but(start={"tools": ["a.one"]}))
 
 
 def test_every_problem_is_reported_at_once(tmp_path: Path):

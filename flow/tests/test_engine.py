@@ -1,0 +1,255 @@
+"""Walking the graph, with a scripted model instead of a real one.
+
+No API calls. These are about the mechanics — when a node ends, what survives it, what
+happens when the model answers with a branch nobody named — and those are exactly the
+places where a real model would make the behaviour hard to see.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from flow.runner.engine import Conversation  # noqa: E402
+from flow.runner.graph import load  # noqa: E402
+from flow.sim import tools as sim_tools  # noqa: E402
+from flow.sim.world import World  # noqa: E402
+
+NOW = "2026-08-05T10:00:00-07:00"
+
+
+# ---- a model that says exactly what the test wants -------------------
+
+
+@dataclass
+class FakeCall:
+    id: str
+    function: Any
+
+
+@dataclass
+class FakeFunction:
+    name: str
+    arguments: str
+
+
+@dataclass
+class FakeMessage:
+    content: str = ""
+    tool_calls: list[FakeCall] = field(default_factory=list)
+
+
+def says(text: str) -> FakeMessage:
+    return FakeMessage(content=text)
+
+
+def calls(*wanted: tuple[str, dict], text: str = "") -> FakeMessage:
+    return FakeMessage(
+        content=text,
+        tool_calls=[
+            FakeCall(id=f"c{i}", function=FakeFunction(name.replace(".", "_", 1),
+                                                       json.dumps(args)))
+            for i, (name, args) in enumerate(wanted)
+        ],
+    )
+
+
+class ScriptedLLM:
+    """Hands back prepared messages and records the prompt each one was asked with."""
+
+    def __init__(self, *script: FakeMessage) -> None:
+        self.script = list(script)
+        self.prompts: list[str] = []
+        self.tool_sets: list[list[str]] = []
+
+    def chat(self, role, messages, tools=None, **_: Any) -> FakeMessage:
+        self.prompts.append(messages[0]["content"])
+        self.tool_sets.append(
+            [t["function"]["name"] for t in (tools or [])]
+        )
+        if not self.script:
+            raise AssertionError("the conversation asked for more turns than the script has")
+        return self.script.pop(0)
+
+
+@pytest.fixture()
+def flow():
+    return load(known_tools=sim_tools.names())
+
+
+def _talk(llm, flow, **seed) -> Conversation:
+    return Conversation(World(now=NOW, seed=seed or None), llm, flow)
+
+
+# ---- what a node is given ---------------------------------------------
+
+
+def test_a_node_is_given_only_its_own_tools(flow):
+    llm = ScriptedLLM(says("Hello — what has gone wrong?"))
+    _talk(llm, flow).say("hi")
+
+    assert llm.tool_sets[0] == ["ticket_create", "ticket_set_fields"]
+
+
+def test_a_node_prompt_does_not_mention_the_rest_of_the_graph(flow):
+    llm = ScriptedLLM(says("Hello."))
+    _talk(llm, flow).say("hi")
+
+    prompt = llm.prompts[0]
+    for other in ("scheduling", "large_project", "warranty_check", "booking"):
+        assert other not in prompt
+
+
+def test_a_node_prompt_stays_small(flow):
+    """The whole reason for the rewrite. The old agents send 42,968 characters a call."""
+    llm = ScriptedLLM(says("Hello."))
+    _talk(llm, flow).say("hi")
+
+    assert len(llm.prompts[0]) < 4_000
+
+
+# ---- moving on --------------------------------------------------------
+
+
+def test_a_node_ends_when_the_outcome_is_set(flow):
+    llm = ScriptedLLM(
+        calls(("ticket.create", {})),
+        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"outcome": "done"}}),
+              text="Right."),
+        says("May I have your phone number?"),
+    )
+    conversation = _talk(llm, flow)
+
+    conversation.say("hi")
+
+    assert conversation.node.name == "identify"
+
+
+def test_the_previous_node_s_conversation_is_dropped(flow):
+    """Where the context saving actually comes from. Without this the fourth node would
+    be carrying the first three nodes' exchanges and the small prompts stop being small."""
+    llm = ScriptedLLM(
+        calls(("ticket.create", {})),
+        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"outcome": "done"}})),
+        says("May I have your phone number?"),
+    )
+    conversation = _talk(llm, flow)
+
+    conversation.say("my sink is leaking everywhere and I am very upset about it")
+
+    assert "very upset" not in json.dumps(conversation.messages)
+
+
+def test_what_survives_is_the_summary_not_the_words(flow):
+    llm = ScriptedLLM(
+        calls(("ticket.create", {})),
+        calls(("ticket.set_fields", {"ticket_id": "TK-0001",
+                                     "fields": {"customer_name": "Lin", "outcome": "done"}})),
+        says("Thanks Lin."),
+    )
+    conversation = _talk(llm, flow)
+
+    conversation.say("hello")
+
+    assert "Lin" in llm.prompts[-1]          # the next node was told who this is
+
+
+def test_a_branch_is_taken_by_name(flow):
+    llm = ScriptedLLM(
+        calls(("ticket.create", {})),
+        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"outcome": "done"}})),
+        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"outcome": "existing"}})),
+        says("Welcome back."),
+    )
+    conversation = _talk(llm, flow)
+
+    conversation.say("hi")
+
+    assert conversation.node.name == "warranty_check"
+
+
+def test_an_outcome_nobody_named_is_handed_back(flow):
+    """Rather than picking a branch on the model's behalf, which is a decision made by
+    accident and impossible to find afterwards."""
+    llm = ScriptedLLM(
+        calls(("ticket.create", {})),
+        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"outcome": "done"}})),
+        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"outcome": "maybe"}})),
+        says("Sorry — are you an existing customer?"),
+    )
+    conversation = _talk(llm, flow)
+
+    turn = conversation.say("hi")
+
+    assert conversation.node.name == "identify"       # did not move
+    assert "maybe" in json.dumps(conversation.messages)
+    assert turn.reply == "Sorry — are you an existing customer?"
+
+
+# ---- the ticket -------------------------------------------------------
+
+
+def test_the_status_follows_the_node(flow):
+    """Nothing calls a status tool. The ticket goes where the node says it goes, which is
+    one fewer thing for the model to get wrong."""
+    llm = ScriptedLLM(
+        calls(("ticket.create", {})),
+        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"outcome": "done"}})),
+        says("Number please?"),
+    )
+    conversation = _talk(llm, flow)
+
+    conversation.say("hi")
+
+    assert conversation.world.tickets["TK-0001"].status == "New Inquiry"
+    assert conversation.world.tickets["TK-0001"].history == []
+
+
+def test_the_outcome_does_not_stay_on_the_ticket(flow):
+    """It is a signal to the engine, not a fact about the customer. Left behind, the next
+    node reads it as a decision that has already been made."""
+    llm = ScriptedLLM(
+        calls(("ticket.create", {})),
+        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"outcome": "done"}})),
+        says("Number please?"),
+    )
+    conversation = _talk(llm, flow)
+
+    conversation.say("hi")
+
+    assert "outcome" not in conversation.world.tickets["TK-0001"].tags
+
+
+# ---- ending -----------------------------------------------------------
+
+
+def test_a_reply_comes_back_with_what_it_cost(flow):
+    llm = ScriptedLLM(says("Hello there."))
+
+    turn = _talk(llm, flow).say("hi")
+
+    assert turn.reply == "Hello there."
+    assert turn.nodes == ["greeting"]
+    assert len(turn.steps) == 1
+
+
+def test_a_tool_the_node_does_not_have_is_refused_by_name(flow):
+    """A node cannot reach past its own list, and is told so rather than left guessing."""
+    llm = ScriptedLLM(
+        calls(("calendar.find_slots", {})),
+        says("Let me get a few details first."),
+    )
+    conversation = _talk(llm, flow)
+
+    conversation.say("when can you come?")
+
+    tool_reply = [m for m in conversation.messages if m.get("role") == "tool"][0]
+    assert "not available here" in tool_reply["content"]

@@ -8,7 +8,8 @@ Put it in the diary and tell both sides, in one call:
    the fault and the time. Everything he needs without having to ask.
 4. `schedule.create_followup` so somebody checks how it went.
 
-**If the technician cannot be reached, the job is not booked.** Do not send a confirmation
-for a visit nobody has been told about — take it back out of the diary and escalate.
+**Tell the technician before you tell the customer.** A confirmation for a visit nobody
+has been told about is worse than no confirmation: they stop worrying about something
+nobody is coming to.
 
 Then tell them what happens next and that they do not need to stay online.
