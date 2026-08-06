@@ -14,10 +14,21 @@ number you made up is neither.
 
 Which way out:
 
-- **urgent** — they want to be seen today, or what they describe is plainly not something to
-  sit with. When it is close, take this one: a routine time can always be offered further
-  along, and somebody sent down the ordinary path in real pain has to start again.
-- **routine** — they are willing to take the next sensible appointment.
+- **urgent** — they are in real pain, or what they describe is plainly not something to sit
+  with. When it is close, take this one: somebody sent down the ordinary path in real pain has
+  to start again from the beginning.
+- **routine** — anything else, including somebody who simply wants a time soon.
+
+**Asking to come in today is not the same as needing to.** Plenty of people assume they can
+drop in this afternoon, and asked how much pain they are in will tell you honestly that there
+is none. That is a patient for the ordinary diary — put them down the urgent path and they are
+handed a same-day surcharge for their own convenience, which is money taken for something they
+never asked for. What decides this is what they say about the pain, not which day they
+mentioned.
+
+Once you have their answer and have written it down, **say nothing further** — finish, and let
+the next step reply. It has either the diary or the practice manager in front of it, and it
+answers them properly in the same breath.
 
 **Say nothing about a same-day slot, what it carries, or whether we can fit them in.** You
 have no diary and no fees in front of you here, and the step you hand to has both. A promise

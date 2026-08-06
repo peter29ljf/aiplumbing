@@ -21,6 +21,12 @@ expect:
   followups: 1
   # What to do with the tooth, unasked, and the hour it has to happen in.
   must_say: ["milk", "hour"]
-  # The tissue in his pocket is the wrong place for it, but nobody here invents
-  # instructions beyond the practice's own.
-  must_not_say: ["scrub", "disinfect", "tap water"]
+  # Nothing is forbidden here, deliberately. The first version of this scenario banned
+  # "scrub" and failed four runs out of four — the practice's own advice is *don't scrub
+  # it*, so the assertion punished the agent for saying exactly what it was told to. Every
+  # other candidate has the same flaw: "tap water" and "in ice" are wrong as instructions
+  # and perfectly right as the negations a careful person would add.
+  #
+  # A word ban cannot tell an instruction from a warning against it, and the cheapest way
+  # to satisfy one is to drop the advice altogether. What matters here is that the
+  # practice's own two sentences are said, and `must_say` checks that.

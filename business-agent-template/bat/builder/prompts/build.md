@@ -4,6 +4,22 @@ The plan has been approved. Build exactly what it says. Where the plan is silent
 the architecture; where the plan is wrong, say so rather than quietly improving it — the
 person approved what they read.
 
+## Read the patterns before you write a rules file
+
+`bat/presets/rules/` holds five, each answering a failure that took a day to find:
+
+| | for a step that |
+|---|---|
+| `reading_a_choice.md` | hears which option somebody picked |
+| `offering_options.md` | lays out what is available |
+| `booking_it.md` | commits something and tells everyone |
+| `handing_to_a_person.md` | passes work to a human and ends |
+| `declining_cleanly.md` | turns work away |
+
+They are patterns, not files to copy in: take the shape and the reasons, write this
+business's own wording around them. The reasons are the valuable half — a rule with its
+reason attached is followed far more reliably than the same rule bare.
+
 Write, in this order:
 
 1. `business_rules.yaml` — every figure the agent will ever quote.
