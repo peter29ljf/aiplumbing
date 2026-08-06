@@ -1,0 +1,33 @@
+{
+  "name": "travel",
+  "phase": "build",
+  "waiting": "failed",
+  "session_id": "47ad6073-9fe4-4ddc-b880-48bc288ba863",
+  "rounds": 0,
+  "best_score": -1.0,
+  "flat_rounds": 0,
+  "note": "Credit balance is too low",
+  "transcript": [
+    {
+      "at": "2026-08-06T22:35:17+00:00",
+      "phase": "interview",
+      "said": "Pacific Compass Travel, a three-person agency in Burnaby BC. Mon-Sat 10:00-18:00, closed\nSundays. English and Mandarin.\n\nNothing is booked in a chat. Everything ends with a consultant getting back to the client\nwith options and a price — there is no calendar to book into and no visit to arrange. The\nagent's whole job is to collect enough that a consultant can quote without a second round\nof questions, and to hand it over.\n\nWhat we need before a consultant can quote, and this is the real work:\n  - who is travelling: how many adults, how many children and their ages\n  - where from, where to, and whether the dates are fixed or flexible\n  - roughly what they want to spend, per person or in total\n  - passports: which country issued them (it decides what visas they need)\n  - flights only, or flights plus hotel, or a full package with tours\n\nMoney: we charge no fee for quoting. A booking deposit is 20% and is taken by the\nconsultant, never in the chat. Travel insurance is quoted separately and we always mention\nit exists.\n\nWhat we will not do: visa applications (we tell people which visas they need but they\napply themselves), anything to Cuba or Iran, and we do not sell insurance alone without a\ntrip.\n\nDecisions a person must always make: whether a trip is feasible on the budget given. The\nagent never says a budget is too low — it collects and hands over.\n\nWho work goes to: whichever consultant is on the enquiry rota. Sam covers Asia, Priya\ncovers Europe and the Americas. Route by destination. Telegram.\n\nAfter: 24 hours later, check the consultant has actually sent the options. This is the one\nthat goes wrong — an enquiry sitting unanswered for three days is a lost booking.\n\n\nThat is everything I have. Ask only what you genuinely cannot infer and what a customer\nwould actually hear — do not ask me to read the brief back. If something is missing that\nyou can flag as an assumption instead, flag it and carry on.",
+      "replied": "Read the kit. The brief covers most of it — here's what I can't infer.\n\n**1. How the consultant gets back to them, and what the client is told to expect.**\n\nEverything ends in a handover, so the last thing the client hears is the promise. Two parts:\n\n- What contact detail does the agent need to collect — email, phone, WhatsApp, or whatever they messaged from? (And is there any client record to look up by, or is every enquiry a fresh sheet?)\n- Do you tell them *when* to expect the options — \"within 24 hours\", \"by end of next business day\", or do you keep it vague on purpose? If there's a figure it has to come from a rules file the agent looks up, so I need the number and the phrasing.\n\n**2. The three refusals, in your words.**\n\nI have the policy but not the sentences. Someone asks about Havana, or asks you to handle their Schengen visa, or wants insurance for a trip they booked elsewhere — what does the agent actually say? These get repeated near-verbatim, so the wording matters more than the rule.\n\nThe visa one especially: you tell them which visas they need but they apply themselves. Does the agent name the visa requirement itself, or is that also the consultant's job? Naming it means the agent states a fact about a foreign government, and if that's a consultant's call I'd rather it collect the passport country and say nothing.",
+      "usd": 0.16866949999999997
+    },
+    {
+      "at": "2026-08-06T22:40:50+00:00",
+      "phase": "plan",
+      "said": "Assume anything still open and mark it in the plan's open questions. Write PLAN.md.",
+      "replied": "`PLAN.md` is written — nothing else. The shape of it:\n\n**The one structural idea.** Half the kit is dead here (no diary, no visit, no price), so the thing that replaces it is a completeness gate in code: `consultant.send_enquiry` reads the ticket and refuses to send if any of your five must-haves is missing. Prose asking a step to be thorough is followed most of the time; a tool that will not fire is followed every time. It also names nobody — `rules.check_destination` already decided Sam or Priya and wrote it to the ticket, so routing is never the model's choice.\n\n**Fifteen nodes, six endings.** Six intake nodes, one fact-set each, with the Cuba/Iran gate third — before anyone has spent an afternoon on ages, dates and passports. `budget` is deliberately a node of its own: it carries the prohibition that matters most, and a rules file that also has to ask about tours is one where that prohibition competes for attention.\n\n**The judgement call I'd most like checked:** the visa refusal is *not* an ending. Someone asking mid-intake whether you'll handle their Schengen visa still wants the trip, so `passports` says the line and carries on; only someone who came for nothing but a visa gets declined and stopped.\n\n**Two things I flagged rather than invented.** Neither of my interview questions came back, so: the agent names no visa requirement (it collects the passport country, the consultant states the requirement in the options), and nothing promises *when* the options arrive. That second one leaves the ending weaker than it should be — it's open question 2, and it's the shortest fix on the list. The three refusal sentences in the plan are my drafts, marked as such; they're repeated near-verbatim to clients, so they want your words before this ships.",
+      "usd": 1.0250422499999998
+    },
+    {
+      "at": "2026-08-06T22:42:10+00:00",
+      "phase": "build",
+      "said": "Approved. Build it, then run the loader and fix whatever it reports until the graph loads clean.",
+      "replied": "Credit balance is too low",
+      "usd": 0.6817267499999999
+    }
+  ]
+}

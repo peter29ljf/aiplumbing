@@ -1,0 +1,33 @@
+{
+  "name": "takeaway",
+  "phase": "build",
+  "waiting": "failed",
+  "session_id": "6c0a3527-3e25-4d51-bec3-b9351534a880",
+  "rounds": 0,
+  "best_score": -1.0,
+  "flat_rounds": 0,
+  "note": "Credit balance is too low",
+  "transcript": [
+    {
+      "at": "2026-08-06T22:35:13+00:00",
+      "phase": "interview",
+      "said": "Golden Wok, a Cantonese restaurant in New Westminster BC. Open every day 11:00-21:30,\nkitchen closes 21:00. English and Cantonese.\n\nTwo different things arrive in the same chat and the agent has to tell them apart in the\nfirst sentence:\n\n1. TABLE BOOKINGS. Twelve tables, seats 48. Bookings in 90-minute sittings. Parties over\n   8 need a manager to confirm — the agent takes the details and hands over. We hold a\n   table 15 minutes past the time and then release it, and we say that when booking.\n\n2. TAKEAWAY ORDERS. Pickup or delivery. Delivery within 5 km only, CAD 4 fee, free over\n   CAD 60. Pickup is 20-25 minutes, delivery 40-55. We need the address for delivery and\n   we need to check it is inside the 5 km before promising anything.\n\nMoney: no deposit for tables. Takeaway is paid on pickup or at the door; we do not take\ncard numbers in chat, ever.\n\nFood facts the agent must never guess at: what is on the menu today, what is sold out, and\nanything about allergens. Sold-out items change hourly. Allergen questions go to the\nkitchen — the agent never answers \"is this gluten free\" from a menu description.\n\nWhat we will not do: catering over 30 people (we say we don't), delivery outside 5 km,\nand orders for a future date — takeaway is today only.\n\nDecisions a person must always make: parties over 8, and any allergen question.\n\nWho work goes to: the front-of-house phone, which is Telegram to Kevin.\n\nAfter: for a delivery, check 45 minutes later that it arrived. For a table, nothing — they\neither came or they did not, and chasing a no-show helps nobody.\n\n\nThat is everything I have. Ask only what you genuinely cannot infer and what a customer\nwould actually hear — do not ask me to read the brief back. If something is missing that\nyou can flag as an assumption instead, flag it and carry on.",
+      "replied": "Read the kit. Two questions, both about whether a thing the agent must never guess at has somewhere to look it up.\n\n**1. The menu and the sold-out list.** You said the agent must never guess what's on today or what's run out. So where does it read that from — is there a list somewhere (a POS, a shared sheet, a board someone photographs) that says what's available right now and what a dish costs? And who updates it when something runs out mid-service? If the answer is \"it lives in Kevin's head\", the agent can't take an order at all, and I'd need to know that now.\n\n**2. The table book.** For a party of six on Saturday at 18:30 — can the agent see whether a table is actually free in that sitting and say yes on the spot, or does it take the details and let someone confirm? Same question really: is there a book it can read, or not?",
+      "usd": 0.166873
+    },
+    {
+      "at": "2026-08-06T22:41:02+00:00",
+      "phase": "plan",
+      "said": "Assume anything still open and mark it in the plan's open questions. Write PLAN.md.",
+      "replied": "`PLAN.md` is written. Nothing else — no flow.yaml, no rules, no tools.\n\n**The shape:** 21 nodes, 11 of them endings. Two spines off one greeting — a table book and a takeaway counter — that split at `route` and never cross back. 7 kit tools unchanged, 11 written for this project.\n\n**Three things I'd point at before you approve:**\n\n- **The two questions from before are still the plan's foundation, and I've assumed answers.** If the sold-out list lives in Kevin's head rather than somewhere the agent can read, half the takeaway graph collapses into handovers — I've said exactly which nodes change so you can judge the cost of that answer.\n- **Allergens are enforced by absence.** No tool in the project returns allergen data, so there is nothing to answer from. A mid-order allergen question doesn't abort the order: it sets a ticket field, and `order.place` marks the order `kitchen_check_required` and hands back the sentence telling the customer the kitchen confirms before it's cooked. Code, not prose, because this is the one that hurts somebody.\n- **I added a handover you didn't ask for** — `table_handover`, for when nothing in the book suits. Turning away a booking felt like a person's call, not an agent's. It's flagged, and it's the cheapest node to cut.\n\nThe 15-minute hold is enforced the way the dental flow enforces its change fee: `tables.book` returns the wording in its own result, so the node cannot get a booking without being handed the line to say.\n\nTwelve open questions at the end. The one that matters most after the menu is **whether the total the agent states includes tax** — a number quoted in chat that differs at the door is the complaint this kind of agent generates most.",
+      "usd": 1.01162275
+    },
+    {
+      "at": "2026-08-06T22:41:49+00:00",
+      "phase": "build",
+      "said": "Approved. Build it, then run the loader and fix whatever it reports until the graph loads clean.",
+      "replied": "Credit balance is too low",
+      "usd": 0.38511375
+    }
+  ]
+}

@@ -1,51 +1,106 @@
-# Business Workflow Agent 模板
+# Business agent generator
 
-从这个水管公司项目里提炼出来的东西，用来快速做下一个同类 business。
+Give it a flowchart and a description of a business. It asks what it cannot work out,
+writes a plan for you to approve, builds a working customer-service agent, and tests it
+until the numbers say it is usable — or until it needs a decision that is yours to make,
+at which point it stops and asks.
 
-## 四份文档，按这个顺序读
-
-| | 什么时候读 |
-|---|---|
-| **[METHOD.md](METHOD.md)** | **先读这个。** 按什么顺序做、每一步值不值。它省下的时间比后面三份加起来都多——因为顺序错了，后面的经验都得再踩一遍才学得会。 |
-| **[PLAYBOOK.md](PLAYBOOK.md)** | 然后读这个。28 条经验，每一条对应一次真实失败。想当然能想到的原则我略过了，只写做之前不会想到、做完才知道的。 |
-| **[ARCHITECTURE.md](ARCHITECTURE.md)** | 动手前。三层边界：哪 4000 行能原样搬、哪 1500 行改词不改结构、哪 1100 行每次重写。也讲了「上门」和「到店」两种履约形态的差别落在哪。 |
-| **[CHECKLIST.md](CHECKLIST.md)** | 动手时。12 项填空清单，**可以直接发给客户当需求提纲**——比问开放式问题有效得多。 |
-
-## 生成新项目
+The thing it builds is **one conversation walking a graph of steps**, each step carrying
+only its own instructions and its own tools. A model call costs about five thousand
+characters instead of forty-three thousand, and that is not a paper saving: the whole
+architecture exists because the old shape sent everything to every call.
 
 ```bash
-python3 business-agent-template/scripts/new_business.py \
-    --name "Northshore Dental" \
-    --package dental \
-    --out ~/workspace/dental \
-    --delivery in_store          # on_site | in_store | both
+python3 -m bat.console          # http://127.0.0.1:8770
 ```
 
-生成的项目**当天就能 import 并跑通引擎测试**，每个行业决策都标着 TODO 并指回 CHECKLIST。
+Seven views: build and watch, the graph with every node's assembled byte count, the rules
+files, the tools and what uses them, a chat to try the agent yourself, the harness and its
+settings, and a dashboard.
 
-脚手架做了三件事：
+---
 
-1. **引擎原样复制**（改包名）——agent 循环、编排器、测试台、自愈、控制台、真实服务的双开关
-2. **服务业套件复制**——世界模型、工具层、三个人类模拟器；结构留着，词汇要改
-3. **行业部分留空**——配置、prompt、场景全部是带注释的模板
+## What is here
 
-它还会扫出**所有仍带上一个行业词汇的行**，写进 `TODO_DOMAIN_REVIEW.md`。引擎的逻辑是行业无关的，
-但注释里的举例不是——不清理的话，读代码的人会被误导。（水管项目→牙科诊所，244 行需要改写。）
+```
+bat/runtime/     the engine. One project is one directory; nothing about any business
+                 is compiled in
+bat/presets/     the service-dispatch tool kit, the always-preamble, and five rules
+                 patterns each answering a failure that took a day to find
+bat/builder/     drives `claude -p` headless, holds the five phases, keeps the ledger
+bat/console/     one page, `http.server`, no dependencies
+bat/projects/    the agents themselves. `plumbing` is the reference — 17 nodes, 59/60
+```
 
-## 为什么引擎能复用
+## The four documents
 
-实测：引擎里**只有一行逻辑**带行业词汇。这不是运气，是因为一开始就定了一条约束：
+They came out of building the first one of these by hand and are the half a generator
+cannot supply. The prompts in `bat/builder/prompts/` are built on them.
 
-> **代码里不写 `if 紧急:`。** 分流由 agent 自己调 `handoff.transfer` 决定，编排器只负责切换。
+| | when to read it |
+|---|---|
+| **[METHOD.md](METHOD.md)** | **First.** What order to work in and what each step costs. It saves more time than the other three together, because getting the order wrong means learning every other lesson the expensive way. |
+| **[PLAYBOOK.md](PLAYBOOK.md)** | Next. Each item is a real failure. The obvious principles are left out; only what you do not see coming is here. |
+| **[ARCHITECTURE.md](ARCHITECTURE.md)** | Before starting. What is shared, what is a kit, what gets written every time — and where "somebody goes out" differs from "the customer comes in". |
+| **[CHECKLIST.md](CHECKLIST.md)** | While working. What has to be settled before anything can be designed. The interview phase asks from this list. |
 
-新项目里继续守住这条，引擎就一直能复用。破了这条，下一次就得重写。
+## How a build goes
 
-## 最容易低估的三件事
+| phase | what happens | does it stop |
+|---|---|---|
+| interview | asks what it cannot infer | on every question |
+| plan | writes `PLAN.md` | **yes — always** |
+| build | writes the files | no |
+| test | runs the harness | no |
+| iterate | reads the report and fixes | when a decision is yours |
 
-1. **状态机要和 prompt 一起改**——不同步的代价是 agent 被自己的系统卡死，而且看起来像它不听话
-2. **端到端才是验收**——分段测试全绿、合起来断链，是这类项目的常态失败模式。但**只做验收**，
-   拿它迭代太贵（[METHOD.md](METHOD.md) 第二节有成本对照）
-3. **测试台的抖动会伪装成结论**——模拟器坏了看起来像客户挂断，自愈循环会去改一个本来没错的
-   prompt。**开工第一件事是量化测试台自己的方差**，一个场景连跑 10 次，20 分钟，能省掉几小时
+The plan stop is unconditional. Everything after it writes files and spends money, and it
+is the last point where redirecting is cheap.
 
-细节都在 PLAYBOOK 里。
+**Stopping is a first-class outcome.** A generator that guesses a price rather than stop
+produces an agent that quotes a price nobody agreed to.
+
+## When it calls something finished
+
+```yaml
+usable:
+  every_scenario_clean: true    # every scenario passes all four runs
+  min_pass_rate: 0.95           # or this share of runs overall
+  config_faults: 0              # not negotiable
+  stop_after_flat_rounds: 2
+```
+
+`config_faults: 0` is the one that does not bend. A configuration fault is a rules file
+and a tool list contradicting each other — the generator's own bug. One node was told to
+quote a price, forbidden from stating a figure it had not looked up, and given no tool to
+look one up with; it refused to answer at all and spent nineteen seconds composing the
+refusal.
+
+Model faults are different — the tool and the instruction were both there and it did
+something else. Those are the case for a better model, and the only ones that are.
+
+`stop_after_flat_rounds` was learned the hard way. A suite sat between 84% and 86% for
+three rounds while the failures moved from node to node, and the useful signal was where
+they moved to, not what the total did. Improvement is measured against the best score
+seen, never the last.
+
+## Two meters, kept apart
+
+What building an agent costs is Anthropic's. What running it costs is its own provider's.
+Added together they hide which one is worth attacking — and it is usually neither the one
+you expect: the same model on a different endpoint went from 60% cache hits to 84% and
+halved the input bill without a prompt changing.
+
+## Which model
+
+Development and iteration run on Bailian's DeepSeek; the verdict run switches to
+DeepSeek's own endpoint. They are the same model family and measurably not the same
+thing, and the gap is the point — a failure that shows up on the cheaper one is almost
+always a rules file or a scenario of ours, which is the kind worth finding.
+
+## Testing without paying for it
+
+Node scenarios start part-way down the graph with the ticket pre-loaded, which takes a
+node under test from twenty model calls to two, and a suite from 510 seconds to 66. That
+is only sound because a node reads the ticket and never the transcript. If that ever
+stops being true these stop being valid — which is itself worth knowing.
