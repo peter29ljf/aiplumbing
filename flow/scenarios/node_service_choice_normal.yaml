@@ -1,0 +1,27 @@
+id: node.service_choice.normal
+description: They picked the scheduled visit. Read it and hand on — do not re-offer.
+now: "2026-08-05T10:00:00-07:00"
+start:
+  node: service_choice
+  known:
+    phone: "604-555-0166"
+    name: Lin Zhao
+    address: "8900 Demorest Dr"
+    email: lin@example.com
+    property_type: townhouse
+    issue: the kitchen tap drips
+    size: small
+    offered: "today 11:00 AM, 12:00 PM or 1:00 PM with Mike Wang; scheduled CAD 100 starting at, emergency higher with a deposit"
+customer:
+  persona: |
+    You are Lin. Your kitchen tap drips, it is not urgent, and you have just been shown a
+    scheduled visit and an emergency one. You want the scheduled one, at 11:00 AM today.
+    You are not paying extra to be seen tonight. If asked again which you want, say the
+    normal one again.
+  opens: "The normal one please, 11:00 AM today."
+  phone: "604-555-0166"
+  max_turns: 4
+expect:
+  reaches: booking
+  not_reaches: emergency
+  finishes: false

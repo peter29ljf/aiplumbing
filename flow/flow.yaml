@@ -1,0 +1,185 @@
+# The conversation, as a graph.
+#
+# One agent walking a path, not five agents handing work to each other. Each node carries
+# only its own instructions and only the tools it needs, so a model call costs a couple of
+# thousand characters instead of forty-three thousand.
+#
+# `rules` names files in flow/rules/. They are assembled into the node's prompt when it is
+# built, not fetched by the model at run time — the context saving is the same and it costs
+# one round trip fewer, and a round trip here is five to eighteen seconds.
+#
+# `sets_status` is what the ticket becomes on the way out. Recorded, not enforced: this
+# rewrite starts with no gates at all and adds them one at a time, each in answer to a
+# failure that actually happened. See flow/sim/gates.py.
+
+entry: greeting
+
+nodes:
+
+  greeting:
+    goal: >-
+      Greet them, and get one plain sentence about what they came for. That is all — no
+      details, no diagnosis, no name, no number.
+    # It had no rules file at all, on the grounds that greeting somebody needs no
+    # instruction. Then a customer opened with "I need to move Friday's appointment",
+    # which is not a thing that has gone wrong, and this step spent seventeen model calls
+    # promising to go and check the diary it has no tool to see. Run 20260806-053354.
+    rules: [greeting]
+    # No ticket.create — the engine opens one before the first word is said.
+    tools: [ticket.set_fields, step.finished]
+    sets_status: New Inquiry
+    next: identify
+
+  # Four ways out of one node, and not split into asking and routing the way property and
+  # scheduling were. It was split, for one run: `identify_route` read the ticket for
+  # whether we know them and what they came for, `identify` never wrote either, and three
+  # scenarios walked a customer we had on file down the new-customer path. Reading written
+  # state only works when writing it is the previous node's whole job — property_ask has
+  # exactly one field to record, and this had three. Here the decision stays with the node
+  # that has the conversation in front of it. Run 20260806-051336.
+  identify:
+    goal: Get their phone number, find out whether we know them, and what they came for.
+    rules: [crm_lookup]
+    tools: [crm.lookup_by_phone, ticket.set_fields, step.finished]
+    sets_status: Phone Verified
+    branch:
+      new: new_customer
+      existing: warranty_check
+      booking_change: appointment_change
+      no_number: no_number
+
+  # No number, so nothing that hangs off one. Not a refusal — they are answered, and then
+  # told plainly which things cannot be done without it.
+  no_number:
+    goal: Answer what can be answered, say what cannot be done without a number, and close.
+    rules: [no_number]
+    # `rules.get_service_options` because the rule tells this step to say what a call-out
+    # costs and always.md forbids saying any figure without looking it up — and this node
+    # had nothing to look anything up with. Between the two it refused to answer at all
+    # ("I can't give you a fixed visit fee or a set of opening hours"), which is the one
+    # thing it exists to do, and took nineteen seconds composing the refusal. A rules file
+    # and a tool list disagreeing is a configuration fault, not the model's.
+    tools: [rules.get_service_options, ticket.set_fields]
+    sets_status: Closed
+
+  # Moving or cancelling a visit. We do not touch the diary — the technician does, because
+  # he is the one who knows where he will be. All this does is make sure he knows, and
+  # arrange for somebody to check that he acted on it.
+  appointment_change:
+    goal: Find the appointment, put the change in front of the technician, and arrange the
+      follow-up.
+    rules: [appointment_change, handover]
+    tools: [calendar.find_booking, technician.notify, schedule.create_followup,
+            ticket.set_fields]
+    sets_status: Awaiting Technician Confirmation
+
+  new_customer:
+    # Name, address and email in one go. The email is taken here rather than doubling back
+    # for it later if the job turns out to be a large one.
+    goal: Take their name, service address and email, and open a record.
+    rules: [new_customer]
+    tools: [crm.create_customer, ticket.set_fields, step.finished]
+    sets_status: Customer Identified
+    next: property_ask
+
+  warranty_check:
+    goal: Find out whether this is about work we already did for them.
+    rules: [warranty]
+    tools: [crm.get_warranty_candidates, ticket.set_fields, step.finished]
+    sets_status: Customer Identified
+    branch:
+      claim: warranty_handover
+      none: property_ask
+
+  # Split, for the same reason scheduling was: one node holding both "how to ask" and
+  # "which of three ways out" was steady at refusing and unsteady at accepting — the
+  # commercial unit in a tower passed half the time. Asking and routing are different jobs.
+  property_ask:
+    goal: Establish what kind of property this is, and write it down.
+    rules: [property_asking]
+    tools: [ticket.set_fields, step.finished]
+    sets_status: Needs Assessment
+    next: property_route
+
+  property_route:
+    goal: Read the property type off the ticket and take the matching way out.
+    rules: [property_routing]
+    tools: [step.finished]
+    sets_status: Needs Assessment
+    branch:
+      ok: problem
+      building_project: large_project
+      declined: declined
+
+
+  declined:
+    goal: Say we cannot take it and why, then close.
+    rules: [declining]
+    tools: [sms.send, ticket.set_fields]
+    sets_status: Closed
+
+  problem:
+    goal: Understand the fault well enough to size it.
+    rules: [problem_intake]
+    tools: [ticket.set_fields, step.finished]
+    sets_status: Needs Assessment
+    next: sizing
+
+  sizing:
+    goal: Decide whether this is a small repair or a larger project.
+    rules: [size_classification]
+    tools: [rules.get_job_sizing, ticket.set_fields, step.finished]
+    sets_status: Needs Assessment
+    branch:
+      large: large_project
+      small: offer_options
+
+  large_project:
+    goal: Ask for photographs by email and put it in front of the technician.
+    rules: [large_project, handover]
+    tools: [ticket.set_fields, escalate.raise, schedule.create_followup]
+    sets_status: Escalated to Supervisor
+
+  warranty_handover:
+    goal: Put the warranty claim in front of the technician with the old job attached.
+    rules: [warranty, handover]
+    tools: [ticket.set_fields, escalate.raise, schedule.create_followup]
+    sets_status: Escalated to Supervisor
+
+  # Split in two. As one node it was the fattest in the graph, the only flaky scenario,
+  # the only remaining model fault and the slowest stretch of the conversation — four
+  # signals at one place. Saying what is on offer and reading which one they picked are
+  # different jobs, and putting both in one prompt buried the decision.
+  offer_options:
+    goal: Put the two ways of being seen side by side, and ask which they want.
+    rules: [offering]
+    tools: [clock.now, calendar.find_slots, rules.get_service_options, ticket.set_fields,
+            step.finished]
+    sets_status: Awaiting Appointment Selection
+    next: service_choice
+
+  service_choice:
+    goal: Read which one they chose, and any time they named with it.
+    rules: [choosing]
+    tools: [ticket.set_fields, step.finished]
+    sets_status: Awaiting Appointment Selection
+    branch:
+      chose_emergency: emergency
+      chose_normal: booking
+
+  emergency:
+    goal: Give safety advice if there is a risk, and get it to the technician now.
+    rules: [emergency, handover]
+    tools: [rules.get_safety_advisory, ticket.set_fields, escalate.raise,
+            schedule.create_followup]
+    sets_status: Escalated to Supervisor
+
+  booking:
+    goal: Put it in the diary and tell both sides.
+    # No handover rules here. Booking is not a handover to a person — it has no
+    # escalate.raise, and carrying instructions about a tool it cannot call is how an
+    # agent ends up describing an action it never took.
+    rules: [booking]
+    tools: [calendar.create_appointment, ticket.set_fields, sms.send,
+            technician.notify, schedule.create_followup]
+    sets_status: Appointment Booked

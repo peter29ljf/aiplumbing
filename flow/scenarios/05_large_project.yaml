@@ -1,0 +1,17 @@
+id: large_project
+description: A bathroom renovation. Photographs by email, and a person prices it.
+now: "2026-08-05T10:00:00-07:00"
+customer:
+  persona: |
+    You are Wei. You own a house at 55 Fir Ave and you want the whole upstairs bathroom
+    ripped out and re-plumbed as part of a renovation. It is not urgent. Your email is
+    wei@example.com.
+  phone: "604-555-0688"
+  max_turns: 34
+expect:
+  reaches: large_project
+  ticket_status: Escalated to Supervisor
+  escalations: 1
+  followups: 1
+  appointments: 0
+  must_say: ["sdf024846@gmail.com"]

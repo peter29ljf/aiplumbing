@@ -1,0 +1,24 @@
+id: followed_up_to_closed
+description: The whole way through. Booked, chased twice, confirmed, thanked, closed.
+now: "2026-08-05T10:00:00-07:00"
+customer:
+  persona: |
+    You are Nadia. The toilet in your ensuite runs constantly. You live in a detached
+    house at 240 Willow St and your email is nadia@example.com. A normal appointment is
+    fine. Answer what you are asked, briefly.
+  phone: "604-555-0755"
+  max_turns: 34
+# The days after. Nothing here calls a model — this is the clock the follow-up loop runs
+# on, and before it existed every booked ticket stayed open forever.
+after:
+  - { hours: 24 }              # he is asked
+  - { hours: 24 }              # no answer, asked again
+  - { technician: done }       # he confirms, which is the only thing that closes it
+expect:
+  reaches: booking
+  ticket_status: Closed
+  appointments: 1
+  technician_messages: 1       # the dispatch; the chasing is counted separately
+  followup_asks: 2
+  followups: 1
+  texts: 2                     # the confirmation, then the thank-you

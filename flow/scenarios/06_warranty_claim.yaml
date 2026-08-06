@@ -1,0 +1,28 @@
+id: warranty_claim
+description: An existing customer says our own repair has failed. Goes to a person.
+now: "2026-08-05T10:00:00-07:00"
+seed:
+  customers:
+    - phone: "604-555-7788"
+      name: Emily Carter
+      address: "4321 Hastings St, Burnaby"
+      email: emily@example.com
+      property_type: house
+      jobs:
+        - job_id: JOB-2201
+          what: replaced the kitchen mixer tap
+          finished_on: "2026-03-14"
+          technician: Mike Wang
+customer:
+  persona: |
+    You are Emily Carter. Fangxin replaced your kitchen mixer tap in March and it has
+    started dripping again. You think it should be under warranty. You are not asking to
+    pay for a new visit.
+  phone: "604-555-7788"
+  max_turns: 34
+expect:
+  reaches: warranty_handover
+  ticket_status: Escalated to Supervisor
+  escalations: 1
+  followups: 1
+  appointments: 0

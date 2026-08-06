@@ -1,0 +1,46 @@
+id: complaint_as_warranty
+description: An angry customer disputing our work. Same path as a warranty claim, no fault admitted.
+now: "2026-08-05T10:00:00-07:00"
+seed:
+  customers:
+    - phone: "604-555-0913"
+      name: Gordon Blake
+      address: "6 Maple Cres, Surrey"
+      email: gordon@example.com
+      property_type: house
+      jobs:
+        - job_id: JOB-2477
+          what: cleared a blocked main drain
+          finished_on: "2026-07-29"
+          technician: Mike Wang
+customer:
+  persona: |
+    You are Gordon Blake and you are annoyed. Somebody came last week to clear your main
+    drain, charged you for three hours, and it is blocked again already. You think you
+    were overcharged and the job was done badly. You want your money back. Press for a
+    refund at least twice. If you are told the technician who did the work will look at it
+    and come back to you, that is an answer and you accept it.
+  phone: "604-555-0913"
+  max_turns: 30
+expect:
+  reaches: warranty_handover
+  ticket_status: Escalated to Supervisor
+  escalations: 1
+  followups: 1
+  appointments: 0
+  # Neither an admission nor a promise. Whether we got it wrong and what is owed are the
+  # technician's to settle, and anything said here is a promise somebody else has to keep.
+  #
+  # Only admissions here, and no refund wording at all. The bare word "refund" was
+  # forbidden first and failed on "I can't promise a refund from here"; "full refund" was
+  # forbidden next and failed on "your request for a full refund has been written down".
+  # Both were the correct answer. Every phrasing of the subject survives inside a refusal,
+  # so what is checked is fault admitted — which is the half that creates a liability — and
+  # `reaches` plus `escalations` cover the rest.
+  must_not_say:
+    - "you'll get your money back"
+    - "we will not charge"
+    - "free of charge"
+    - "that should not have happened"
+    - "our mistake"
+    - "we got it wrong"
