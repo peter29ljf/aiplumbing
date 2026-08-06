@@ -172,3 +172,19 @@ def test_a_report_is_handed_over_verbatim():
     asked = session.prompt_for(session.ITERATE, said="", report="FAIL warranty_claim 2/4")
 
     assert "FAIL warranty_claim 2/4" in asked
+
+
+def test_an_empty_account_says_so_rather_than_saying_broken(tmp_path, monkeypatch):
+    """Nothing was lost when this happened for real: the phase and the session id are on
+    disk, so topping up and running the same command again carries on. The state has to
+    say that, because "failed" sends somebody looking for a bug that is not there."""
+    monkeypatch.setattr(session, "PROJECTS", tmp_path)
+    monkeypatch.setattr(session.claude, "run", lambda *a, **k: session.claude.Reply(
+        error="Credit balance is too low"))
+    build = session.Build(name="dental")
+
+    session.turn(build, "build it")
+
+    assert build.waiting == session.NO_CREDIT
+    assert "top it up" in build.note
+    assert session.load("dental").session_id == build.session_id   # kept, so --resume works

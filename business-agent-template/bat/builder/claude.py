@@ -38,6 +38,16 @@ class ClaudeFailed(RuntimeError):
     """The CLI exited badly, or said it errored. Carries whatever it managed to say."""
 
 
+# The one failure where retrying is pointless and the fix is outside the system. Worth
+# telling apart from every other error: three builds stopped here mid-way and the console
+# said "failed", which reads like something to debug rather than something to top up.
+OUT_OF_CREDIT = "Credit balance is too low"
+
+
+def is_out_of_credit(error: str) -> bool:
+    return OUT_OF_CREDIT.lower() in (error or "").lower()
+
+
 @dataclass
 class Spend:
     """What one invocation cost. Kept per call, not per session, because a session that

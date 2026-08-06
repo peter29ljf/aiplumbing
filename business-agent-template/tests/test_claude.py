@@ -155,3 +155,16 @@ def test_an_empty_ledger_is_not_an_error(tmp_path: Path):
 
     assert calls == 0
     assert running.usd == 0.0
+
+
+# ---- the one failure that is not a bug ----------------------------------
+
+
+def test_running_out_of_credit_is_told_apart_from_a_real_failure():
+    """Three builds stopped here mid-way and the console said "failed", which reads like
+    something to debug. It is the one failure where retrying is pointless and the fix is
+    outside the system entirely."""
+    assert claude.is_out_of_credit("Credit balance is too low")
+    assert claude.is_out_of_credit("API Error: Credit balance is too low")
+    assert not claude.is_out_of_credit("ran out of turns")
+    assert not claude.is_out_of_credit("")

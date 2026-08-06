@@ -39,6 +39,7 @@ WAITING_FOR_ANSWER = "waiting for an answer"
 WAITING_FOR_APPROVAL = "waiting for the plan to be approved"
 PAUSED = "paused"
 FAILED = "failed"
+NO_CREDIT = "out of credit"
 
 
 @dataclass
@@ -172,8 +173,14 @@ def turn(build: Build, said: str, *, report: str = "", model: str = "",
         "usd": reply.spend.usd,
     })
     if not reply.ok:
-        build.waiting = FAILED
-        build.note = reply.error
+        out_of_credit = claude.is_out_of_credit(reply.error)
+        build.waiting = NO_CREDIT if out_of_credit else FAILED
+        build.note = (
+            "The Anthropic account has no credit left. Nothing here is broken and nothing "
+            "was lost — top it up and run the same phase again; the session id is kept and "
+            "it will carry on from where it stopped."
+            if out_of_credit else reply.error
+        )
     save(build)
     return reply
 
