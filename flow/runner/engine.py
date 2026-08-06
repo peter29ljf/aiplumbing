@@ -6,10 +6,14 @@ what is wrong, what has been decided. That is where the context saving actually 
 without it, every node would carry the whole conversation and the small prompts would stop
 being small by the fourth turn.
 
-A node ends when the model sets `outcome` on the ticket. For a node with branches, the
-outcome names the one to take; for a node with one way on, any outcome means done. Nothing
-here infers that a step is finished from what was said — inferring it is how a flow ends up
-somewhere nobody can explain.
+A node ends when the model calls `step.finished`. It was a field on `ticket.set_fields`
+first, and for seven exchanges a real model wrote every other field faithfully and never
+that one — the tool it lived on is described as the place to record what you have learned
+about a customer, and routing a conversation is not that. One tool records facts, one says
+a step is over.
+
+Nothing here infers that a step is finished from what was said. Inferring it is how a flow
+ends up somewhere nobody can explain.
 """
 
 from __future__ import annotations
@@ -101,7 +105,9 @@ class Conversation:
         for _ in range(MAX_CALLS_PER_TURN):
             began = time.monotonic()
             message = self.llm.chat(
-                "agent", messages, tools=sim_tools.schemas_for(node.tools) or None
+                "agent", messages,
+                tools=sim_tools.schemas_for(node.tools,
+                                            outcomes=node.choices or ("done",)) or None,
             )
             calls = list(getattr(message, "tool_calls", None) or [])
             turn.steps.append(Step(node.name, round(time.monotonic() - began, 1),
@@ -113,15 +119,17 @@ class Conversation:
                 self.messages = messages[1:]        # keep the exchange, drop the system
                 return said or None
 
+            outcome: str | None = None
             for call in calls:
-                result = sim_tools.call(
+                result, keep = sim_tools.call(
                     self.world, call.function.name, call.function.arguments, node.tools
                 )
-                self._absorb(call.function.name, result)
+                self._absorb(result, keep)
+                if isinstance(result, dict) and result.get("finished"):
+                    outcome = str(result.get("outcome", ""))
                 messages.append({"role": "tool", "tool_call_id": call.id,
                                  "content": json.dumps(result, default=str)})
 
-            outcome = self.tags.pop("outcome", None)
             if outcome is not None:
                 said = (message.content or "").strip()
                 self._advance(str(outcome))
@@ -137,13 +145,22 @@ class Conversation:
     def _system(self) -> str:
         return assemble.build(self.node, tags=self.tags, ticket_id=self.ticket_id)
 
-    def _absorb(self, wire_name: str, result: Any) -> None:
-        """Notice the two things the engine itself needs from a tool's answer."""
+    def _absorb(self, result: Any, keep: dict[str, Any]) -> None:
+        """Take what the engine needs, and put what outlives this step on the ticket.
+
+        `keep` comes from the tool's own `remembers` list, not from the model deciding to
+        write it down. It was the model's job once, and a customer was asked for their
+        phone number twice in one conversation because a step ended before anybody had
+        recorded it.
+        """
         if isinstance(result, dict):
             if not self.ticket_id and result.get("ticket_id"):
                 self.ticket_id = str(result["ticket_id"])
             if result.get("ended"):
                 self.finished = True
+
+        if keep and self.ticket_id:
+            self.world.tickets[self.ticket_id].tags.update(keep)
 
     def _advance(self, outcome: str) -> None:
         """Move on, and forget how we got here.

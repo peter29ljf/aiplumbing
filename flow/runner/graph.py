@@ -133,9 +133,9 @@ def _check(entry: str, nodes: dict[str, Node], known_tools: set[str] | None) -> 
         # A node signals it is finished by writing `outcome` with ticket.set_fields. One
         # that cannot call it has no way to say so and the conversation stops there —
         # which reads, from outside, as the model refusing to move on.
-        if not node.is_terminal and "ticket.set_fields" not in node.tools:
+        if not node.is_terminal and "step.finished" not in node.tools:
             problems.append(
-                f"{node.name} has to move on but cannot call ticket.set_fields, so it has "
+                f"{node.name} has to move on but cannot call step.finished, so it has "
                 f"no way to say it is done"
             )
 

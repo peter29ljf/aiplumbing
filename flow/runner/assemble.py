@@ -50,16 +50,27 @@ def build(node: Node, *, tags: dict | None = None, ticket_id: str = "") -> str:
             "call `conversation.end` in the same turn."
         )
     else:
-        choices = node.choices or ("done",)
-        named = ", ".join(f"`{choice}`" for choice in choices)
-        parts.append(
-            "# When this step is done\n\n"
-            "Call `ticket.set_fields` with `outcome` set to "
-            + (f"one of {named}.\n\n" if len(choices) > 1
-               else f"{named} — there is only one way on.\n\n")
-            + "Set it once you are sure, not before. Asking one more question is cheaper "
-            "than sending somebody down the wrong path, and you cannot come back."
-        )
+        # A step with one way on and a step choosing between several are not in the same
+        # position, and telling both to "be sure first" was read as licence to keep going:
+        # the greeting node held a customer for seven exchanges, collecting things three
+        # other nodes exist to collect.
+        if node.choices:
+            named = ", ".join(f"`{choice}`" for choice in node.choices)
+            parts.append(
+                "# When this step is done\n\n"
+                f"Call `step.finished` with `outcome` set to one of {named}.\n\n"
+                "Be sure before you choose — one more question is cheaper than sending "
+                "somebody down the wrong path, and you cannot come back."
+            )
+        else:
+            parts.append(
+                "# When this step is done\n\n"
+                "Call `step.finished` with `outcome` set to `done`.\n\n"
+                "**As soon as this step's goal is met, and in the same turn.** Not when "
+                "the customer's problem is solved — that takes several more steps and they "
+                "are not yours. Anything you are curious about that is not named above "
+                "belongs to somebody else, and they will ask."
+            )
 
     parts.append("# What is already known\n\n" + summarise(tags or {}, ticket_id=ticket_id))
     return "\n\n---\n\n".join(parts)

@@ -17,16 +17,19 @@ entry: greeting
 nodes:
 
   greeting:
-    goal: Say hello and ask what has gone wrong.
+    goal: >-
+      Greet them, and get one plain sentence about what has gone wrong. That is all — no
+      details, no diagnosis, no name, no number. Most people say what is wrong in their
+      first message, and when they have, this step is over on your very first reply.
     rules: []
-    tools: [ticket.create, ticket.set_fields]
+    tools: [ticket.create, ticket.set_fields, step.finished]
     sets_status: New Inquiry
     next: identify
 
   identify:
     goal: Get their phone number and find out whether we know them.
     rules: [crm_lookup]
-    tools: [crm.lookup_by_phone, ticket.set_fields]
+    tools: [crm.lookup_by_phone, ticket.set_fields, step.finished]
     sets_status: Phone Verified
     branch:
       new: new_customer
@@ -37,14 +40,14 @@ nodes:
     # for it later if the job turns out to be a large one.
     goal: Take their name, service address and email, and open a record.
     rules: [new_customer]
-    tools: [crm.create_customer, ticket.set_fields]
+    tools: [crm.create_customer, ticket.set_fields, step.finished]
     sets_status: Customer Identified
     next: property_check
 
   warranty_check:
     goal: Find out whether this is about work we already did for them.
     rules: [warranty]
-    tools: [crm.get_warranty_candidates, ticket.set_fields]
+    tools: [crm.get_warranty_candidates, ticket.set_fields, step.finished]
     sets_status: Customer Identified
     branch:
       claim: warranty_handover
@@ -55,7 +58,7 @@ nodes:
     # moment to decline. Any later and they have described a whole problem we cannot take.
     goal: Establish what kind of building this is, and decline the one kind we cannot work in.
     rules: [property]
-    tools: [ticket.set_fields]
+    tools: [ticket.set_fields, step.finished]
     sets_status: Needs Assessment
     branch:
       ok: problem
@@ -71,14 +74,14 @@ nodes:
   problem:
     goal: Understand the fault well enough to size it.
     rules: [problem_intake]
-    tools: [ticket.set_fields]
+    tools: [ticket.set_fields, step.finished]
     sets_status: Needs Assessment
     next: sizing
 
   sizing:
     goal: Decide whether this is a small repair or a larger project.
     rules: [size_classification]
-    tools: [rules.get_job_sizing, ticket.set_fields]
+    tools: [rules.get_job_sizing, ticket.set_fields, step.finished]
     sets_status: Needs Assessment
     branch:
       large: large_project
@@ -103,7 +106,7 @@ nodes:
     rules: [scheduling]
     # One fee tool, not two. Fetching half the picture is not something to ask the
     # prompt to avoid — it is something to make impossible.
-    tools: [clock.now, calendar.find_slots, rules.get_service_options, ticket.set_fields]
+    tools: [clock.now, calendar.find_slots, rules.get_service_options, ticket.set_fields, step.finished]
     sets_status: Awaiting Appointment Selection
     branch:
       chose_emergency: emergency

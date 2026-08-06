@@ -32,11 +32,21 @@ _TOOLS: dict[str, dict[str, Any]] = {}
 
 
 def tool(name: str, description: str, properties: dict[str, Any],
-         required: list[str] | None = None) -> Callable[[Handler], Handler]:
+         required: list[str] | None = None,
+         remembers: tuple[str, ...] = ()) -> Callable[[Handler], Handler]:
+    """`remembers` names the facts this tool handles that belong on the ticket.
+
+    They are copied there by the engine, from the arguments and from the answer, without
+    the model being asked to write them down as well. It was asked, once: a customer gave
+    their number, the lookup used it, the step ended, the number went with the messages,
+    and the next step asked for it again. Being asked twice for the same thing is the
+    clearest sign nobody is listening, and it should not depend on diligence.
+    """
     def register(handler: Handler) -> Handler:
         _TOOLS[name] = {
             "name": name,
             "handler": handler,
+            "remembers": remembers,
             "schema": {
                 "type": "function",
                 "function": {
@@ -59,23 +69,56 @@ def names() -> set[str]:
     return set(_TOOLS)
 
 
-def schemas_for(wanted: tuple[str, ...]) -> list[dict[str, Any]]:
-    return [_TOOLS[n]["schema"] for n in wanted if n in _TOOLS]
+def schemas_for(wanted: tuple[str, ...], *,
+               outcomes: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+    """The node's tools. `step.finished` is given that node's own ways out as an enum."""
+    import copy
+
+    built = []
+    for name in wanted:
+        if name not in _TOOLS:
+            continue
+        schema = _TOOLS[name]["schema"]
+        if name == "step.finished" and outcomes:
+            schema = copy.deepcopy(schema)
+            field = schema["function"]["parameters"]["properties"]["outcome"]
+            field["enum"] = list(outcomes)
+            field["description"] = "Which way this step came out."
+        built.append(schema)
+    return built
 
 
-def call(world: World, wire_name: str, arguments: str, allowed: tuple[str, ...]) -> Any:
-    """Run one tool call. `allowed` is the node's list — a node cannot reach past it."""
+def call(world: World, wire_name: str, arguments: str,
+         allowed: tuple[str, ...]) -> tuple[Any, dict[str, Any]]:
+    """Run one tool call, and say what it learned that outlives this step.
+
+    `allowed` is the node's list — a node cannot reach past it. The second return value is
+    what belongs on the ticket, taken from the tool's `remembers`.
+    """
     name = next((n for n in allowed if _TOOLS.get(n, {}).get("schema", {})
                  .get("function", {}).get("name") == wire_name), None)
     if name is None:
         return {"ok": False,
-                "error": f"'{wire_name}' is not available here. You can use: {list(allowed)}"}
+                "error": f"'{wire_name}' is not available here. You can use: {list(allowed)}"}, {}
+
     try:
-        return _TOOLS[name]["handler"](world, **json.loads(arguments or "{}"))
+        args = json.loads(arguments or "{}")
+    except json.JSONDecodeError as bad:
+        return {"ok": False, "error": f"Those arguments are not JSON: {bad}"}, {}
+
+    try:
+        result = _TOOLS[name]["handler"](world, **args)
     except Refused as refusal:
-        return {"ok": False, "error": str(refusal)}
+        return {"ok": False, "error": str(refusal)}, {}
     except TypeError as bad_args:
-        return {"ok": False, "error": f"Wrong arguments for {name}: {bad_args}"}
+        return {"ok": False, "error": f"Wrong arguments for {name}: {bad_args}"}, {}
+
+    keep: dict[str, Any] = {}
+    for key in _TOOLS[name]["remembers"]:
+        value = args.get(key, result.get(key) if isinstance(result, dict) else None)
+        if value not in (None, "", [], {}):
+            keep[key] = value
+    return result, keep
 
 
 def _ticket(world: World, ticket_id: str):
@@ -100,6 +143,7 @@ def ticket_create(world: World) -> dict[str, Any]:
     "crm.lookup_by_phone",
     "Look a customer up by phone number. Tells you whether we know them already.",
     {"phone": {"type": "string"}},
+    remembers=("phone", "name", "address", "email", "property_type"),
 )
 def crm_lookup(world: World, phone: str) -> dict[str, Any]:
     customer = world.find_customer(phone)
@@ -125,6 +169,7 @@ def crm_lookup(world: World, phone: str) -> dict[str, Any]:
         "address": {"type": "string", "description": "Full service address"},
         "email": {"type": "string"},
     },
+    remembers=("phone", "name", "address", "email"),
 )
 def crm_create(world: World, phone: str, name: str, address: str, email: str) -> dict[str, Any]:
     customer = world.add_customer(phone=phone, name=name, address=address, email=email)
@@ -294,6 +339,8 @@ def calendar_find_slots(world: World) -> dict[str, Any]:
         "address": {"type": "string"},
         "what": {"type": "string", "description": "What the technician is coming to do"},
     },
+    remembers=("appointment_id", "starts", "reads_as", "technician",
+                "technician_id"),
 )
 def calendar_create(world: World, ticket_id: str, starts: str, address: str,
                     what: str) -> dict[str, Any]:
@@ -364,6 +411,7 @@ def technician_notify(world: World, technician_id: str, subject: str,
                                                     "needs help now"},
         "details": {"type": "string"},
     },
+    remembers=("reason",),
 )
 def escalate_raise(world: World, ticket_id: str, reason: str, details: str) -> dict[str, Any]:
     ticket = _ticket(world, ticket_id)
@@ -386,6 +434,25 @@ def schedule_followup(world: World, ticket_id: str, hours: int) -> dict[str, Any
     world.followups.append({"ticket_id": ticket.id, "due": due.isoformat(),
                             "answered": False, "asked": 0})
     return {"scheduled": True, "due": due.isoformat()}
+
+
+@tool(
+    "step.finished",
+    "This step is done. Say which way it came out.",
+    {"outcome": {"type": "string"}},
+)
+def step_finished(world: World, outcome: str) -> dict[str, Any]:
+    """Its own tool, not a field on ticket.set_fields.
+
+    It was a field, and for seven exchanges the model wrote every other field faithfully
+    and never wrote that one — because the tool it lived on is described as the place to
+    record what you have learned about a customer, and an instruction to route a
+    conversation is not that. One tool that records facts, one that says a step is over.
+
+    The schema is built per node, so `outcome` carries an enum of that node's ways out.
+    Naming a branch that does not exist stops being possible rather than being asked for.
+    """
+    return {"finished": True, "outcome": outcome}
 
 
 @tool(

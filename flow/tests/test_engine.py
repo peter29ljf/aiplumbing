@@ -96,7 +96,7 @@ def test_a_node_is_given_only_its_own_tools(flow):
     llm = ScriptedLLM(says("Hello — what has gone wrong?"))
     _talk(llm, flow).say("hi")
 
-    assert llm.tool_sets[0] == ["ticket_create", "ticket_set_fields"]
+    assert llm.tool_sets[0] == ["ticket_create", "ticket_set_fields", "step_finished"]
 
 
 def test_a_node_prompt_does_not_mention_the_rest_of_the_graph(flow):
@@ -122,8 +122,7 @@ def test_a_node_prompt_stays_small(flow):
 def test_a_node_ends_when_the_outcome_is_set(flow):
     llm = ScriptedLLM(
         calls(("ticket.create", {})),
-        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"outcome": "done"}}),
-              text="Right."),
+        calls(("step.finished", {"outcome": "done"}), text="Right."),
         says("May I have your phone number?"),
     )
     conversation = _talk(llm, flow)
@@ -138,7 +137,7 @@ def test_the_previous_node_s_conversation_is_dropped(flow):
     be carrying the first three nodes' exchanges and the small prompts stop being small."""
     llm = ScriptedLLM(
         calls(("ticket.create", {})),
-        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"outcome": "done"}})),
+        calls(("step.finished", {"outcome": "done"})),
         says("May I have your phone number?"),
     )
     conversation = _talk(llm, flow)
@@ -151,8 +150,8 @@ def test_the_previous_node_s_conversation_is_dropped(flow):
 def test_what_survives_is_the_summary_not_the_words(flow):
     llm = ScriptedLLM(
         calls(("ticket.create", {})),
-        calls(("ticket.set_fields", {"ticket_id": "TK-0001",
-                                     "fields": {"customer_name": "Lin", "outcome": "done"}})),
+        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"customer_name": "Lin"}}),
+              ("step.finished", {"outcome": "done"})),
         says("Thanks Lin."),
     )
     conversation = _talk(llm, flow)
@@ -165,8 +164,8 @@ def test_what_survives_is_the_summary_not_the_words(flow):
 def test_a_branch_is_taken_by_name(flow):
     llm = ScriptedLLM(
         calls(("ticket.create", {})),
-        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"outcome": "done"}})),
-        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"outcome": "existing"}})),
+        calls(("step.finished", {"outcome": "done"})),
+        calls(("step.finished", {"outcome": "existing"})),
         says("Welcome back."),
     )
     conversation = _talk(llm, flow)
@@ -181,8 +180,8 @@ def test_an_outcome_nobody_named_is_handed_back(flow):
     accident and impossible to find afterwards."""
     llm = ScriptedLLM(
         calls(("ticket.create", {})),
-        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"outcome": "done"}})),
-        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"outcome": "maybe"}})),
+        calls(("step.finished", {"outcome": "done"})),
+        calls(("step.finished", {"outcome": "maybe"})),
         says("Sorry — are you an existing customer?"),
     )
     conversation = _talk(llm, flow)
@@ -202,7 +201,7 @@ def test_the_status_follows_the_node(flow):
     one fewer thing for the model to get wrong."""
     llm = ScriptedLLM(
         calls(("ticket.create", {})),
-        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"outcome": "done"}})),
+        calls(("step.finished", {"outcome": "done"})),
         says("Number please?"),
     )
     conversation = _talk(llm, flow)
@@ -213,12 +212,24 @@ def test_the_status_follows_the_node(flow):
     assert conversation.world.tickets["TK-0001"].history == []
 
 
+def test_the_ways_out_are_an_enum_the_model_cannot_step_outside(flow):
+    """Naming a branch that does not exist stops being possible rather than being asked
+    for. The identify node can answer `new` or `existing` and nothing else."""
+    from flow.sim import tools as st
+
+    schemas = st.schemas_for(flow["identify"].tools, outcomes=flow["identify"].choices)
+    finished = [s for s in schemas if s["function"]["name"] == "step_finished"][0]
+
+    assert finished["function"]["parameters"]["properties"]["outcome"]["enum"] == [
+        "new", "existing"]
+
+
 def test_the_outcome_does_not_stay_on_the_ticket(flow):
     """It is a signal to the engine, not a fact about the customer. Left behind, the next
     node reads it as a decision that has already been made."""
     llm = ScriptedLLM(
         calls(("ticket.create", {})),
-        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"outcome": "done"}})),
+        calls(("step.finished", {"outcome": "done"})),
         says("Number please?"),
     )
     conversation = _talk(llm, flow)
@@ -253,3 +264,52 @@ def test_a_tool_the_node_does_not_have_is_refused_by_name(flow):
 
     tool_reply = [m for m in conversation.messages if m.get("role") == "tool"][0]
     assert "not available here" in tool_reply["content"]
+
+
+# ---- what outlives a step ---------------------------------------------
+
+
+def test_a_fact_a_tool_handled_is_kept_without_being_asked(flow):
+    """A customer gave their number, the lookup used it, the step ended, and the number
+    went with the messages — so the next step asked for it again. Being asked twice for the
+    same thing is the clearest sign nobody is listening, and it should not depend on the
+    model remembering to write things down."""
+    llm = ScriptedLLM(
+        calls(("ticket.create", {})),
+        calls(("step.finished", {"outcome": "done"}), text="Noted — one moment."),
+        calls(("crm.lookup_by_phone", {"phone": "604 555 0166"})),
+        says("You're not on file yet."),
+    )
+    conversation = _talk(llm, flow)
+
+    conversation.say("hi")
+    conversation.say("604 555 0166")
+
+    assert conversation.tags["phone"] == "604 555 0166"
+
+
+def test_what_a_lookup_found_is_kept_too(flow):
+    llm = ScriptedLLM(
+        calls(("ticket.create", {})),
+        calls(("step.finished", {"outcome": "done"}), text="Noted — one moment."),
+        calls(("crm.lookup_by_phone", {"phone": "604-555-7788"})),
+        says("Welcome back, Emily."),
+    )
+    conversation = _talk(llm, flow, customers=[
+        {"phone": "604-555-7788", "name": "Emily Carter", "address": "4321 Hastings St"}
+    ])
+
+    conversation.say("hi")
+    conversation.say("604-555-7788")
+
+    assert conversation.tags["name"] == "Emily Carter"
+    assert conversation.tags["address"] == "4321 Hastings St"
+
+
+def test_a_tool_that_handles_nothing_lasting_keeps_nothing(flow):
+    """Not everything a tool touches is a fact about the customer. Hoovering up whatever
+    goes past would put the contents of a rules lookup on the ticket."""
+    from flow.sim import tools as st
+
+    assert st._TOOLS["ticket.create"]["remembers"] == ()
+    assert st._TOOLS["clock.now"]["remembers"] == ()
