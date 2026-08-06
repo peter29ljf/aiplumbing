@@ -12,7 +12,14 @@
 # Bailian shook the new paths out and reached 82% (23/28), which was the agreed line for
 # coming back here. Everything it caught was a rules file or a scenario of ours, not the
 # endpoint — which is the point of doing it on the cheaper one first.
-active: deepseek
+# Bailian for building and iterating, DeepSeek's own endpoint for the verdict.
+#
+# They are the same model family and measurably not the same thing: on a 28-run suite,
+# 82% here against 84-90% there, and 60% cache hits against 84%. That gap is the reason
+# to develop on this one — a failure that shows up on the cheaper endpoint is almost
+# always a rules file or a scenario of ours, and those are the failures worth finding.
+# Switch to `deepseek` before calling a project finished.
+active: bailian-deepseek
 
 providers:
   # Not active. A full 24-scenario baseline came back 4/24 against DeepSeek's 21/24, with

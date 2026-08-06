@@ -1,0 +1,79 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Build console</title>
+<link rel="stylesheet" href="/style.css">
+
+<header>
+  <h1>Build console</h1>
+  <select id="project"></select>
+  <button id="new">New</button>
+  <nav>
+    <button data-tab="build" class="on">Build</button>
+    <button data-tab="flow">Flow</button>
+    <button data-tab="dash">Dashboard</button>
+  </nav>
+  <span id="phase" class="pill"></span>
+</header>
+
+<main>
+  <!-- ---------------------------------------------------------------- -->
+  <section id="build" class="tab on">
+    <div id="waiting" class="waiting hidden">
+      <p id="waiting-note"></p>
+      <button id="approve">Approve the plan</button>
+      <button id="resume">Resume</button>
+    </div>
+
+    <div id="log" class="log"></div>
+
+    <form id="say">
+      <textarea id="text" rows="4" placeholder="Paste a flowchart, or answer what it asked. Ctrl+Enter to send."></textarea>
+      <div class="row">
+        <button type="submit" id="send">Send</button>
+        <button type="button" id="pause">Pause</button>
+        <span id="spend" class="muted"></span>
+      </div>
+    </form>
+  </section>
+
+  <!-- ---------------------------------------------------------------- -->
+  <section id="flow" class="tab">
+    <p class="muted">Every node, and what its prompt costs on every call. The byte count
+      is an acceptance figure — a node that quietly grows back is visible here first.</p>
+    <table id="nodes">
+      <thead><tr>
+        <th>node</th><th>goal</th><th>rules</th><th>tools</th>
+        <th class="num">prompt</th><th class="num">schemas</th><th class="num">total</th>
+        <th>leads to</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <!-- ---------------------------------------------------------------- -->
+  <section id="dash" class="tab">
+    <div class="cards">
+      <div class="card"><b id="rate">—</b><span>pass rate</span></div>
+      <div class="card"><b id="counts">—</b><span>runs</span></div>
+      <div class="card"><b id="builder-usd">—</b><span>builder spend (Anthropic)</span></div>
+      <div class="card"><b id="agent-cache">—</b><span>agent cache hits</span></div>
+    </div>
+
+    <h2>Scenarios</h2>
+    <table id="scenarios"><tbody></tbody></table>
+
+    <h2>Faults</h2>
+    <p class="muted">Configuration faults are ours — a rules file and a tool list
+      contradicting each other. Model faults are the only ones a different model answers.</p>
+    <table id="faults"><tbody></tbody></table>
+
+    <h2>How long each node takes</h2>
+    <table id="timings">
+      <thead><tr><th>node</th><th class="num">worst</th><th class="num">mean</th>
+        <th class="num">calls</th><th class="num">over 20s</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+</main>
+
+<script src="/app.js"></script>
