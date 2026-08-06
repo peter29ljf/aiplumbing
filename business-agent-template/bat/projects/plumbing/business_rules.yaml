@@ -1,0 +1,306 @@
+# ==========================================================================
+# Business rules — the single source of truth for every price, time window
+# and eligibility rule in the system.
+#
+# Agents must never invent, modify or guess any number. They may only read
+# values through the rules.* tools and repeat them to the customer verbatim.
+#
+# The self-healing loop (doctor) is forbidden from editing this file.
+# ==========================================================================
+
+company:
+  name: "Fangxin Plumbing Ltd"
+  timezone: "America/Vancouver"
+  currency: "CAD"
+  language: "en"                       # English-only service
+  phone: "(778) 200-4962"              # Also accepts text messages
+  website: "https://www.smartstrategy.services/"
+  service_region: "Metro Vancouver"
+
+  # Facts the agent may state about the company. Served by rules.get_company_info
+  # so the agent quotes them rather than improvising credentials.
+  profile:
+    tagline: "Plumbing, gas, heating and cooling — done once and done right."
+    established: "Serving Metro Vancouver for many years"
+    credentials:
+      - "Red Seal ticketed plumbers"
+      - "Gas Fitter Class B licensed"
+      - "Government-registered company; issues proper invoices"
+      - "WCB coverage on every technician, every site — if a technician is injured on
+         your property, the insurer is responsible, not the customer"
+      - "CAD 2,000,000 commercial liability insurance"
+      - "Member of the Home Performance Contractor Network (HPSC)"
+    services:
+      - id: "plumbing_gas"
+        name: "Plumbing & gas fitting"
+        detail: "New builds, commercial projects and renovations — rough-in through final
+                 fixtures, permits and inspections included."
+      - id: "heating_hot_water"
+        name: "Boilers, heating & hot water"
+        detail: "Boiler, hydronic, forced air and hot water systems — installed, serviced
+                 and repaired, all makes."
+      - id: "repairs_service"
+        name: "Repairs & service"
+        detail: "Leaks, blocked drains, failed valves, no hot water. Diagnosed properly,
+                 fixed the same visit where possible."
+      - id: "design_consulting"
+        name: "Design & consulting"
+        detail: "Drawings, load sizing and code review before the trades arrive, so the
+                 build does not stall at inspection."
+      - id: "ac_heat_pumps"
+        name: "Air conditioning & heat pumps"
+        detail: "Installation, replacement and service for AC and heat pump systems.
+                 As an HPSC member we can register a heat pump for federal and BC
+                 government rebate programs and handle the paperwork with the install."
+    how_a_job_runs:
+      - "Chat, call or text — most questions get a straight answer right away."
+      - "A written scope and price before anything starts. No work begins until the
+         customer has agreed to the number."
+      - "Site left clean, a proper invoice, and a year of workmanship warranty behind it."
+
+# ---------------------------- Working days & hours ----------------------
+schedule:
+  # 0 = Monday ... 6 = Sunday
+  working_days: [0, 1, 2, 3, 4, 5]        # Monday through Saturday
+  working_hours:
+    start: "08:00"
+    end: "18:00"
+  night_starts_at: "18:00"                 # 18:00 onward counts as night
+  sunday_policy: "emergency_only"          # Sundays: emergency service only
+  holiday_policy: "emergency_only"         # Public holidays treated as closed days
+  # BC statutory holidays. Anything not a working day is emergency-only.
+  # Note: Boxing Day is not a BC statutory holiday.
+  public_holidays:
+    - { date: "2026-01-01", name: "New Year's Day" }
+    - { date: "2026-02-16", name: "Family Day" }
+    - { date: "2026-04-03", name: "Good Friday" }
+    - { date: "2026-05-18", name: "Victoria Day" }
+    - { date: "2026-07-01", name: "Canada Day" }
+    - { date: "2026-08-03", name: "BC Day" }
+    - { date: "2026-09-07", name: "Labour Day" }
+    - { date: "2026-09-30", name: "National Day for Truth and Reconciliation" }
+    - { date: "2026-10-12", name: "Thanksgiving" }
+    - { date: "2026-11-11", name: "Remembrance Day" }
+    - { date: "2026-12-25", name: "Christmas Day" }
+
+# ---------------------------- Pricing -----------------------------------
+pricing:
+  # Standard (scheduled) service call-out fee
+  standard_inspection_fee:
+    amount: 100
+    qualifier: "starting at"       # renders as "CAD 100 starting at"
+    currency: "CAD"
+
+  # Emergency call-out fee, by time band
+  emergency_inspection_fee:
+    currency: "CAD"
+    qualifier: "starting at"
+    # Tiers are matched in this order, first match wins. A statutory holiday falling on a
+    # weekday matches both sunday_or_holiday and workday_business_hours, so the holiday
+    # tier is listed as taking precedence: the day being a holiday is what sets the rate.
+    tier_precedence: ["sunday_or_holiday", "night_after_18", "workday_business_hours", "workday_offhours_before_18"]
+    tiers:
+      - id: "workday_business_hours"
+        amount: 200
+        condition: "Monday-Saturday during business hours (08:00-18:00)"
+      - id: "workday_offhours_before_18"
+        amount: 300
+        condition: "Monday-Saturday outside business hours but before 18:00"
+      - id: "night_after_18"
+        amount: 400
+        condition: "Any day after 18:00"
+      - id: "sunday_or_holiday"
+        amount: 400
+        condition: "Sundays and BC statutory holidays"
+
+  # Refundable emergency deposit
+  emergency_deposit:
+    amount: 100
+    currency: "CAD"
+    refundable: true
+    offsets_inspection_fee: true      # Applied against the call-out fee
+    note: "Once the technician arrives, only the remaining balance of the call-out fee is charged."
+
+  # How the call-out fee is applied
+  fee_offset:
+    accepted_quote: "The call-out fee is credited in full against the repair cost."
+    rejected_quote: "Only the applicable call-out fee is charged."
+
+# ---------------------------- What we will and will not take -------------
+service_policy:
+  # Work we decline outright, and why. The reason is given to the customer, so it is
+  # written to be said out loud.
+  excluded_property_types:
+    - id: "apartment"
+      name: "Apartment or condo unit"
+      # The gate blocks every flow except the two listed here — `_excluded_property` in
+      # world.py is the authority and this mirrors it. It used to read
+      # `applies_to: "small_job"`, a single string that cannot express "everything but
+      # two", so it was wrong about emergency whichever way you read it. Nothing in the
+      # code ever read that field; it was configuration-shaped commentary.
+      except_for:
+        - "large_job"                  # reviewed by a person before we commit
+        - "warranty"                   # we already worked there; insurance settled then
+      reason: >-
+        Our liability insurance does not cover work inside residential apartment and
+        condo units, so we are not able to take on repairs there.
+      exception: >-
+        Two things are still taken, and both go to a person rather than being declined.
+        A large project or engineering work in an apartment building is reviewed before we
+        commit. A warranty claim on work we already did there is honoured wherever that
+        work was — the insurance question was settled when we took the job.
+  decline_guidance: >-
+    Say we cannot help and why, briefly and without hedging. Do not offer to make an
+    exception, do not suggest they describe the property differently, and do not leave
+    them thinking a manager might overturn it. Suggesting they try a company that does
+    cover strata work is a kindness and costs nothing.
+
+# ---------------------------- After a technician takes over --------------
+technician_handover:
+  # Once a job is with a technician, the agent stops managing it and simply waits.
+  followup_after_hours: 24
+  # Some flows move on a different clock. A quote being prepared from emailed material
+  # takes longer than a booked repair.
+  by_flow:
+    small_job: 24
+    emergency: 24
+    warranty: 24
+    large_job: 48          # roughly two working days to review material and price it
+  note: >-
+    The technician deals with the customer on site. The agent does not chase progress,
+    relay quotes or manage the visit. It checks back once, after the interval, for the
+    outcome.
+
+# ---------------------------- Offering a job to a technician -------------
+job_offer:
+  # A Telegram message can be missed — a phone in a pocket, a hand holding a wrench. A
+  # real phone call cuts through and costs money per call; these nudges cost nothing, so
+  # they are tried first. If jobs still get missed, that is the evidence for buying the
+  # calls, rather than a guess.
+  #
+  # Minutes after the offer goes out. Evenly every ten minutes — a technician on a job
+  # cannot check a phone on someone else's schedule, and an uneven gap only makes the
+  # nudges harder to predict, not easier to notice.
+  reminder_minutes: [10, 20, 30]
+  # After the last one, stop. A bot that keeps asking is a bot that gets muted, and a
+  # muted bot misses the next job too. The offer is flagged for the office instead.
+  give_up_after_last_reminder: true
+
+# ---------------------------- Job sizing --------------------------------
+job_sizing:
+  currency: "CAD"
+  large_job_threshold: 1000          # >= 1000 is a large job / project
+  small_job_description: "Estimated repair total below CAD 1,000"
+  # "installation" on its own used to be in this list, and it caught "install a faucet" —
+  # a customer wanting a tap fitted was told it was a larger project, asked for photographs
+  # and handed to a person, instead of being given a time. The specific installations that
+  # really are large are named individually below, which is what that word was reaching
+  # for. Fitting or swapping a fixture is a small job: the technician prices it on site,
+  # the same as any other repair.
+  large_job_description: >-
+    Estimated at CAD 1,000 or above, or involving remodelling, renovation, complex leak
+    detection, extensive pipework, new builds, boiler or heat pump installation, water
+    main or sewer work, or commercial projects. Fitting a tap, a toilet, a waste disposal
+    unit or similar is not a large job.
+  # Ask once for more detail. If that does not settle it, it is a small job — no
+  # exceptions, and no second round of questions. A customer who says "I don't know"
+  # does not know, and every extra round is a turn spent owing them a cost we cannot
+  # yet state. The technician sizes it properly on site.
+  unknown_policy: >-
+    Ask once for more detail; if the scope still cannot be judged, treat it as a
+    small job and hand off to small_job
+
+# ---------------------------- Emergency dispatch ------------------------
+emergency_dispatch:
+  technician_call_interval_minutes: 10   # One calling round every 10 minutes
+  max_call_rounds: 6                     # At most 6 rounds
+  max_search_window_minutes: 60          # Search window capped at 1 hour
+  deposit_required_before_dispatch: true # No dispatch before the deposit clears
+  # The cut-off for an automatic refund is the moment the customer is told a technician
+  # is coming — not some later internal status. A technician who accepts an emergency call
+  # sets off straight away, so by the time that text lands they are already on the road.
+  refund_rules:
+    before_dispatch_confirmed: "auto_refund"        # Agent refunds the deposit automatically
+    after_dispatch_confirmed: "supervisor_review"   # No auto-refund; must escalate
+    cut_off: "The emergency confirmation message being sent to the customer"
+
+# ---------------------------- Things that are free -----------------------
+# Zero is a price. Every one of these was stated in a prompt and nowhere else, so a
+# decision to start charging would have had to be found by reading five prompts.
+no_charge:
+  warranty_visit: true          # A warranty visit carries no call-out fee and no charge
+  quote: true                   # Quoting a large project is free
+  reschedule: true              # Moving a standard appointment costs nothing
+  cancellation: true            # Cancelling a standard appointment costs nothing
+
+# ---------------------------- Warranty ----------------------------------
+warranty:
+  period_months: 12                      # One year workmanship warranty
+  excluded_services:                     # Service types with no 1-year warranty
+    - id: "drain_cleaning"
+      name: "Drain cleaning / snaking"
+  eligibility_checks:
+    - "The original job was completed"
+    - "Still within the 1-year warranty period"
+    - "Current address matches the original service address"
+    - "Current problem relates to the original work"
+    - "The original job was not a drain cleaning service"
+  covers: "Workmanship. Manufacturer defects on supplied equipment follow the
+           manufacturer's own warranty."
+
+# ---------------------------- Quote follow-up ---------------------------
+quote_followup:
+  reminders_hours: [24, 48, 72]
+  final_status_if_no_reply: "Quote awaiting follow-up / no reply"
+  send_thanks_on_no_reply: false
+
+# ---------------------------- Service areas -----------------------------
+# Metro Vancouver. Postal prefixes are the first three characters of a BC postal code.
+service_areas:
+  - { id: "vancouver", name: "Vancouver", postal_prefixes: ["V5K", "V5L", "V5M", "V5N", "V5P", "V5R", "V5S", "V5T", "V5V", "V5W", "V5X", "V5Y", "V5Z", "V6A", "V6B", "V6C", "V6E", "V6G", "V6H", "V6J", "V6K", "V6L", "V6M", "V6N", "V6P", "V6R", "V6S", "V6T", "V6Z"] }
+  - { id: "richmond", name: "Richmond", postal_prefixes: ["V6V", "V6W", "V6X", "V6Y", "V7A", "V7B", "V7C", "V7E"] }
+  - { id: "burnaby", name: "Burnaby", postal_prefixes: ["V3J", "V3N", "V5A", "V5B", "V5C", "V5E", "V5G", "V5H", "V5J"] }
+  - { id: "surrey", name: "Surrey", postal_prefixes: ["V3R", "V3S", "V3T", "V3V", "V3W", "V3X", "V3Z", "V4A", "V4N", "V4P"] }
+  - { id: "coquitlam", name: "Coquitlam / Port Coquitlam", postal_prefixes: ["V3B", "V3C", "V3E", "V3K"] }
+  - { id: "north_shore", name: "North & West Vancouver", postal_prefixes: ["V7G", "V7H", "V7J", "V7K", "V7L", "V7M", "V7N", "V7P", "V7R", "V7S", "V7T", "V7V", "V7W"] }
+
+# ---------------------------- Safety ------------------------------------
+safety:
+  advisories:
+    - trigger: "Major leak or burst pipe"
+      advice: >-
+        Please shut off your main water valve immediately and stay away from any
+        electrical appliances or outlets that the water may reach.
+    - trigger: "Sewage backup"
+      advice: >-
+        Please avoid contact with the sewage and keep children and pets away from
+        the affected area.
+  emergency_services_referral:
+    triggers: ["gas smell", "fire risk", "electrical shock risk", "risk of injury"]
+    advice: >-
+      Please leave the building and contact local emergency services (911) and
+      FortisBC's 24-hour emergency line immediately. Do not wait for our dispatch,
+      and do not operate light switches or anything electrical on your way out.
+    note: >-
+      The agent must not make technical judgements or give safety assurances about
+      gas, electrical or personal-safety hazards.
+
+# ---------------------------- Escalation --------------------------------
+escalation:
+  triggers:
+    - "Customer complaint"
+    - "Customer disputes the call-out fee"
+    - "Customer challenges the quote"
+    - "Customer demands an additional refund"
+    - "Technician cannot complete the job"
+    - "Dispute over damage caused by the service"
+    - "On-site safety incident"
+    # A declined card or a deposit that has not landed yet is ordinary and belongs to the
+    # agent running that payment step. Escalate only once money has actually moved wrongly,
+    # or once our own tools have been tried and it still cannot be completed.
+    - "Duplicate charge, failed refund, or a payment our tools cannot complete"
+    - "Cancellation refund after the emergency confirmation message has been sent"
+    - "Customer disputes a warranty decision"
+  ai_must_not:
+    - "Accept liability, promise compensation, or issue a refund outside the rules"
+    - "Make the final call in place of a supervisor"

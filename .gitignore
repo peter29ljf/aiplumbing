@@ -10,3 +10,7 @@ runs/*/
 runs/live.json
 .claude/
 flow/runs/
+
+# Harness reports carry whole transcripts. Same reason flow/runs is ignored.
+business-agent-template/bat/projects/*/runs/
+business-agent-template/bat/projects/*/spend.jsonl
