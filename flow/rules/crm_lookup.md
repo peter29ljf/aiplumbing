@@ -18,18 +18,18 @@ Four ways out, and they are read in this order:
 **The missing number decides first.** Without one there is nothing to look a booking up by
 either, so no other way out can be taken.
 
-**`booking_change` is narrow, and it is the one that gets taken by mistake.** It means an
-arrangement that exists — a day and a time somebody already agreed — which they now want
-different or gone. Nothing else is it:
+**`existing` and `booking_change` are not two answers to the same question.** Nearly
+everybody moving an appointment is somebody we know, so "we have worked for them before"
+is true of them and settles nothing. **If they have mentioned a visit that is already
+arranged and want it changed or cancelled, that is `booking_change`, and being on file
+does not make it `existing`.** This is the mistake that keeps happening: a customer says
+"move my Friday appointment", we recognise the number, and they get asked whether their
+problem is under warranty.
 
-- "when can somebody come out?" — they have no visit yet. `new` or `existing`.
-- "can you book me in?" — the same. Being asked to make an appointment is not being asked
-  to change one.
+It does need a visit that exists. These are not it:
+
+- "when can somebody come out?" / "can you book me in?" — they have no visit yet.
 - "your man came last week and it has failed" — that visit is over. `existing`.
-
-If they have not referred to an appointment that already exists, it is not this. Sent here
-wrongly, somebody who wanted a plumber gets told a technician will confirm a change to a
-visit that was never arranged, and the conversation ends with nothing booked.
 
 **Somebody who says we have worked for them is `existing`, whatever the lookup says.**
 They may have moved, or booked under a partner's number, or we may simply have kept the
