@@ -20,6 +20,18 @@ Handler = Callable[..., Any]
 _TOOLS: dict[str, dict[str, Any]] = {}
 
 
+class NoToolsRegistered(Exception):
+    """A file in a project's tools/ that defined nothing the registry can see.
+
+    Worth its own error because of how it presents otherwise: the graph then fails with
+    "wants the tool 'x', which does not exist", which reads like a typo in flow.yaml and
+    sends whoever wrote it to the wrong file. A generated project once wrote six modules
+    in tools/ trying to work out why, and the answer was a missing decorator.
+
+    A genuine helper module belongs in `_something.py` — the loader skips those.
+    """
+
+
 
 def tool(name: str, description: str, properties: dict[str, Any],
          required: list[str] | None = None,
@@ -134,6 +146,7 @@ def load_tools(project: Any = None) -> set[str]:
     import importlib
     import importlib.util
 
+    complaints: list[str] = []
     importlib.import_module("bat.presets.tools.service")
 
     if project is not None and project.tools_dir.exists():
@@ -144,5 +157,19 @@ def load_tools(project: Any = None) -> set[str]:
                 f"bat_project_{project.name}_{module_path.stem}", module_path)
             if spec and spec.loader:
                 module = importlib.util.module_from_spec(spec)
+                before = set(_TOOLS)
                 spec.loader.exec_module(module)
+                if set(_TOOLS) == before:
+                    # A file in tools/ that registered nothing. Almost always a plain
+                    # function somebody expected to be a tool — which then fails
+                    # validation as "that tool does not exist", reads like a typo, and
+                    # sends whoever wrote it looking in flow.yaml. Say it where it
+                    # happened.
+                    complaints.append(
+                        f"{module_path.name} registered no tools. A function in tools/ "
+                        f"only becomes one with the @tool decorator from "
+                        f"bat.runtime.registry."
+                    )
+    if complaints:
+        raise NoToolsRegistered("\n  - ".join(["", *complaints]))
     return names()

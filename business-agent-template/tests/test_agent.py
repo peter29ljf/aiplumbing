@@ -189,3 +189,33 @@ def test_listing_the_kit_does_not_crash_on_paths_outside_the_project(project: Pa
     listed = agent._do(project, "list_files", {"path": str(kit)}, "test", ROOT, (kit,))
 
     assert "service.py" in listed
+
+
+# ---- a tool module that registers nothing --------------------------------
+
+
+def test_a_tools_file_with_no_decorator_says_what_is_wrong(tmp_path: Path):
+    """It presents as "wants the tool 'x', which does not exist" — which reads like a typo
+    in flow.yaml and sends you to the wrong file. A generated project wrote six modules in
+    tools/ trying to work out why, and the answer was a missing decorator."""
+    from bat.runtime import registry
+    from bat.runtime.project import Project
+
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "mine.py").write_text(
+        "def do_something(ticket):\n    return {'ok': True}\n")
+
+    with pytest.raises(registry.NoToolsRegistered, match="@tool decorator"):
+        registry.load_tools(Project(tmp_path))
+
+
+def test_a_helper_module_is_left_alone(tmp_path: Path):
+    """Underscore-prefixed files are skipped, so a project can keep shared code in tools/
+    without it being mistaken for a tool that failed to register."""
+    from bat.runtime import registry
+    from bat.runtime.project import Project
+
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "_shared.py").write_text("WORDS = 'hello'\n")
+
+    assert registry.load_tools(Project(tmp_path))       # the kit's, and no complaint

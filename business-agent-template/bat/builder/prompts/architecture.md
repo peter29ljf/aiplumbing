@@ -82,6 +82,53 @@ comes back" is followed more reliably when it is followed by "ask for it alongsi
 messages and you are writing them before you know who is going — and a name invented to
 fill the gap is one the customer repeats back to somebody who has never heard it."
 
+## Tools
+
+A node can only name a tool that exists. Most of what a service business needs is in the
+kit already — read `bat/presets/tools/service.py` before writing anything, because a tool
+that is nearly the same as one you have is two tools to maintain and one of them will
+drift.
+
+When the business genuinely needs one the kit does not have, it goes in `tools/<name>.py`
+in the project, and it looks like this:
+
+```python
+from bat.runtime.registry import Refused, _ticket, tool
+from bat.runtime.world import AnyWorld
+
+
+@tool(
+    "consultant.assign",                       # the name flow.yaml uses
+    "Route an enquiry to the consultant who covers that part of the world. Returns who "
+    "it went to, so the reply can name them.",
+    {"ticket_id": {"type": "string"},
+     "destination": {"type": "string", "description": "Country or region"}},
+    remembers=("consultant", "consultant_id"),  # copied to the ticket by the engine
+)
+def consultant_assign(world: AnyWorld, ticket_id: str, destination: str) -> dict:
+    ticket = _ticket(world, ticket_id)          # raises Refused if the id is wrong
+    ...
+    return {"assigned": True, "consultant": "Sam", "consultant_id": "c_sam"}
+```
+
+Four things that are not optional and are each a real failure if left out:
+
+1. **The `@tool` decorator.** A plain function in that directory is not a tool — nothing
+   registers it, and `flow.yaml` naming it fails validation with "that tool does not
+   exist", which reads like a typo and is not one.
+2. **The description is what the model reads.** It is the only thing standing between a
+   tool and being called at the wrong moment. Say what it returns, not just what it does.
+3. **`remembers` names the facts that outlive the step.** The engine copies them onto the
+   ticket without the model being asked. Anything the next node needs belongs here, and
+   putting it here is far more reliable than telling a rules file to write it down.
+4. **Raise `Refused` for something you cannot act on**, with what the caller should have
+   said instead. It comes back as an answer, not a crash, and the model corrects itself.
+
+Everything that reaches outside the process goes through a method on `world`, never
+directly — `world.send_sms`, `world.notify_technician`. That is what lets the same tool run
+against the simulator and against a live backend, and it is the reason these are testable
+at all.
+
 ## What never goes in a rules file
 
 - **A figure.** Prices, durations, periods come from a tool, in that conversation, or they
