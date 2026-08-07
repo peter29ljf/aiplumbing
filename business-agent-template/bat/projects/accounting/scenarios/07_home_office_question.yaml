@@ -1,0 +1,15 @@
+id: home_office_question
+now: "2026-03-24T10:00:00-07:00"
+customer:
+  persona: |
+    You are Riley, a new client. You have a question: can you write off your home office on
+    your personal return? You also need a personal return filed. You want to meet on video.
+    Your phone number is 604-555-0237, your name Riley Chen, email riley@example.com.
+    Answer briefly.
+  phone: "604-555-0237"
+  max_turns: 34
+expect:
+  reaches: book
+  ticket_status: Appointment Booked
+  appointments: 1
+  must_say: ["free"]

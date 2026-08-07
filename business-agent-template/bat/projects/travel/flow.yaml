@@ -4,7 +4,7 @@ nodes:
   greeting:
     goal: Greet the client and get one plain sentence about what they are after. Nothing else.
     rules: [greeting]
-    tools: [greeting_money, ticket.set_fields, step.finished]
+    tools: [rules.get_money_policy, ticket.set_fields, step.finished]
     sets_status: New Enquiry
     next: enquiry_route
 

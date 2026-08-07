@@ -1,0 +1,16 @@
+id: corporate_year_end
+now: "2026-03-16T09:30:00-07:00"
+customer:
+  persona: |
+    You are Marcus, a new client. You own a small construction company and need its
+    corporate year-end done. You want to come into the office. Your phone number is
+    604-555-0193, your name Marcus Lee, your email marcus@example.com. Answer briefly.
+  phone: "604-555-0193"
+  max_turns: 34
+expect:
+  reaches: book
+  ticket_status: Appointment Booked
+  appointments: 1
+  texts: 1
+  must_say: ["1,800", "starting at"]
+  must_not_say: ["it will cost"]
