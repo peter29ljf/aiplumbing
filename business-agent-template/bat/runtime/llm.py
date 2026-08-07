@@ -118,6 +118,10 @@ class LLM:
         provider = active_provider(self.cfg)
         self.provider_name = self.cfg.get("active", "provider")
         self._default_model = provider.get("model")
+        # A role may name a different provider, and one does: the simulated customer runs
+        # on another family from the agent under test. A model judging conversations with
+        # a sibling of itself is a bias nobody can rule out from inside the run.
+        self._clients: dict[str, tuple[Any, str, dict[str, Any]]] = {}
 
         key_env = provider.get("api_key_env", "DEEPSEEK_API_KEY")
         api_key = os.environ.get(key_env)
@@ -164,6 +168,49 @@ class LLM:
             )
         return settings
 
+    def for_role(self, role: str) -> tuple[Any, str, dict[str, Any]]:
+        """The client, model and extra_body a role should be called with.
+
+        Almost always the active provider's. A role naming `provider:` gets its own
+        client, built once and kept — which is what lets the customer simulator run on a
+        different family from the agent it is testing.
+        """
+        settings = self.role_settings(role)
+        # The raw block, because `role_settings` has already filled in the active
+        # provider's model as a default — after which "did this role name a model" cannot
+        # be answered, and a role on another provider would call that provider's endpoint
+        # with a model it has never heard of.
+        declared = (self.cfg.get("roles") or {}).get(role) or {}
+        named = declared.get("provider")
+        if not named:
+            return self.client, settings["model"], self._extra_body
+
+        if named not in self._clients:
+            providers = self.cfg.get("providers") or {}
+            if named not in providers:
+                raise LLMError(
+                    f"Role '{role}' names provider '{named}', which is not one of "
+                    f"{sorted(providers)}"
+                )
+            block = providers[named]
+            key_env = block.get("api_key_env", "DEEPSEEK_API_KEY")
+            api_key = os.environ.get(key_env)
+            if not api_key:
+                raise LLMError(
+                    f"Role '{role}' needs provider '{named}', whose key {key_env} is not "
+                    f"set. Fill it in .env, or drop the `provider:` line from that role."
+                )
+            url_env = block.get("base_url_env") or key_env.replace("_API_KEY", "_BASE_URL")
+            self._clients[named] = (
+                OpenAI(api_key=api_key,
+                       base_url=os.environ.get(url_env) or block["base_url"],
+                       timeout=block.get("timeout_seconds", 120), max_retries=0),
+                declared.get("model") or block.get("model"),
+                dict(block.get("extra_body") or {}),
+            )
+        client, model, extra = self._clients[named]
+        return client, model, extra
+
     def limit(self, name: str, default: int) -> int:
         return int(self.cfg.get("limits", {}).get(name, default))
 
@@ -178,8 +225,9 @@ class LLM:
     ) -> Any:
         """Call chat completions and return the message. Retries with exponential backoff."""
         settings = self.role_settings(role)
+        client, model, provider_extra = self.for_role(role)
         kwargs: dict[str, Any] = {
-            "model": settings["model"],
+            "model": model,
             "messages": messages,
             "temperature": settings.get("temperature", 0.3),
             "max_tokens": settings.get("max_tokens", 2000),
@@ -197,7 +245,7 @@ class LLM:
             kwargs["tool_choice"] = tool_choice or "auto"
         if response_format:
             kwargs["response_format"] = response_format
-        extra_body = {**self._extra_body, **(settings.get("extra_body") or {})}
+        extra_body = {**provider_extra, **(settings.get("extra_body") or {})}
         if extra_body:
             kwargs["extra_body"] = extra_body
 
@@ -209,7 +257,7 @@ class LLM:
         last_error: Exception | None = None
         for attempt in range(retries + 1):
             try:
-                response = self.client.chat.completions.create(**kwargs)
+                response = client.chat.completions.create(**kwargs)
             except Exception as exc:  # noqa: BLE001 - back off on network and rate-limit errors
                 last_error = exc
                 if attempt >= retries or _is_fatal(exc):

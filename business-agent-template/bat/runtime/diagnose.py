@@ -94,50 +94,97 @@ def diagnose(result: Any, flow: Flow) -> list[Verdict]:
     return unique
 
 
-# Things only a later step can do, and the words that claim them.
-# The wordings a node reaches for when it describes the next step's work as done. Widened
-# after `offer_options` said "your scheduled visit is set for today at 11:00" — which is a
-# booking announced by a step that only lists what is free, and reads to a customer exactly
-# like a confirmation.
-CLAIMS = {
-    "booked": ("calendar.create_appointment",),
-    "is set for": ("calendar.create_appointment",),
-    "you're all set": ("calendar.create_appointment",),
-    "you are all set": ("calendar.create_appointment",),
-    "i've put you down": ("calendar.create_appointment",),
-    # `offer_options` answered "Normal appointment at 11:00 AM today it is, Nadia" and the
-    # customer, reasonably, stopped talking. A time repeated back as settled is a booking,
-    # whatever grammar it arrives in.
-    "it is,": ("calendar.create_appointment",),
-    "i've sent": ("sms.send", "escalate.raise"),
-    # `technician.notify` too: `appointment_change` genuinely passes work to a person and
-    # has no escalate.raise, so listing only the one called this a fault when it was not.
-    "i've passed": ("escalate.raise", "technician.notify"),
+# What a sentence claims, and what the world would look like if it were true.
+#
+# This used to be a substring table checked against the node's tool list — "does this step
+# say 'booked', and does it lack calendar.create_appointment". It was wrong twice over.
+#
+# It reported a step that said "I won't say you're booked just yet, because that
+# confirmation happens in the next step" — careful and correct — as having lied, because
+# the sentence contained the word. The same mistake `must_not_say` made with "refund" and
+# with "scrub", in the detector that is supposed to catch that mistake.
+#
+# And it could not see the failure that actually matters: a step that *has* the tool,
+# does not call it, and says the work is done. That is the commonest agent failure there
+# is — 45-48% of failures in tau2-bench are a claim of success the state does not
+# support, and LLM judges top out at 0.65 AUROC on it precisely because they read the
+# same surface the agent wrote.
+#
+# So the wording is only a trigger. The judgement is whether the world changed.
+ASSERTS = {
+    "appointment": (
+        r"\b(?:that's|thats|you're|youre|it's|its|i've|ive)\s+booked\b",
+        r"\bis (?:now )?(?:booked|confirmed)\b",
+        r"\b(?:set|scheduled) for\b",
+        r"\byou(?:'re| are) all set\b",
+        r"\bi've put you down\b",
+        # "Normal appointment at 11:00 today it is, Nadia" — a time repeated back as
+        # settled is a booking, whatever grammar it arrives in.
+        r"\d\s*(?:am|pm|o'clock)?[^.!?]{0,20}\bit is\b",
+    ),
+    "message": (r"\bi've (?:sent|texted|emailed)\b", r"\bhas been sent\b"),
+    "handover": (r"\bi've (?:passed|escalated|handed)\b",
+                 r"\bhas been (?:passed|escalated)\b"),
+}
+
+# A sentence that says the thing has *not* happened is not a claim that it has. Checked
+# first, because it is the single guard that separates a careful step from a lying one.
+HEDGED = (
+    r"\bwon't say\b", r"\bnot yet\b", r"\bcan't\b", r"\bcannot\b", r"\bisn't\b",
+    r"\bnothing is\b", r"\bwould you like\b", r"\bglad to\b", r"\bhappy to\b",
+    r"\bi'?m the\b", r"\bbefore (?:i|we)\b", r"\bonce (?:i|we|you)\b",
+)
+
+# What has to have changed in the world for the claim to be true.
+WHAT_CHANGED = {
+    "appointment": ("appointments",),
+    "message": ("texts", "emails"),
+    "handover": ("escalations", "technician_messages"),
 }
 
 
-def _spoke_out_of_turn(result: Any, flow: Flow) -> list[Verdict]:
-    """Claims made from a node that has no tool to back them."""
-    found = []
-    said_in: dict[str, list[str]] = {}
-    turn_nodes = [s.node for s in result.steps if s.said]
-    agent_lines = [text for who, text in result.transcript if who == "agent" and text]
-    for node_name, line in zip(turn_nodes, agent_lines):
-        said_in.setdefault(node_name, []).append(line.lower())
+def _asserted(line: str) -> set[str]:
+    """Which completions this sentence claims. Empty if it hedges."""
+    import re
 
-    for node_name, lines in said_in.items():
-        node = flow.nodes.get(node_name)
-        if node is None:
+    lowered = line.lower()
+    if any(re.search(pattern, lowered) for pattern in HEDGED):
+        return set()
+    return {kind for kind, patterns in ASSERTS.items()
+            if any(re.search(pattern, lowered) for pattern in patterns)}
+
+
+def _spoke_out_of_turn(result: Any, flow: Flow) -> list[Verdict]:
+    """Claims the world does not bear out.
+
+    Read off the step that said them. The old pairing zipped the speaking steps against
+    the transcript's agent lines, which holds only while one step means one line — and a
+    turn that joins a step's parting words to the next step's answer breaks it silently,
+    after which the wrong node is blamed. Blaming the wrong node is worse than not
+    looking.
+    """
+    found: list[Verdict] = []
+    seen: set[tuple[str, str]] = set()
+
+    for step in getattr(result, "steps", []):
+        text = getattr(step, "text", "")
+        if not text or step.node not in flow.nodes:
             continue
-        for phrase, needs in CLAIMS.items():
-            if any(phrase in line for line in lines) and not set(needs) & set(node.tools):
-                found.append(Verdict(
-                    MODEL,
-                    f"said {phrase!r} from a node with no {needs[0]} — the customer "
-                    f"believes it and the step that would have done it never runs",
-                    node_name,
-                ))
-                break
+        delta = getattr(step, "delta", None) or {}
+
+        for kind in _asserted(text):
+            if any(delta.get(key) for key in WHAT_CHANGED[kind]):
+                continue                      # it said so and it happened
+            if (step.node, kind) in seen:
+                continue
+            seen.add((step.node, kind))
+            found.append(Verdict(
+                MODEL,
+                f"said the {kind} was done and nothing in the world changed — the "
+                f"customer believes it, stops talking, and the step that would have done "
+                f"it never runs",
+                step.node,
+            ))
     return found
 
 

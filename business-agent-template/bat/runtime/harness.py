@@ -137,7 +137,16 @@ def run_one(path: Path, llm_factory, project: projects.Project) -> Result:
         said = (reply.content or "").strip()
         history.append({"role": "assistant", "content": said})
         if said.upper().startswith("DONE"):
-            break
+            # Checked against the world, not against what they were told. The brief ends
+            # the conversation on wording — "a technician will come back to you about a
+            # price" — and that sentence is a mid-flow pleasantry in half these graphs. A
+            # simulated customer who leaves on it produces a scenario that failed for
+            # having been abandoned, reported as the agent never finishing.
+            if _anything_happened(world):
+                break
+            said = ("Sorry — nothing has actually been arranged yet as far as I can "
+                    "tell. What happens next?")
+            history.append({"role": "assistant", "content": said})
 
     _afterwards(spec, world)
     result.seconds = round(time.monotonic() - began, 1)
@@ -153,6 +162,20 @@ def run_one(path: Path, llm_factory, project: projects.Project) -> Result:
 
         result.verdicts = diagnose(result, talk.flow)
     return result
+
+
+def _anything_happened(world: World) -> bool:
+    """Did this conversation leave a mark anybody could act on?
+
+    A booking, a message, a handover, or a ticket that moved. Deliberately generous — the
+    question is "was this conversation real", not "was it right"; whether it was right is
+    what `expect` is for.
+    """
+    snapshot = world.snapshot()
+    if any(snapshot.get(key) for key in
+           ("appointments", "texts", "emails", "technician_messages", "escalations")):
+        return True
+    return any(ticket.get("history") for ticket in (snapshot.get("tickets") or {}).values())
 
 
 def _lines_from(result: Result, node_name: str) -> list[str]:

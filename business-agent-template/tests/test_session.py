@@ -218,3 +218,56 @@ def test_the_verdict_reads_the_report_that_run_wrote(tmp_path, monkeypatch):
 
     assert rate == 0.5          # its own report, not the newer one that says 100%
     assert faults == 0
+
+
+# ---- who answers for which role ------------------------------------------
+
+
+def test_a_role_can_run_on_a_different_provider(monkeypatch):
+    """The simulated customer runs on another family from the agent under test. A model
+    judging conversations with a sibling of itself is a bias nobody can rule out from
+    inside the run, and the measured cost of getting it wrong is large — unconstrained
+    simulators match real users' style 6-8% of the time."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "x")
+    monkeypatch.setenv("QWEN_API_KEY", "y")
+
+    from bat.runtime.llm import LLM
+
+    llm = LLM({
+        "active": "one",
+        "providers": {
+            "one": {"base_url": "https://one.example", "api_key_env": "DEEPSEEK_API_KEY",
+                    "model": "model-one"},
+            "two": {"base_url": "https://two.example", "api_key_env": "QWEN_API_KEY",
+                    "model": "model-two"},
+        },
+        "roles": {"agent": {}, "customer": {"provider": "two"}},
+    })
+
+    agent_client, agent_model, _ = llm.for_role("agent")
+    customer_client, customer_model, _ = llm.for_role("customer")
+
+    assert agent_model == "model-one"
+    # The role's provider must bring its own model. `role_settings` fills the active
+    # provider's model in as a default, and taking that would call one endpoint with
+    # another's model name.
+    assert customer_model == "model-two"
+    assert str(agent_client.base_url) != str(customer_client.base_url)
+
+
+def test_a_role_naming_a_provider_nobody_configured_says_so(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "x")
+
+    import pytest as _pytest
+
+    from bat.runtime.llm import LLM, LLMError
+
+    llm = LLM({
+        "active": "one",
+        "providers": {"one": {"base_url": "https://one.example",
+                              "api_key_env": "DEEPSEEK_API_KEY", "model": "m"}},
+        "roles": {"customer": {"provider": "nowhere"}},
+    })
+
+    with _pytest.raises(LLMError, match="nowhere"):
+        llm.for_role("customer")

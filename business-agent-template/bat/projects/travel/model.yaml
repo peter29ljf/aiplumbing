@@ -89,7 +89,14 @@ roles:
     extra_body: { enable_thinking: true }
     temperature: 0.3
     max_tokens: 2000
+  # A different family from the one under test, on purpose. Both were DeepSeek, and a
+  # model judging conversations with a sibling of itself is a bias nobody can rule out
+  # from inside the run. The measured cost of getting this wrong is large: unconstrained
+  # simulators match real users' style 6-8% of the time, and grounding them drops
+  # tau-bench success by 3.5% on average by exposing failures a cooperative simulator
+  # never triggers.
   customer:                               # Simulated customer
+    provider: qwen
     temperature: 0.9                      # High temperature -> varied wording, real pressure-testing
     max_tokens: 500
   technician:                             # Simulated technician (on-site staff)

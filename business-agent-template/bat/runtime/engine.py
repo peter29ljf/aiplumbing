@@ -36,6 +36,26 @@ MAX_CALLS_PER_TURN = 8
 #
 MAX_NODES_PER_TURN = 4
 
+# The parts of a world snapshot a claim can be checked against. Counted before and after
+# each model call, so "it said it booked something" can be answered with "did an
+# appointment appear", which is a question about the world rather than about wording.
+COUNTED = ("appointments", "texts", "emails", "technician_messages", "escalations",
+           "followups")
+
+
+def _tally(world: Any) -> dict[str, int]:
+    snapshot = world.snapshot()
+    counts = {key: len(snapshot.get(key) or ()) for key in COUNTED}
+    # Status moves too: a ticket walking to a new state is a change somebody may claim.
+    counts["status_moves"] = sum(len(t.get("history") or ())
+                                 for t in (snapshot.get("tickets") or {}).values())
+    return counts
+
+
+def _changed(before: dict[str, int], after: dict[str, int]) -> dict[str, int]:
+    return {key: after[key] - before[key] for key in after if after[key] > before.get(key, 0)}
+
+
 NOTHING_SAID = (
     "[system] You did not say anything to the customer. Reply in plain text now."
 )
@@ -57,6 +77,18 @@ class Step:
     offered: list[str] = field(default_factory=list)
     said: bool = False
     refusals: list[str] = field(default_factory=list)
+    # What this step actually said, and what changed in the world while it said it.
+    #
+    # `text` because the alternative was zipping the speaking steps against the
+    # transcript's agent lines and trusting them to stay in step. They do until one turn
+    # joins a step's parting words to the next step's answer — one line for two speaking
+    # steps — after which every pairing is silently wrong and the wrong node gets blamed.
+    #
+    # `delta` because "did it claim something that did not happen" is a question about the
+    # world, not about wording. Judged from words, a step saying "I won't say you're
+    # booked just yet" was reported as claiming a booking.
+    text: str = ""
+    delta: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -138,6 +170,7 @@ class Conversation:
 
         for _ in range(MAX_CALLS_PER_TURN):
             began = time.monotonic()
+            before = _tally(self.world)
             offered = sim_tools.schemas_for(node.tools,
                                              outcomes=node.choices or ("done",))
             message = self.llm.chat("agent", messages, tools=offered or None)
@@ -148,6 +181,7 @@ class Conversation:
                 tools=[c.function.name for c in calls],
                 offered=[t["function"]["name"] for t in (offered or [])],
                 said=bool((message.content or "").strip()),
+                text=(message.content or "").strip(),
             )
             turn.steps.append(step)
 
@@ -177,6 +211,8 @@ class Conversation:
                         step.refusals.append(f"{call.function.name}: {result['error']}")
                 messages.append({"role": "tool", "tool_call_id": call.id,
                                  "content": json.dumps(result, default=str)})
+
+            step.delta = _changed(before, _tally(self.world))
 
             if outcome is not None:
                 said = (message.content or "").strip()
