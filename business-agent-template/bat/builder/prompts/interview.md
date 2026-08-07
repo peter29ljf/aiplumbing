@@ -21,7 +21,13 @@ Work down this list. Skip anything the flowchart already answers.
 6. **On-site or in-store.** Does somebody go out to the customer, or does the customer come
    in? This changes what an appointment means: a travelling person's diary, or a room and a
    chair, and it decides which half of the tool kit is even relevant.
-7. **What happens after.** Who confirms a job is done, and what closes the ticket?
+7. **Is the person writing always the person the work is for?** A parent about a child, an
+   adult child about a parent, an office manager about a colleague. If it can be somebody
+   else, then every fact that decides something — an age, an address, a policy number —
+   has to be recorded about the *right* person, and the step that asks has to know that.
+   A generated dental practice took the caller's date of birth, read 1985 at the age
+   check, and booked a twelve-year-old into an adults-only practice.
+8. **What happens after.** Who confirms a job is done, and what closes the ticket?
 
 ## Two things to be careful about
 
