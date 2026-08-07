@@ -83,6 +83,19 @@ def load(project: Project | str | Path, *, known_tools: set[str] | None = None) 
     if not entry:
         raise BrokenFlow("flow.yaml has no `entry`, so there is nowhere to start.")
     if not node_specs:
+        # Say what was found instead. A generated project wrote every node at the top
+        # level with no `nodes:` wrapper, and "flow.yaml has no `nodes`" reads like the
+        # file is empty — so three builds went looking for the wrong thing entirely.
+        looks_like = [key for key, value in raw.items()
+                      if key != "entry" and isinstance(value, dict)
+                      and ("goal" in value or "tools" in value)]
+        if looks_like:
+            raise BrokenFlow(
+                f"flow.yaml has no `nodes:` key, but {len(looks_like)} top-level entries "
+                f"look like nodes ({', '.join(looks_like[:4])}"
+                f"{'...' if len(looks_like) > 4 else ''}). They all need to sit under a "
+                f"single `nodes:` key, indented beneath it."
+            )
         raise BrokenFlow("flow.yaml has no `nodes`.")
 
     nodes: dict[str, Node] = {}

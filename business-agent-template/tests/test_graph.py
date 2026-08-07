@@ -195,3 +195,17 @@ def test_no_node_carries_more_than_a_handful_of_tools():
 
     for node in flow.nodes.values():
         assert len(node.tools) <= 6, f"{node.name} has {len(node.tools)}"
+
+
+def test_nodes_written_at_the_top_level_are_named_as_such(tmp_path: Path):
+    """A generated project wrote every node at the top level with no `nodes:` wrapper.
+    "flow.yaml has no `nodes`" reads like the file is empty, and three builds went looking
+    for the wrong thing — one of them for an architectural limitation that was not there."""
+    (tmp_path / "flow.yaml").write_text(yaml.safe_dump({
+        "entry": "greeting",
+        "greeting": {"goal": "Say hello.", "tools": ["a.one"], "sets_status": "New"},
+        "route": {"goal": "Decide.", "tools": ["a.two"], "sets_status": "New"},
+    }))
+
+    with pytest.raises(BrokenFlow, match="look like nodes"):
+        load(Project(tmp_path), known_tools=TOOLS)
