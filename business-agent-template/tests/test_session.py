@@ -188,3 +188,33 @@ def test_an_empty_account_says_so_rather_than_saying_broken(tmp_path, monkeypatc
     assert build.waiting == session.NO_CREDIT
     assert "top it up" in build.note
     assert session.load("dental").session_id == build.session_id   # kept, so --resume works
+
+
+def test_the_verdict_reads_the_report_that_run_wrote(tmp_path, monkeypatch):
+    """`runs/` is written by the builder's own spot checks as well as by the full suite,
+    and one of those was newer. A project with fifteen scenarios was declared usable on a
+    three-scenario report — the instrument lying about the product, which is the first
+    thing METHOD warns about."""
+    import json as _json
+
+    from bat.builder import __main__ as cli
+
+    mine = tmp_path / "20260101-000000.json"
+    mine.write_text(_json.dumps([{"id": "a", "passed": True, "verdicts": []},
+                                 {"id": "b", "passed": False, "verdicts": []}]))
+    newer = tmp_path / "20260101-000001.json"      # a spot check, written later
+    newer.write_text(_json.dumps([{"id": "a", "passed": True, "verdicts": []}]))
+
+    class Done:
+        stdout = f"1/2 passed\nfull record: {mine}\n"
+        stderr = ""
+
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: Done())
+    monkeypatch.setattr(cli.projects, "find",
+                        lambda name: type("P", (), {"harness": lambda self: {},
+                                                    "runs_dir": tmp_path})())
+
+    _, rate, faults = cli._harness("x")
+
+    assert rate == 0.5          # its own report, not the newer one that says 100%
+    assert faults == 0

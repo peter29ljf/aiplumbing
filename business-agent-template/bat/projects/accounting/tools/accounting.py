@@ -44,6 +44,14 @@ _BC_HOLIDAYS_MONTH_DAY = {
 }
 
 
+def _cpas(world: AnyWorld):
+    """The CPA technicians. The bookkeeper is excluded by name — the invariant that the
+    agent can never assign the bookkeeper lives here, not in prose."""
+    techs = list(world.technicians.values())
+    cpas = [t for t in techs if "CPA" in getattr(t, "name", "") or "CPA" in str(getattr(t, "role", ""))]
+    return cpas or techs
+
+
 def _is_open(world: AnyWorld, when: datetime) -> bool:
     """Is this moment inside the firm's opening hours?"""
     rules = world.rules
@@ -121,7 +129,7 @@ def rules_get_fees(world: AnyWorld) -> dict[str, Any]:
     rules = world.rules
     p = rules["pricing"]
     return {
-        "currency": rules["firm"]["currency"],
+        "currency": rules["company"]["currency"],
         "personal": {
             "simple": p["personal_return"]["simple"],
             "rental_or_selfemployment": p["personal_return"]["rental_or_selfemployment"],
@@ -227,9 +235,7 @@ def rules_deadline_for(year: int, world: AnyWorld) -> datetime:
 )
 def diary_find_slots(world: AnyWorld) -> dict[str, Any]:
     free = world.free_slots()
-    cpas = [t for t in world.technicians.values() if "CPA" in t.name or "cpas" in str(t.role)]
-    # Prefer CPA slots. If the world does not tag roles, fall back to all technician slots.
-    # The important invariant — never the bookkeeper — is enforced by the simulator's set-up.
+    cpas = _cpas(world)
     slots = []
     for s in free:
         if not _is_open(world, s):
@@ -243,7 +249,7 @@ def diary_find_slots(world: AnyWorld) -> dict[str, Any]:
     return {
         "slots": slots,
         "none_free": not slots,
-        "technician": cpas[0]["name"] if cpas else "",
+        "technician": cpas[0].name if cpas else "",
     }
 
 
@@ -268,12 +274,17 @@ def diary_book(world: AnyWorld, ticket_id: str, starts: str, mode: str,
     when = datetime.fromisoformat(starts)
     if not _is_open(world, when):
         raise Refused("That time is outside our opening hours. Pick one of the offered times.")
-    cpas = [t for t in world.technicians.values() if "CPA" in t.name or "cpas" in str(t.role)]
+    cpas = _cpas(world)
     technician = cpas[0] if cpas else next(iter(world.technicians.values()))
+    # The meeting mode and office address inform the confirmation text. The office is the
+    # destination for in-office meetings; video meetings meet on the firm's video link.
+    ticket.tags["meeting_mode"] = mode
+    office = world.rules["company"].get("office_address", "Chen & Associates CPA, Richmond BC")
+    destination = office if mode == "office" else world.rules["company"].get("video_platform", "video link")
     appointment = world.book(
         ticket_id=ticket.id, starts=when, minutes=30,
-        technician=technician.id if technician else "", what=what,
-        phone=ticket.phone, mode=mode,
+        technician=technician.id if technician else "", address=destination,
+        what=what, phone=ticket.phone,
     )
     return {
         "appointment_id": appointment.id,
@@ -281,6 +292,7 @@ def diary_book(world: AnyWorld, ticket_id: str, starts: str, mode: str,
         "reads_as": when.strftime("%A %d %B, %-I:%M %p"),
         "mode": mode,
         "technician": technician.name if technician else "",
+        "address": destination,
     }
 
 
@@ -294,4 +306,11 @@ def diary_book(world: AnyWorld, ticket_id: str, starts: str, mode: str,
 def manager_notify(world: AnyWorld, subject: str, body: str) -> dict[str, Any]:
     if not body.strip():
         raise Refused("There is no point sending Michelle an empty message.")
-    return world.notify_manager(subject, body)
+    # The simulator models one dispatch target (the office worker). Michelle is that person
+    # here — the firm's work all funnels to her. Notify the single available worker.
+    techs = list(world.technicians.values())
+    if not techs:
+        raise Refused("I could not find anyone to notify on the roster.")
+    target = next((t for t in techs
+                   if "michelle" in getattr(t, "name", "").lower()), techs[0])
+    return world.notify_technician(target.id, subject, body)

@@ -1,0 +1,15 @@
+id: budget_italy_two
+now: "2026-08-05T10:00:00-07:00"
+customer:
+  persona: |
+    You are Sam. You're wondering if $3,000 is enough for two weeks in Italy for two of
+    you. You want flights and hotel. You live in Calgary, phone 403-555-0161. You both
+    have Canadian passports. The dates are fixed. Answer briefly, and give the budget
+    figure when asked.
+  phone: "403-555-0161"
+  max_turns: 40
+expect:
+  reaches: handover
+  ticket_status: With Consultant
+  enquiries: 1
+  must_not_say: ["that's too low", "that isn't enough", "that won't be possible", "unrealistic"]

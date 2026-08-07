@@ -83,10 +83,16 @@ def _harness(name: str, *, repeat: int = 0, only: str = "") -> tuple[str, float,
     done = subprocess.run(argv, cwd=str(ROOT), capture_output=True, text=True)
     output = done.stdout + done.stderr
 
-    runs = sorted(projects.find(name).runs_dir.glob("*.json"))
-    if not runs:
+    # The report *this* run wrote, by the path it printed — not "the newest file in
+    # runs/". The builder's own `run_harness` calls write there too, and one of those was
+    # newer: a three-scenario spot check got read as the full suite and a project with
+    # fifteen scenarios was declared usable on three of them. A verdict computed from the
+    # wrong evidence is the one failure this whole system exists to prevent.
+    written = [line.split("full record:", 1)[1].strip()
+               for line in output.splitlines() if "full record:" in line]
+    if not written:
         return output, 0.0, 0
-    latest = json.loads(runs[-1].read_text(encoding="utf-8"))
+    latest = json.loads(Path(written[-1]).read_text(encoding="utf-8"))
     won = sum(1 for run in latest if run["passed"])
     faults = sum(1 for run in latest for v in (run.get("verdicts") or [])
                  if v["source"] == "config")

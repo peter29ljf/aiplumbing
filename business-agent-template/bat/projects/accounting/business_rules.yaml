@@ -1,7 +1,7 @@
 # Chen & Associates CPA — the single source of truth.
 # Every figure the agent quotes lives here and is served by a tool, never written in prose.
 
-firm:
+company:
   name: "Chen & Associates CPA"
   city: "Richmond BC"
   timezone: "America/Vancouver"
@@ -71,3 +71,19 @@ handover:
   # bookkeeper, and the answer to any tax question. Both resolve to booking the free
   # consultation — the agent never assigns the bookkeeper and never answers a tax question.
   check_after_hours: 24
+
+schedule:
+  working_hours:
+    start: "09:00"
+    end: "17:00"
+  technicians:
+    - name: "Alice CPA"
+      role: "CPA"
+    - name: "Bob CPA"
+      role: "CPA"
+    - name: "Carol CPA"
+      role: "CPA"
+    - name: "Dana Bookkeeper"
+      role: "Bookkeeper"
+    - name: "Michelle"
+      role: "Office Manager"

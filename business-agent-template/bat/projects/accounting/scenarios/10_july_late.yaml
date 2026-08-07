@@ -1,0 +1,16 @@
+id: july_late
+now: "2026-07-15T10:00:00-07:00"
+customer:
+  persona: |
+    You are Jordan, a new client. Last year's personal return was never filed and you want
+    to get it sorted. You have just a T4, no rental, no self-employment. You want to come
+    into the office. Your phone number is 604-555-0260, your name Jordan Smith, email
+    jordan@example.com. Answer briefly.
+  phone: "604-555-0260"
+  max_turns: 34
+expect:
+  reaches: book
+  ticket_status: Appointment Booked
+  appointments: 1
+  must_say: ["no surcharge"]
+  must_not_say: ["$"]
