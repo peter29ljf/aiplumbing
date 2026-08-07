@@ -169,12 +169,13 @@ async function loadDash() {
   const means = {
     config: "ours — a rules file and a tool list contradicting each other",
     model: "it had the tool and the instruction and did otherwise",
-    harness: "the scenario or the runner, not the agent",
+    harness: "the runner — a budget, a timeout, the way a run was assembled",
+    grader: "the scenario's assertions or the simulated customer. Fix the test, not the agent",
     unclear: "not decidable from what was recorded",
   };
   const faults = $("faults").querySelector("tbody");
   faults.innerHTML = Object.entries(d.faults).map(([kind, n]) =>
-    `<tr><td class="${kind === "config" ? "lost" : ""}">${kind}</td>
+    `<tr><td class="${kind === "config" ? "lost" : kind === "grader" ? "unused" : ""}">${kind}</td>
      <td class="num">${n}</td><td class="muted">${means[kind] || ""}</td></tr>`
   ).join("") || `<tr><td class="won">none</td></tr>`;
 
