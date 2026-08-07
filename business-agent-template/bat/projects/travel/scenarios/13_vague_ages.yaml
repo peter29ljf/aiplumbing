@@ -1,0 +1,16 @@
+id: vague_child_ages
+now: "2026-08-11T10:00:00-07:00"
+customer:
+  persona: |
+    You are Dana. You want a trip to Bali for your family — you and your partner and two
+    kids. When asked the kids' ages you're vague at first ("little ones") and only give
+    exact ages when pressed: 3 and 7. You live in Victoria, phone 250-555-0144. Flights
+    and hotel, around $7,000 total, Canadian passports, dates flexible. Answer briefly,
+    give details when asked.
+  phone: "250-555-0144"
+  max_turns: 40
+expect:
+  reaches: handover
+  ticket_status: With Consultant
+  enquiries: 1
+  followups: 1

@@ -205,8 +205,11 @@ def test_a_tools_file_with_no_decorator_says_what_is_wrong(tmp_path: Path):
     (tmp_path / "tools" / "mine.py").write_text(
         "def do_something(ticket):\n    return {'ok': True}\n")
 
-    with pytest.raises(registry.NoToolsRegistered, match="@tool decorator"):
-        registry.load_tools(Project(tmp_path))
+    registry.load_tools(Project(tmp_path))
+
+    # Recorded, never raised. Raising stopped three projects that ran perfectly well: a
+    # junk file in tools/ only matters if flow.yaml wanted a tool from it.
+    assert any("@tool decorator" in c for c in registry.complaints())
 
 
 def test_a_helper_module_is_left_alone(tmp_path: Path):
@@ -218,4 +221,33 @@ def test_a_helper_module_is_left_alone(tmp_path: Path):
     (tmp_path / "tools").mkdir()
     (tmp_path / "tools" / "_shared.py").write_text("WORDS = 'hello'\n")
 
-    assert registry.load_tools(Project(tmp_path))       # the kit's, and no complaint
+    registry.load_tools(Project(tmp_path))
+
+    assert registry.complaints() == []
+
+
+def test_a_missing_tool_is_told_why_when_a_tools_file_explains_it(tmp_path: Path):
+    """The two halves meet here. "wants the tool 'x', which does not exist" reads like a
+    typo in flow.yaml; the reason is usually a file in tools/ that registered nothing, and
+    saying both together is the difference between a five-minute fix and an afternoon."""
+    import yaml
+
+    from bat.runtime import registry
+    from bat.runtime.graph import BrokenFlow, load
+    from bat.runtime.project import Project
+
+    (tmp_path / "rules").mkdir()
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "mine.py").write_text("def do_it(t):\n    return {}\n")
+    (tmp_path / "flow.yaml").write_text(yaml.safe_dump({
+        "entry": "start",
+        "nodes": {"start": {"goal": "Go.", "sets_status": "New",
+                            "tools": ["mine.do_it"]}},
+    }))
+    project = Project(tmp_path)
+
+    with pytest.raises(BrokenFlow) as caught:
+        load(project, known_tools=registry.load_tools(project))
+
+    assert "does not exist" in str(caught.value)
+    assert "@tool decorator" in str(caught.value)

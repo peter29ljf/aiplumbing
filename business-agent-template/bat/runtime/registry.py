@@ -21,6 +21,9 @@ Handler = Callable[..., Any]
 _TOOLS: dict[str, dict[str, Any]] = {}
 
 
+COMPLAINTS: list[str] = []
+
+
 class NoToolsRegistered(BrokenFlow):
     """A file in a project's tools/ that defined nothing the registry can see.
 
@@ -166,16 +169,21 @@ def load_tools(project: Any = None) -> set[str]:
                 before = set(_TOOLS)
                 spec.loader.exec_module(module)
                 if set(_TOOLS) == before:
-                    # A file in tools/ that registered nothing. Almost always a plain
-                    # function somebody expected to be a tool — which then fails
-                    # validation as "that tool does not exist", reads like a typo, and
-                    # sends whoever wrote it looking in flow.yaml. Say it where it
-                    # happened.
                     complaints.append(
-                        f"{module_path.name} registered no tools. A function in tools/ "
+                        f"{module_path.name} registered no tools — a function in tools/ "
                         f"only becomes one with the @tool decorator from "
-                        f"bat.runtime.registry."
+                        f"bat.runtime.registry"
                     )
-    if complaints:
-        raise NoToolsRegistered("\n  - ".join(["", *complaints]))
+
+    # Recorded, not raised. Raising stopped three projects that were running perfectly
+    # well: a junk file in tools/ is only a problem if flow.yaml actually wanted a tool
+    # from it, and refusing to start otherwise is the check breaking the thing it was
+    # added to protect. `graph._check` picks these up and attaches them to the missing
+    # tool it is already reporting, which is where somebody is looking anyway.
+    COMPLAINTS[:] = complaints
     return names()
+
+
+def complaints() -> list[str]:
+    """Why a tools/ file might not have given you what you expected."""
+    return list(COMPLAINTS)

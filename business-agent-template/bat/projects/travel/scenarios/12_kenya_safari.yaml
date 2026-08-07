@@ -1,0 +1,16 @@
+id: kenya_safari_rota
+now: "2026-08-10T10:00:00-07:00"
+customer:
+  persona: |
+    You are Aisha. You want a safari in Kenya for two weeks. You live in Ottawa, phone
+    613-555-0129. You want a full package with tours, around $12,000 in total, fixed dates
+    in September. You and your partner, both adults, have Canadian passports. Answer
+    briefly, give details when asked.
+  phone: "613-555-0129"
+  max_turns: 40
+expect:
+  reaches: handover
+  ticket_status: With Consultant
+  sent_to: the enquiry rota
+  enquiries: 1
+  followups: 1

@@ -151,6 +151,15 @@ def _check(project: Project, entry: str, nodes: dict[str, Node],
         # engine closes the conversation on the reply. Asking the model to announce a
         # fact the graph already holds is one more thing it can forget, and it did.
 
+    # If a tool is missing and a file in tools/ registered nothing, that is almost
+    # certainly why. Attached here rather than raised at import time: "does not exist"
+    # reads like a typo in flow.yaml and sends people to the wrong file entirely, and
+    # raising instead stopped three projects that had a junk file they never used.
+    if any("does not exist" in problem for problem in problems):
+        from bat.runtime.registry import complaints
+
+        problems.extend(complaints())
+
     # A node nobody can reach is either a typo in somebody's `branch` or a leftover. Both
     # are worth knowing about: it will never run, and it will be maintained forever.
     reached, queue = {entry}, [entry]
