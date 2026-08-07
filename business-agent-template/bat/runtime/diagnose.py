@@ -26,7 +26,8 @@ SLOW_CALL_SECONDS = 20.0
 
 CONFIG = "config"          # it was never given the means
 MODEL = "model"            # it had the means and the instruction, and did otherwise
-HARNESS = "harness"        # the scenario or the runner, not the system under test
+HARNESS = "harness"        # the runner: budget, timeout, assembly
+GRADER = "grader"          # the scenario's assertions or the simulated customer judging
 UNCLEAR = "unclear"        # say so rather than pick
 
 
@@ -212,13 +213,21 @@ def _why_it_stalled(result: Any, flow: Flow, steps: list) -> list[Verdict]:
     if node is None:
         return [Verdict(UNCLEAR, f"ended in `{stuck_at}`, which is not a node")]
 
-    # Still moving when the turns ran out: the scenario was too short, not the flow wrong.
+    # Still moving when the loop ended. *Why* it ended decides who is at fault, and this
+    # used to guess — it said "the turns ran out" for every one of them, and not one dental
+    # failure had actually reached its budget. They had all been abandoned by the simulated
+    # customer, which is a grader problem and gets fixed in the scenario, not the agent.
     late = {step.node for step in steps[-6:]}
     if len(late) > 1:
-        return [Verdict(
-            HARNESS,
-            f"still moving when the turns ran out (last few: {' → '.join(dict.fromkeys(s.node for s in steps[-6:]))})",
-        )]
+        path = " → ".join(dict.fromkeys(s.node for s in steps[-6:]))
+        why = getattr(result, "stopped", "budget")
+        if why == "the customer left":
+            return [Verdict(
+                GRADER,
+                f"the simulated customer left while the flow was still moving "
+                f"(last few: {path}) — it accepted a mid-flow reply as an ending",
+            )]
+        return [Verdict(HARNESS, f"ran out of turns while still moving (last few: {path})")]
 
     in_node = [step for step in steps if step.node == stuck_at]
     offered = set().union(*(set(step.offered) for step in in_node)) if in_node else set()
@@ -282,7 +291,7 @@ def summarise(results: list[Any]) -> str:
 
     lines = ["", "Where the faults are:"]
     total = sum(counts.values()) or 1
-    for source in (CONFIG, MODEL, HARNESS, UNCLEAR):
+    for source in (CONFIG, MODEL, HARNESS, GRADER, UNCLEAR):
         if source in counts:
             lines.append(f"  {source:<9}{counts[source]:>3}  {counts[source] / total:>4.0%}  "
                          f"{_MEANS[source]}")
@@ -348,6 +357,7 @@ def _node_in(detail: str) -> str:
 _MEANS = {
     CONFIG: "a tool or an instruction that was never there — fix flow.yaml or a rules file",
     MODEL: "it had the tool and the instruction and did otherwise — the case for a better model",
-    HARNESS: "the scenario or the runner, not the system under test",
+    HARNESS: "the runner — a budget, a timeout, the way a run was assembled",
+    GRADER: "the scenario's assertions or the simulated customer. Fix the test, not the agent",
     UNCLEAR: "not decidable from what was recorded; worth reading the transcript",
 }

@@ -61,6 +61,11 @@ class Result:
     usage: dict[str, Any] = field(default_factory=dict)
     steps: list[Any] = field(default_factory=list)
     verdicts: list[Any] = field(default_factory=list)
+    # Why the loop ended. "budget" and "customer left" look identical from the outside and
+    # have opposite fixes — one is a scenario that needed more room, the other a simulated
+    # customer that walked out on a mid-flow pleasantry. Every dental failure was reported
+    # as the first and every one of them was the second.
+    stopped: str = "budget"
     smells: list[Any] = field(default_factory=list)
 
     def wrong(self, problem: str) -> None:
@@ -104,7 +109,11 @@ def run_one(path: Path, llm_factory, project: projects.Project) -> Result:
     comes_back = str(customer.get("comes_back") or "")
     began = time.monotonic()
 
-    for _ in range(int(customer.get("max_turns", 12))):
+    # The scenario's own number if it names one; otherwise from the graph.
+    budget = int(customer.get("max_turns") or turn_budget(talk.flow))
+    footprints: list[tuple] = []
+
+    for _ in range(budget):
         result.turns += 1
         result.transcript.append(("customer", said))
         try:
@@ -116,8 +125,16 @@ def run_one(path: Path, llm_factory, project: projects.Project) -> Result:
         result.steps.extend(turn.steps)
         result.transcript.append(("agent", turn.reply))
 
+        footprints.append(_footprint(turn, world))
+        if len(footprints) >= STALLED_AFTER and len(set(footprints[-STALLED_AFTER:])) == 1:
+            result.wrong(f"went round in circles: {STALLED_AFTER} turns running the same "
+                         f"tools with nothing changing")
+            result.stopped = "stalled"
+            break
+
         if talk.finished:
             if not comes_back:
+                result.stopped = "the flow ended"
                 break
             history.append({"role": "user", "content": turn.reply or "(said nothing)"})
             said, comes_back = comes_back, ""
@@ -143,6 +160,7 @@ def run_one(path: Path, llm_factory, project: projects.Project) -> Result:
             # simulated customer who leaves on it produces a scenario that failed for
             # having been abandoned, reported as the agent never finishing.
             if _anything_happened(world):
+                result.stopped = "the customer left"
                 break
             said = ("Sorry — nothing has actually been arranged yet as far as I can "
                     "tell. What happens next?")
@@ -162,6 +180,52 @@ def run_one(path: Path, llm_factory, project: projects.Project) -> Result:
 
         result.verdicts = diagnose(result, talk.flow)
     return result
+
+
+def _longest_path(flow) -> int:
+    """Nodes on the longest way from the entry to an ending.
+
+    Depth-first with a visited set, so a graph that loops back (test -> iterate -> test)
+    counts each node once rather than running forever.
+    """
+    def walk(name: str, seen: frozenset[str]) -> int:
+        if name in seen or name not in flow.nodes:
+            return 0
+        seen = seen | {name}
+        onward = [walk(target, seen) for target in flow.nodes[name].exits]
+        return 1 + max(onward, default=0)
+
+    return walk(flow.entry, frozenset())
+
+
+def turn_budget(flow) -> int:
+    """How many customer turns a scenario gets, from the shape of the graph.
+
+    A ten-node reference project's number was being copied into eighteen-node graphs, and
+    a quarter to a half of all failures were conversations still moving when the turns ran
+    out — reported as the agent never finishing.
+
+    Two turns per node on the longest path, plus six. The multiplier is an engineering
+    estimate, not a result: there is no established way to derive this. What matters is
+    not that the number is right but that running out of budget is told apart from getting
+    something wrong, which is what the fault classification is for.
+    """
+    return _longest_path(flow) * 2 + 6
+
+
+# Three turns where the same tool ran and the world did not move. Not stuck for one turn —
+# a step legitimately asks a question and waits. Three is a conversation going in circles;
+# one production system repeated the same answer fifty-eight times.
+STALLED_AFTER = 3
+
+
+def _footprint(turn: Any, world: World) -> tuple:
+    """What this turn did, for telling "going round in circles" from "still working"."""
+    tools = tuple(sorted(tool for step in turn.steps for tool in step.tools))
+    snapshot = world.snapshot()
+    return (tools, tuple(len(snapshot.get(key) or ())
+                         for key in ("appointments", "texts", "emails",
+                                     "technician_messages", "escalations", "followups")))
 
 
 def _anything_happened(world: World) -> bool:
@@ -290,6 +354,7 @@ def _write_report(results: list[Result], runs: Path) -> Path:
             "id": r.id,
             "passed": r.passed,
             "problems": r.problems,
+            "stopped": r.stopped,
             "verdicts": [{"source": v.source, "because": v.because, "where": v.where}
                          for v in r.verdicts],
             "nodes": r.nodes,
@@ -298,8 +363,14 @@ def _write_report(results: list[Result], runs: Path) -> Path:
             "usage": r.usage,
             "smells": [{"kind": s.kind, "detail": s.detail} for s in r.smells],
             "transcript": [{"who": who, "text": text} for who, text in r.transcript],
+            # `text` and `delta` too. A verdict that a step claimed something the world
+            # does not bear out is exactly the kind somebody will want to check later, and
+            # the report is the only place they can — the Step objects are gone the moment
+            # the process exits. The report's whole reason for existing is that a summary
+            # is not enough to argue with.
             "calls": [{"node": s.node, "seconds": s.seconds, "used": s.tools,
-                       "offered": s.offered, "said": s.said, "refusals": s.refusals}
+                       "offered": s.offered, "said": s.said, "refusals": s.refusals,
+                       "text": getattr(s, "text", ""), "delta": getattr(s, "delta", {})}
                       for s in r.steps],
             "snapshot": r.snapshot,
         }
