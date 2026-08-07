@@ -271,3 +271,29 @@ def test_a_role_naming_a_provider_nobody_configured_says_so(monkeypatch):
 
     with _pytest.raises(LLMError, match="nowhere"):
         llm.for_role("customer")
+
+
+# ---- what is stable and what is not --------------------------------------
+
+
+def test_the_standing_half_is_the_same_bytes_every_turn():
+    """The only half a prompt cache can do anything with."""
+    once = session.standing(session.BUILD)
+    again = session.standing(session.BUILD)
+
+    assert once == again
+    assert "flow.yaml" in once
+
+
+def test_the_turn_carries_only_the_turn():
+    """Nothing stable in here. If the architecture leaked back into it, the prefix would
+    change on every call and the cache would go back to missing."""
+    text = session.this_turn("fix it", report="FAIL warranty_claim 2/4")
+
+    assert "FAIL warranty_claim 2/4" in text
+    assert "fix it" in text
+    assert "flow.yaml" not in text
+
+
+def test_an_empty_turn_is_empty_rather_than_a_repeat_of_the_standing_half():
+    assert session.this_turn("") == ""

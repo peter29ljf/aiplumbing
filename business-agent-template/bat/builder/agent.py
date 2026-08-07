@@ -191,7 +191,7 @@ def _do(root: Path, name: str, args: dict[str, Any], project_name: str,
 
 # ----------------------------------------------------------------------
 def run(prompt: str, *, project_dir: Path, settings: dict[str, Any],
-        project_name: str = "", repo_root: Path | None = None,
+        system: str = "", project_name: str = "", repo_root: Path | None = None,
         readable: tuple[Path, ...] = (), max_steps: int = MAX_STEPS,
         history: list[dict[str, Any]] | None = None,
         on_event: Callable[[dict[str, Any]], None] | None = None,
@@ -210,7 +210,14 @@ def run(prompt: str, *, project_dir: Path, settings: dict[str, Any],
     project_name = project_name or root.name
     llm = LLM(settings)
 
-    messages = list(history or [{"role": "system", "content": SYSTEM}])
+    # Built once, on the first turn, and never touched again. Everything stable lives
+    # here so the provider sees a byte-identical prefix on every call; the turn's own
+    # content is the only thing appended. Rebuilding this each turn — which is what
+    # putting it in the user message amounted to — is why the loop ran at 49% hits.
+    messages = list(history or [
+        {"role": "system", "content": f"{SYSTEM}\n\n---\n\n{system}" if system
+                                      else SYSTEM}
+    ])
     messages.append({"role": "user", "content": prompt})
 
     reply = Reply()

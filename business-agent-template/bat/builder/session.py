@@ -118,13 +118,16 @@ def start(name: str) -> Build:
 
 
 # ----------------------------------------------------------------------
-def prompt_for(phase: str, said: str, *, project: Project | None = None,
-               report: str = "") -> str:
-    """What Claude Code is asked, for one turn of one phase.
+def standing(phase: str, project: Project | None = None) -> str:
+    """The half that does not change: the architecture, the phase, the project.
 
-    The architecture note goes in front of every phase and never changes, which is exactly
-    what a prompt cache wants — it is the same bytes every call, and the provider stops
-    charging full price for it after the first.
+    Kept apart from the turn's own content because it is the only half a prompt cache can
+    do anything with. It used to be prepended to every turn's user message — the docstring
+    claimed it was "exactly what a prompt cache wants" while the code sent five thousand
+    characters of it as fresh content each time, and the loop ran at 49% cache hits
+    against Claude Code's 84%.
+
+    Stable within a phase, which is as long as a build ever needs.
     """
     parts = [(PROMPTS / "architecture.md").read_text(encoding="utf-8").strip()]
 
@@ -142,14 +145,25 @@ def prompt_for(phase: str, said: str, *, project: Project | None = None,
             f"that does not exist fails validation, and inventing one is slower than "
             f"looking."
         )
+    return "\n\n---\n\n".join(parts)
 
+
+def this_turn(said: str, report: str = "") -> str:
+    """This turn and nothing else. Everything here is new every time by definition."""
+    parts = []
     if report:
         parts.append("# The run you are fixing from\n\n```\n" + report.strip() + "\n```")
-
     if said:
         parts.append("# What they said\n\n" + said.strip())
-
     return "\n\n---\n\n".join(parts)
+
+
+def prompt_for(phase: str, said: str, *, project: Project | None = None,
+               report: str = "") -> str:
+    """Both halves joined, for anything that wants one string."""
+    turn_text = this_turn(said, report)
+    fixed = standing(phase, project)
+    return f"{fixed}\n\n---\n\n{turn_text}" if turn_text else fixed
 
 
 def turn(build: Build, said: str, *, report: str = "", model: str = "",
@@ -163,11 +177,12 @@ def turn(build: Build, said: str, *, report: str = "", model: str = "",
     if project is None:
         project = Project(project_dir)
 
-    asked = prompt_for(build.phase, said, project=project, report=report)
+    fixed = standing(build.phase, project)
+    turn_text = this_turn(said, report)
 
     if build.backend == OWN_LOOP:
         reply, build.messages = agent.run(
-            asked, project_dir=project_dir, settings=project.model(),
+            turn_text, system=fixed, project_dir=project_dir, settings=project.model(),
             project_name=build.name, history=build.messages or None,
             # Reads only. The kit is what a build copies its shapes from.
             readable=(PRESETS,),
@@ -187,7 +202,8 @@ def turn(build: Build, said: str, *, report: str = "", model: str = "",
         return reply
 
     reply = claude.run(
-        asked, project_dir=project_dir, session_id=build.session_id, model=model,
+        turn_text, system=fixed, project_dir=project_dir,
+        session_id=build.session_id, model=model,
         # Read access to the kit: the preset tools and the reference project are what it
         # copies patterns from, and describing them in a prompt costs more than letting it
         # look. It is a sibling of the project directory, so this widens the write surface

@@ -116,7 +116,8 @@ def spend_of(usage: dict[str, Any], usd: float) -> Spend:
 
 
 def command(prompt: str, *, project_dir: Path, session_id: str = "",
-            model: str = "", extra_dirs: tuple[Path, ...] = ()) -> list[str]:
+            model: str = "", system: str = "",
+            extra_dirs: tuple[Path, ...] = ()) -> list[str]:
     """The argv. Built here so a test can read it without running anything, and so the
     confinement flags are in one place where they can be audited."""
     argv = [
@@ -127,6 +128,11 @@ def command(prompt: str, *, project_dir: Path, session_id: str = "",
         "--add-dir", str(project_dir),
         "--allowedTools", *ALLOWED_TOOLS,
     ]
+    # The standing half goes here rather than into the prompt. Same reason as the other
+    # backend: a system prompt is a stable prefix the provider can cache, and five
+    # thousand characters re-sent as fresh prompt text every turn is not.
+    if system:
+        argv += ["--append-system-prompt", system]
     for extra in extra_dirs:
         argv += ["--add-dir", str(extra)]
     if model:
@@ -137,7 +143,7 @@ def command(prompt: str, *, project_dir: Path, session_id: str = "",
 
 
 def stream(prompt: str, *, project_dir: Path, session_id: str = "", model: str = "",
-           extra_dirs: tuple[Path, ...] = (),
+           system: str = "", extra_dirs: tuple[Path, ...] = (),
            on_event: Callable[[dict[str, Any]], None] | None = None,
            stop: threading.Event | None = None,
            timeout: float = 3600.0) -> Iterator[dict[str, Any]]:
@@ -151,7 +157,7 @@ def stream(prompt: str, *, project_dir: Path, session_id: str = "", model: str =
     current message rather than in the middle of a file write.
     """
     argv = command(prompt, project_dir=project_dir, session_id=session_id, model=model,
-                   extra_dirs=extra_dirs)
+                   system=system, extra_dirs=extra_dirs)
     env = {**os.environ, "CLAUDE_CODE_ENTRYPOINT": "bat-builder"}
 
     process = subprocess.Popen(
@@ -191,7 +197,7 @@ def stream(prompt: str, *, project_dir: Path, session_id: str = "", model: str =
 
 
 def run(prompt: str, *, project_dir: Path, session_id: str = "", model: str = "",
-        extra_dirs: tuple[Path, ...] = (),
+        system: str = "", extra_dirs: tuple[Path, ...] = (),
         on_event: Callable[[dict[str, Any]], None] | None = None,
         stop: threading.Event | None = None,
         ledger: Path | None = None, phase: str = "") -> Reply:
@@ -204,7 +210,8 @@ def run(prompt: str, *, project_dir: Path, session_id: str = "", model: str = ""
     """
     reply = Reply(session_id=session_id)
     for event in stream(prompt, project_dir=project_dir, session_id=session_id,
-                        model=model, extra_dirs=extra_dirs, on_event=on_event, stop=stop):
+                        model=model, system=system, extra_dirs=extra_dirs,
+                        on_event=on_event, stop=stop):
         reply = absorb(reply, event)
         if event.get("type") == "result" and ledger is not None:
             record(reply, ledger, phase=phase, prompt=prompt)

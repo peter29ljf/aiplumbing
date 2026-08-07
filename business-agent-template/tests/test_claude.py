@@ -168,3 +168,18 @@ def test_running_out_of_credit_is_told_apart_from_a_real_failure():
     assert claude.is_out_of_credit("API Error: Credit balance is too low")
     assert not claude.is_out_of_credit("ran out of turns")
     assert not claude.is_out_of_credit("")
+
+
+# ---- the stable prefix ---------------------------------------------------
+
+
+def test_the_standing_half_goes_where_a_cache_can_see_it(tmp_path: Path):
+    """It used to be prepended to every turn's prompt — five thousand characters of
+    architecture sent as fresh content each time, while the docstring claimed it was
+    "exactly what a prompt cache wants". The loop ran at 49% hits against 84%."""
+    argv = claude.command("what they said", project_dir=tmp_path,
+                          system="the architecture note")
+
+    assert "--append-system-prompt" in argv
+    assert argv[argv.index("--append-system-prompt") + 1] == "the architecture note"
+    assert argv[argv.index("-p") + 1] == "what they said"      # only the turn
