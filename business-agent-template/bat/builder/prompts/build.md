@@ -75,12 +75,25 @@ only wrong from one step and right from the next — "you're all set" is a lie f
 that offers times and the plain truth from the step that books — use `must_not_say_in`
 and name the node.
 
-For a branch that is expensive to reach from the top, use a node scenario — start
-part-way down with the ticket pre-loaded:
+## Every branch node needs a node scenario. This is not optional.
+
+A node scenario starts part-way down the graph with the ticket already carrying what the
+earlier steps would have written:
 
     start:
       node: warranty_check
       known: { phone: "604-555-0913", known_customer: "yes", issue: "..." }
 
-That takes a node from twenty model calls to two. It is only sound because a node reads
-the ticket and never the transcript.
+That takes a node from twenty model calls to two, and a suite from several minutes to one.
+It is only sound because a node reads the ticket and never the transcript — if that ever
+stops being true these stop being valid, which is itself worth knowing.
+
+**Write one for every node that branches**, covering the way out that is hardest to reach
+from the top. A generated dental practice shipped thirteen scenarios and not one node
+scenario, and its branch failures then cost four minutes each to reproduce.
+
+The real reason is not speed. **A node that passes alone and fails in the full flow is
+telling you something no other test can**: the node judges correctly when handed the right
+ticket, so what is wrong is upstream — a step that learned something and did not write it
+down. That gap found the single change that took a reference suite from 12/22 to 26/28,
+and nothing else would have.

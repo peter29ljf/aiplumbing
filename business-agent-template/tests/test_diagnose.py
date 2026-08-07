@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from pathlib import Path
 from typing import Any
 
@@ -244,3 +245,42 @@ def test_a_later_step_does_not_cover_an_earlier_one_s_claim():
     ])
 
     assert [v.where for v in diagnose._spoke_out_of_turn(result, flow)] == ["offer_options"]
+
+
+# ---- the gap that is itself a diagnosis ----------------------------------
+
+
+def _result(id_: str, passed: bool, blamed: str = ""):
+    verdicts = [diagnose.Verdict(diagnose.MODEL, "went the other way", blamed)] if blamed \
+        else []
+    return SimpleNamespace(id=id_, passed=passed, verdicts=verdicts, steps=[], smells=[])
+
+
+def test_a_node_that_passes_alone_and_fails_in_the_flow_points_upstream():
+    """The most useful thing a suite can say, and no other comparison gives it. The node
+    judges correctly when handed the right ticket, so the fault is a step before it that
+    learned something and wrote nothing down."""
+    said = diagnose.upstream_gaps([
+        _result("node.warranty_check.complaint", True),
+        _result("node.warranty_check.other", True),
+        _result("complaint_as_warranty", False, blamed="warranty_check"),
+    ])
+
+    assert "warranty_check" in said
+    assert "look upstream" in said
+
+
+def test_a_node_that_fails_alone_too_is_not_an_upstream_problem():
+    """It is simply wrong, and the fix is in that node's own rules."""
+    said = diagnose.upstream_gaps([
+        _result("node.warranty_check.complaint", False),
+        _result("complaint_as_warranty", False, blamed="warranty_check"),
+    ])
+
+    assert said == ""
+
+
+def test_nothing_is_said_when_there_are_no_node_scenarios():
+    """Which is its own signal — a suite with no node scenarios cannot make this
+    distinction at all, and dental shipped thirteen scenarios without one."""
+    assert diagnose.upstream_gaps([_result("booked", False, blamed="book")]) == ""

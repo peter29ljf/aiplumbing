@@ -1,0 +1,22 @@
+id: node.urgency.routine
+description: Achy but not urgent. They say so, and that settles it.
+now: "2026-08-05T10:00:00-07:00"
+start:
+  node: urgency
+  known:
+    phone: "604-555-0523"
+    name: Mei Lin
+    email: mei@example.com
+    known_customer: "no"
+    issue: a molar aches when she bites down
+customer:
+  persona: |
+    You are Mei. The molar aches when you bite but there is no swelling, no bleeding, and
+    you are sleeping fine. You do not want to pay a same-day surcharge.
+  opens: "It's annoying but I'm not in real pain — a normal appointment is fine."
+  phone: "604-555-0523"
+  max_turns: 4
+expect:
+  reaches: offer_times
+  not_reaches: urgent_handover
+  finishes: false

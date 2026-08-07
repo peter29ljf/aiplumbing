@@ -332,7 +332,50 @@ def summarise(results: list[Any]) -> str:
         if sum(kinds.values()) > 1:
             lines.append(f"\n  Most of the trouble is in `{worst}`. Start there.")
 
+    lines.append(upstream_gaps(results))
     lines.append(how_slow(results))
+    return "\n".join(lines)
+
+
+def upstream_gaps(results: list[Any]) -> str:
+    """Nodes that pass alone and fail in the full flow.
+
+    The single most useful thing a suite can tell you, and no other comparison gives it. A
+    node scenario hands the node a ticket carrying what the earlier steps should have
+    written. If it judges correctly there and wrongly from the top, the node is not the
+    problem — something upstream learned a fact and did not write it down, and the node is
+    reading a ticket that never got it.
+
+    That gap found the one change that took a reference suite from 12/22 to 26/28: a
+    greeting step that heard "I need to move Friday's appointment", said something warm,
+    and recorded nothing.
+    """
+    alone: dict[str, list[bool]] = {}
+    in_flow: dict[str, list[bool]] = {}
+
+    for result in results:
+        # A node scenario names the node it starts at in its id: `node.warranty_check.x`.
+        parts = str(result.id).split(".")
+        if parts[0] == "node" and len(parts) > 1:
+            alone.setdefault(parts[1], []).append(bool(result.passed))
+            continue
+        if result.passed:
+            continue
+        for verdict in getattr(result, "verdicts", []):
+            if verdict.where:
+                in_flow.setdefault(verdict.where, []).append(False)
+
+    gaps = [node for node, runs in alone.items()
+            if runs and all(runs) and node in in_flow]
+    if not gaps:
+        return ""
+
+    lines = ["", "Passes alone, fails in the flow:"]
+    for node in sorted(gaps):
+        lines.append(f"  {node:<20}{len(alone[node])}/{len(alone[node])} on its own, "
+                     f"{len(in_flow[node])} failure(s) from the top")
+    lines.append("\n  Each of these judges correctly when handed the right ticket, so look "
+                 "upstream:\n  something before it learned a fact and did not write it down.")
     return "\n".join(lines)
 
 
