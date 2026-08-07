@@ -1,0 +1,165 @@
+entry: greeting
+
+greeting:
+  goal: Greet them and get one plain sentence about what they came for. Nothing else — no
+    phone number, no dishes, no party size.
+  rules: [greeting]
+  tools: [ticket.set_fields, step.finished]
+  sets_status: Greeting Sent
+  next: route
+
+route:
+  goal: Read what they came for off the ticket and take the matching way out.
+  rules: [route]
+  tools: [step.finished]
+  sets_status: Intent Routed
+  branch:
+    table: contact
+    takeaway: contact
+    catering: decline_catering
+    allergen: allergen_handover
+    question: general_question
+
+contact:
+  goal: Get their phone number and find out whether we know them. A regular's name and
+    address come back with it.
+  rules: [contact]
+  tools: [crm.lookup_by_phone, guest.create, ticket.set_fields, step.finished]
+  sets_status: Contact Taken
+  branch:
+    table: party_size
+    takeaway: order_kind
+    no_number: no_number
+
+no_number:
+  goal: Answer what can be answered, then say plainly that nothing can be held or sent
+    without a phone number.
+  rules: [no_number]
+  tools: [rules.get_hours, ticket.set_fields]
+  sets_status: Closed - No Number
+
+general_question:
+  goal: Answer a general question — hours, where we are, what is on today — and end on an
+    invitation.
+  rules: [general_question]
+  tools: [clock.now, rules.get_hours, menu.today, ticket.set_fields]
+  sets_status: Answered
+
+decline_catering:
+  goal: Say we do not take catering that size, in the restaurant's own words.
+  rules: [decline_catering]
+  tools: [rules.get_wording, ticket.set_fields]
+  sets_status: Declined - Catering
+
+allergen_handover:
+  goal: Say it is the kitchen's to answer, record the question in their own words, and hand
+    it to Kevin.
+  rules: [allergen_handover]
+  tools: [rules.get_wording, escalate.raise, schedule.create_followup, ticket.set_fields]
+  sets_status: With Kevin - Allergen
+
+party_size:
+  goal: How many people, which day, and roughly what time they want to eat.
+  rules: [party_size]
+  tools: [clock.now, tables.check_party_size, ticket.set_fields, step.finished]
+  sets_status: Party Sized
+  branch:
+    ok: offer_sittings
+    over_eight: large_party_handover
+
+offer_sittings:
+  goal: Look up which sittings actually have a table free that day and offer them.
+  rules: [offer_sittings]
+  tools: [tables.find_sittings, ticket.set_fields, step.finished]
+  sets_status: Sittings Offered
+  next: pick_sitting
+
+pick_sitting:
+  goal: Read which sitting they picked and record it.
+  rules: [pick_sitting]
+  tools: [ticket.set_fields, step.finished]
+  sets_status: Sitting Picked
+  branch:
+    chose: book_table
+    none_suit: table_handover
+
+book_table:
+  goal: Hold the table, tell them the 15-minute hold, text them, and tell Kevin.
+  rules: [book_table]
+  tools: [tables.book, sms.send, manager.notify, ticket.set_fields]
+  sets_status: Table Booked
+
+large_party_handover:
+  goal: Take the details, say the manager confirms a table this size, and hand over to
+    Kevin. Never say the table is booked.
+  rules: [large_party_handover]
+  tools: [escalate.raise, schedule.create_followup, ticket.set_fields]
+  sets_status: With Kevin - Large Party
+
+table_handover:
+  goal: Nothing in the book suits them — record what they wanted and hand over to Kevin.
+  rules: [table_handover]
+  tools: [escalate.raise, schedule.create_followup, ticket.set_fields]
+  sets_status: With Kevin - Table
+
+order_kind:
+  goal: Find out pickup or delivery, and whether the order is for now.
+  rules: [order_kind]
+  tools: [clock.now, rules.get_hours, ticket.set_fields, step.finished]
+  sets_status: Order Kind Set
+  branch:
+    pickup: take_order
+    delivery: delivery_area
+    not_today: decline_not_today
+
+delivery_area:
+  goal: Take the address and check it is inside the 5 km. Promise nothing before this
+    answers.
+  rules: [delivery_area]
+  tools: [delivery.check_address, ticket.set_fields, step.finished]
+  sets_status: Delivery Area Checked
+  branch:
+    in_area: take_order
+    out_of_area: decline_area
+
+decline_area:
+  goal: Say we do not go that far, and offer pickup instead.
+  rules: [decline_area]
+  tools: [rules.get_wording, ticket.set_fields]
+  sets_status: Declined - Outside Area
+
+decline_not_today:
+  goal: Say it is today only, or that the kitchen has shut, and say when we are cooking
+    again.
+  rules: [decline_not_today]
+  tools: [clock.now, rules.get_hours, rules.get_wording, ticket.set_fields]
+  sets_status: Declined - Not Today
+
+take_order:
+  goal: Build the order. Every dish checked against today's menu and today's sold-out list.
+  rules: [take_order]
+  tools: [menu.today, menu.check_items, ticket.set_fields, step.finished]
+  sets_status: Order Taken
+  next: confirm_order
+
+confirm_order:
+  goal: Read the order back with the total and the wait, and get a yes.
+  rules: [confirm_order]
+  tools: [order.quote, ticket.set_fields, step.finished]
+  sets_status: Order Confirmed
+  branch:
+    pickup: place_pickup
+    delivery: place_delivery
+
+place_pickup:
+  goal: Place it, say when it will be ready and that it is paid on pickup, and tell Kevin.
+  rules: [place_pickup]
+  tools: [order.place, sms.send, manager.notify, ticket.set_fields]
+  sets_status: Order Placed - Pickup
+
+place_delivery:
+  goal: Place it, say the window and that it is paid at the door, tell Kevin, and arrange
+    the 45-minute check.
+  rules: [place_delivery]
+  tools: [order.place, sms.send, manager.notify, schedule.create_followup, ticket.set_fields]
+  sets_status: Order Placed - Delivery
