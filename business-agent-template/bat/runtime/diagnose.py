@@ -117,7 +117,12 @@ ASSERTS = {
         r"\b(?:that's|thats|you're|youre|it's|its|i've|ive)\s+booked\b",
         r"\bis (?:now )?(?:booked|confirmed)\b",
         r"\b(?:set|scheduled) for\b",
-        r"\byou(?:'re| are) all set\b",
+        # "You're all set" only counts alongside a time or an appointment. On its own it
+        # is ordinary English for "this bit is done" — five of eight verdicts in a real
+        # run were steps saying "you're all set, your record is open", which is true.
+        r"\byou(?:'re| are) all set\b[^.!?]{0,60}\b(?:appointment|booking|visit|"
+        r"\d{1,2}[:.]\d{2}|\d{1,2}\s*(?:am|pm))",
+        r"\b(?:appointment|booking|visit)\b[^.!?]{0,40}\byou(?:'re| are) all set\b",
         r"\bi've put you down\b",
         # "Normal appointment at 11:00 today it is, Nadia" — a time repeated back as
         # settled is a booking, whatever grammar it arrives in.
@@ -131,9 +136,16 @@ ASSERTS = {
 # A sentence that says the thing has *not* happened is not a claim that it has. Checked
 # first, because it is the single guard that separates a careful step from a lying one.
 HEDGED = (
-    r"\bwon't say\b", r"\bnot yet\b", r"\bcan't\b", r"\bcannot\b", r"\bisn't\b",
-    r"\bnothing is\b", r"\bwould you like\b", r"\bglad to\b", r"\bhappy to\b",
-    r"\bi'?m the\b", r"\bbefore (?:i|we)\b", r"\bonce (?:i|we|you)\b",
+    r"\bwon'?t say\b",
+    # "not yet", and also "not booked yet", "not confirmed yet" — the word in between is
+    # exactly where a careful sentence puts the thing it is declining to claim.
+    r"\bnot\s+(?:\w+\s+){0,2}yet\b",
+    r"\bcan'?t\b", r"\bcannot\b", r"\bisn'?t\b", r"\bnothing is\b",
+    r"\bwould you like\b", r"\bglad to\b", r"\bhappy to\b", r"\bi'?m the\b",
+    r"\bbefore (?:i|we)\b", r"\bonce (?:i|we|you)\b",
+    # Future tense is an intention, not a claim. "I'll get you scheduled for a free
+    # consultation" is what the next step is for, said out loud.
+    r"\b(?:i'?ll|we'?ll|i am going to|we are going to)\b", r"\bnext step\b",
 )
 
 # What has to have changed in the world for the claim to be true.
@@ -166,16 +178,30 @@ def _spoke_out_of_turn(result: Any, flow: Flow) -> list[Verdict]:
     """
     found: list[Verdict] = []
     seen: set[tuple[str, str]] = set()
+    # What each node has changed so far. A step books on its first model call, sends the
+    # messages on its second and speaks on its third — and that third call changes
+    # nothing. Judged per call, "you're all set" is a lie; judged over the step's work up
+    # to that point, it is exactly true. Seven of ten verdicts in a real run were this.
+    #
+    # Only what has *already* happened counts. A step that announces a booking and then
+    # makes it still said something untrue at the moment it said it.
+    done_so_far: dict[str, dict[str, int]] = {}
 
     for step in getattr(result, "steps", []):
+        running = done_so_far.setdefault(step.node, {})
+        # This call's own work counts first. One model message carries the tool calls and
+        # the reply together, and the tools run before the customer sees a word — so
+        # "I've booked that" alongside the booking is true, not a claim running ahead.
+        for key, count in (getattr(step, "delta", None) or {}).items():
+            running[key] = running.get(key, 0) + count
+
         text = getattr(step, "text", "")
         if not text or step.node not in flow.nodes:
             continue
-        delta = getattr(step, "delta", None) or {}
 
         for kind in _asserted(text):
-            if any(delta.get(key) for key in WHAT_CHANGED[kind]):
-                continue                      # it said so and it happened
+            if any(running.get(key) for key in WHAT_CHANGED[kind]):
+                continue                      # it said so and it had happened
             if (step.node, kind) in seen:
                 continue
             seen.add((step.node, kind))

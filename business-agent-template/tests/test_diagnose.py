@@ -90,8 +90,25 @@ def test_the_flat_claims_are_caught():
     flow = _flow(offer_options=("calendar.find_slots",))
 
     for said in ("That's booked for you.", "You're booked in for Tuesday.",
-                 "I've booked that.", "You're all set."):
+                 "I've booked that.", "You're all set — your appointment is Tuesday."):
         assert _blamed("offer_options", said, flow), said
+
+
+def test_all_set_on_its_own_is_deliberately_not_a_claim():
+    """A concession, made against real data and worth stating rather than hiding.
+
+    "You're all set" is ordinary English for "this bit is done", and five of eight
+    verdicts in an accounting run were steps saying "you're all set, your record is open"
+    — which was true. So it only counts alongside a time or an appointment.
+
+    What that gives up: a step that says a bare "you're all set" to somebody expecting a
+    booking, and nothing else. The closing gate catches that one anyway — a last step
+    cannot sign off with its own tools uncalled — so the loss is a mid-flow step being
+    vague, which is a smell rather than a lie."""
+    flow = _flow(offer_options=("calendar.find_slots",))
+
+    assert not _blamed("offer_options", "You're all set.", flow)
+    assert not _blamed("offer_options", "You're all set — your record is open.", flow)
 
 
 def test_a_node_that_has_the_tool_and_did_not_call_it_is_still_caught():
@@ -194,3 +211,36 @@ def test_the_words_are_read_off_the_step_that_said_them():
     blamed = [v.where for v in diagnose._spoke_out_of_turn(result, flow)]
 
     assert blamed == ["service_choice"]
+
+
+# ---- a node speaks after it works, not during ----------------------------
+
+
+def test_the_work_may_happen_on_an_earlier_call_of_the_same_step():
+    """`book` calls the diary on its first model call, sends the messages on its second,
+    and says "you're all set" on its third — by which point that one call has changed
+    nothing. Judged per call, the sentence is a lie; judged over the step, it is exactly
+    true. Seven of ten verdicts in a real run were this, which is the same false-positive
+    shape the substring detector had, arriving by a different route."""
+    flow = _flow(book=("calendar.create_appointment", "sms.send"))
+    result = FakeResult(steps=[
+        FakeStep(node="book", text="", delta={"appointments": 1}),
+        FakeStep(node="book", text="", delta={"texts": 1}),
+        FakeStep(node="book", text="You're all set, Marcus.", delta={}),
+    ])
+
+    assert [v.because for v in diagnose._spoke_out_of_turn(result, flow)] == []
+
+
+def test_a_later_step_does_not_cover_an_earlier_one_s_claim():
+    """Only what has already happened counts. A step that announces a booking and *then*
+    makes it still told the customer something untrue at the moment it said it — and in
+    the runs where this matters, the booking never came."""
+    flow = _flow(offer_options=("calendar.find_slots",),
+                 book=("calendar.create_appointment",))
+    result = FakeResult(steps=[
+        FakeStep(node="offer_options", text="That's booked for Tuesday.", delta={}),
+        FakeStep(node="book", text="", delta={"appointments": 1}),
+    ])
+
+    assert [v.where for v in diagnose._spoke_out_of_turn(result, flow)] == ["offer_options"]
