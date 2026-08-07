@@ -14,14 +14,20 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
+from bat.runtime.graph import BrokenFlow
 from bat.runtime.world import AnyWorld, Refused
 
 Handler = Callable[..., Any]
 _TOOLS: dict[str, dict[str, Any]] = {}
 
 
-class NoToolsRegistered(Exception):
+class NoToolsRegistered(BrokenFlow):
     """A file in a project's tools/ that defined nothing the registry can see.
+
+    A `BrokenFlow` because that is what it is — the project does not hang together — and
+    because every caller already handles that. Raised as its own type it escaped the one
+    place that mattered: the command that feeds the loader's complaint back to the builder
+    caught `BrokenFlow`, missed this, and crashed instead of saying what was wrong.
 
     Worth its own error because of how it presents otherwise: the graph then fails with
     "wants the tool 'x', which does not exist", which reads like a typo in flow.yaml and
