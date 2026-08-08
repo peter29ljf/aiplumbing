@@ -1,6 +1,6 @@
 # Golden Wok — the only place a figure lives. Read from a tool, never from a rules file.
 
-restaurant:
+company:
   name: "Golden Wok"
   city: "New Westminster, BC"
   timezone: "America/Vancouver"
@@ -71,6 +71,12 @@ wording:
   hold_15:
     en: "We hold the table for 15 minutes past the booked time, then it's released."
     yue: "我哋會留張枱十五分鐘，過咗就會放返出嚟。"
+  delivery_free:
+    en: "Delivery is free on this one — you're over the ${over} mark."
+    yue: "呢張單免運費，你過咗 ${over} 蚊。"
+  sold_out:
+    en: "Sorry — {dish} is sold out today. Can I get you something else instead?"
+    yue: "唔好意思，{dish} 今日賣晒喇。要唔要揀第樣？"
   no_card_number:
     en: "We don't take card numbers in chat — you pay when you pick up, or at the door."
     yue: "我哋唔喺訊息入面收信用卡號碼，你嚟攞或者送貨到門口先畀錢。"

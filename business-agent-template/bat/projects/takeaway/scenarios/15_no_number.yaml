@@ -1,0 +1,12 @@
+id: no_number
+now: "2026-08-01T18:00:00-07:00"
+customer:
+  persona: |
+    You are Chris. You want to book a table for two tonight, but you will not give your
+    phone number. Answer briefly.
+  phone: ""
+  max_turns: 30
+expect:
+  reaches: no_number
+  ticket_status: Closed - No Number
+  bookings: 0

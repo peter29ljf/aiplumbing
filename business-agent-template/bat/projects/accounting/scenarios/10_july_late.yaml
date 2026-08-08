@@ -13,4 +13,14 @@ expect:
   ticket_status: Appointment Booked
   appointments: 1
   must_say: ["no surcharge"]
-  must_not_say: ["$"]
+  # Never put a figure on what the CRA itself charges — that is between them and the
+  # taxpayer. Ban the promise, not the subject: this scenario is *about* filing late, so
+  # the agent says "CRA" constantly and correctly. It was failed for the sentence "What
+  # CRA itself charges is between you and them", which is the refusal itself.
+  #
+  # A bare word has now been banned four times in this project — "refund", "scrub", "$",
+  # "CRA" — and every time it failed the behaviour it was written to protect. The
+  # generator reproduced the mistake even with the lesson in front of it, swapping one
+  # word for another.
+  must_not_say: ["cra charges you", "cra penalty is", "cra will charge",
+                 "cra fine is", "penalty will be"]

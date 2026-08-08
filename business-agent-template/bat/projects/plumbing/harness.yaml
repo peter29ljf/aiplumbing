@@ -27,3 +27,7 @@ usable:
 #
 # Model faults are different — the tool and the instruction were both there and it did
 # something else. Those are the case for a better model, and the only ones that are.
+
+# Which engine drives the agent. The fix loop and the deployment have to be the
+# same thing: a score measured on one model is not a statement about another.
+engine: claude-code-skills

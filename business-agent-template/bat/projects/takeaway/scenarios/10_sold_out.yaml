@@ -1,0 +1,15 @@
+id: sold_out
+now: "2026-08-01T18:00:00-07:00"
+customer:
+  persona: |
+    You are Ivy. You want a pickup order. Give your phone number. Order a Sweet and Sour
+    Pork and a House Fried Rice. If told the pork is sold out, pick something else instead.
+    Answer briefly.
+  phone: "604-555-0200"
+  max_turns: 30
+expect:
+  reaches: place_pickup
+  ticket_status: Order Placed - Pickup
+  orders: 1
+  must_say:
+    - "sold out"

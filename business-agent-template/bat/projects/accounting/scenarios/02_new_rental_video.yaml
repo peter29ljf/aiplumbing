@@ -14,4 +14,5 @@ expect:
   appointments: 1
   texts: 1
   must_say: ["250"]
-  booking_mode: video
+  ticket_tags:
+    booking_mode: video

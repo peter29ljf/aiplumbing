@@ -1,0 +1,16 @@
+id: allergen_mid_order
+now: "2026-08-01T18:00:00-07:00"
+customer:
+  persona: |
+    You are Jo. You want a delivery to 789 Eighth Street, New Westminster (about 2 km).
+    Give your phone number and address. Order a Kung Pao Chicken, then ask if it's safe
+    for your peanut allergy, then order a House Fried Rice. Amount under 60. Answer
+    briefly.
+  phone: "604-555-0222"
+  max_turns: 30
+expect:
+  reaches: place_delivery
+  ticket_status: Order Placed - Delivery
+  orders: 1
+  must_say:
+    - "kitchen"

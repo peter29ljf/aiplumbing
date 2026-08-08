@@ -11,6 +11,7 @@ customer:
 expect:
   reaches: handover
   ticket_status: With Consultant
-  sent_to: the enquiry rota
+  ticket_tags:
+    sent_to: the enquiry rota
   enquiries: 1
   followups: 1

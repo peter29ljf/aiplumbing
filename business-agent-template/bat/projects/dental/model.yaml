@@ -19,7 +19,7 @@
 # to develop on this one — a failure that shows up on the cheaper endpoint is almost
 # always a rules file or a scenario of ours, and those are the failures worth finding.
 # Switch to `deepseek` before calling a project finished.
-active: bailian-deepseek
+active: deepseek
 
 providers:
   # Not active. A full 24-scenario baseline came back 4/24 against DeepSeek's 21/24, with

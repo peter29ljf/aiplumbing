@@ -12,3 +12,14 @@ possible.
 
 Whatever they chose is the answer. Do not talk them into a different time because it is
 better for the kitchen; this is their evening.
+
+## Nothing is booked here, so do not sound like it is
+
+**This step has no booking tool.** "I have the 5 pm sitting on Saturday for four" reads
+exactly like a confirmation — and it was: a customer heard it, said thanks, and left. The
+table was never booked, the text was never sent, and nothing in the conversation told them
+so. `book_table` is the next step and the only one that can say a table is theirs.
+
+So say nothing about the booking. **If you have nothing to add beyond what comes next,
+send no message at all** — write the sitting down and call `step.finished` on its own. The
+next step replies in the same breath and the customer sees one continuous answer.

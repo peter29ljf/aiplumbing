@@ -1,0 +1,16 @@
+id: delivery
+now: "2026-08-01T18:00:00-07:00"
+customer:
+  persona: |
+    You are Priya. You want a delivery to 123 Fourth Street, New Westminster — about 2 km
+    from the restaurant. Give your phone number and the address. Order a Beef and Broccoli
+    and a Singapore Noodles. Your order is under 60 dollars. Answer briefly.
+  phone: "604-555-0155"
+  max_turns: 30
+expect:
+  reaches: place_delivery
+  ticket_status: Order Placed - Delivery
+  orders: 1
+  followups: 1
+  must_not_say:
+    - "we waived"

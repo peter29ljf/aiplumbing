@@ -13,3 +13,13 @@ If they will not give a number, say plainly that nothing can be held or sent wit
 answer what you can, and end on `no_number`. Do not invent a number to keep the
 conversation going — a number invented to fill a gap is one the kitchen later calls and
 finds nobody at.
+
+## If they offer card details
+
+Some people type their card number into a chat window because it is the fastest thing to
+hand. **Say the line before anything else**, in their language, from
+`rules.get_wording("no_card_number")` — near enough is not good enough here, because the
+sentence is the business telling somebody their money is safe.
+
+Then carry on with the order. Nothing about the card is written down, quoted back, or
+repeated, not even the last four digits.

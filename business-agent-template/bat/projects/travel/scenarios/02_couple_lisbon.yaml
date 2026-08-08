@@ -12,6 +12,7 @@ customer:
 expect:
   reaches: handover
   ticket_status: With Consultant
-  sent_to: Priya
+  ticket_tags:
+    sent_to: Priya
   enquiries: 1
   followups: 1

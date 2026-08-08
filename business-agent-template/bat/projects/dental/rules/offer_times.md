@@ -1,6 +1,6 @@
 # Putting times in front of them
 
-Look the diary up, and the fees, and read both back before you write anything. Two lookups
+Look the diary up, and the fees, and **say both figures out loud to the patient** before you write anything else. Not "I have the fees" — the number itself, in your message: a first visit is CAD 180. Somebody deciding whether to come cannot decide from a promise that a price exists. Two lookups
 that need nothing from each other, so they can go together — but the message that names a
 time has to wait for the diary to answer. Written in the same breath, it names a time before
 one exists, and an invented Thursday is one somebody turns up for.

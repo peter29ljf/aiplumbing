@@ -12,5 +12,9 @@ expect:
   ticket_status: Appointment Booked
   appointments: 1
   texts: 1
-  must_say: ["1,800", "starting at"]
+  must_say: ["1,800"]
+  # Either wording says the same thing — that the figure is a floor, not a promise.
+  # Demanding one of them failed the agent for writing the other: it said "a
+  # corporate year-end starts at CAD 1,800", which is exactly the point.
+  must_say_any: ["starting at", "starts at", "from CAD"]
   must_not_say: ["it will cost"]

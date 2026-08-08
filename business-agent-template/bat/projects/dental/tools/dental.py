@@ -353,14 +353,24 @@ def diary_find_slots(world: AnyWorld) -> dict[str, Any]:
     wanted = int(booking["slots_offered"])
     stop = world.now + timedelta(days=int(booking["search_days"]))
 
+    # At most one a day, so three offers span three days rather than three hours of one.
+    #
+    # It used to take the first free hours it came to, which on an empty diary means
+    # 11:00, 12:00 and 1:00 this afternoon. A patient who has said they are in no hurry
+    # and would rather not be squeezed in today is then offered today three times, turns
+    # all three down — correctly — and the step that reads a choice takes the way out for
+    # "none of them suited", also correctly. The booking never happens and nothing in the
+    # conversation is wrong. A real receptionist offers today, and Thursday, and Friday.
     found: list[dict[str, Any]] = []
+    taken_on: set[Any] = set()
     when = (world.now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
     while when < stop and len(found) < wanted:
-        if not _shut(world, when, minutes):
+        if when.date() not in taken_on and not _shut(world, when, minutes):
             free = _free_dentists(world, when, minutes)
             if free:
                 found.append({"starts": when.isoformat(), "reads_as": _reads_as(when),
                               "dentist": free[0]["name"], "dentist_id": free[0]["id"]})
+                taken_on.add(when.date())
         when += timedelta(hours=1)
 
     return {
@@ -389,6 +399,7 @@ def diary_find_slots(world: AnyWorld) -> dict[str, Any]:
                  "description": "What they are coming in for, in a few words"},
     },
     remembers=("appointment_id", "starts", "reads_as", "dentist", "dentist_id", "chair"),
+    once=True,
 )
 def diary_book(world: AnyWorld, ticket_id: str, starts: str,
                what: str) -> dict[str, Any]:
@@ -466,6 +477,7 @@ def diary_book(world: AnyWorld, ticket_id: str, starts: str,
         "subject": {"type": "string"},
         "body": {"type": "string"},
     },
+    once=True,
 )
 def manager_notify(world: AnyWorld, ticket_id: str, subject: str,
                    body: str) -> dict[str, Any]:

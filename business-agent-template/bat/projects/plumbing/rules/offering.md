@@ -7,13 +7,17 @@ Say these in one message:
    times you have actually looked up, never an invented one. Offer the first and a couple
    of alternatives.
 2. **What each costs and what each gets them** — `rules.get_service_options` returns both
-   in one go: the fee, how soon somebody comes, at what hours, and whether a deposit is
-   needed up front. Quote the figures exactly as returned, qualifiers included. If a fee
-   comes back as "starting at", that word goes in — it is a floor, not a promise.
+   in one go. Quote the figures exactly as returned, qualifiers included. If a fee comes
+   back as "starting at", that word goes in — it is a floor, not a promise.
 
-For the normal appointment, say the part people are caught out by: the call-out fee comes
-off the repair if they go ahead, and is still payable if they decline. One sentence now
-prevents an argument on their doorstep.
+**Both figures are call-out fees**, and the tool labels them so. The emergency one depends
+on the hour they are ringing — it is higher in the evening and on a Sunday — so it comes
+back already worked out for right now, with the hours it applies to. Say it as a call-out
+fee, not as "the price", and never as a deposit: nothing here takes money up front.
+
+Say the part people are caught out by, for both: the call-out fee comes off the repair if
+they go ahead, and is still payable if they decline. One sentence now prevents an argument
+on their doorstep.
 
 Then ask which they would like. **That is where this step ends** — you are not waiting for
 the answer, and you are not booking anything.

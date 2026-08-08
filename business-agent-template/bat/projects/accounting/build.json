@@ -1,11 +1,11 @@
 {
   "name": "accounting",
-  "phase": "done",
+  "phase": "iterate",
   "waiting": "",
   "session_id": "",
-  "rounds": 1,
+  "rounds": 3,
   "best_score": 1.0,
-  "flat_rounds": 0,
+  "flat_rounds": 2,
   "note": "",
   "transcript": [
     {

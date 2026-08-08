@@ -8,10 +8,20 @@ from bat.runtime.world import AnyWorld
 
 
 def _get(ticket, key, default=None):
+    """A field off the ticket, which means off `ticket.tags`.
+
+    It used to try `ticket.get(key)` and fall through to the default when that failed —
+    and a `Ticket` is a dataclass with no `.get`, so every field always read as missing.
+    `consultant.send_enquiry` therefore could not succeed under any circumstances: it
+    refused fifteen scenarios out of fifteen for missing the five facts that were sitting
+    on the ticket in front of it. Nothing caught it, because the assertion that would
+    have — `enquiries: 1` — was a key the judge did not know and silently skipped.
+    """
     if ticket is None:
         return default
-    if hasattr(ticket, "get"):
-        return ticket.get(key, default)
+    tags = getattr(ticket, "tags", None)
+    if isinstance(tags, dict):
+        return tags.get(key, default)
     if isinstance(ticket, dict):
         return ticket.get(key, default)
     return default
@@ -28,6 +38,7 @@ def _get(ticket, key, default=None):
     "them without a second lookup.",
     {"ticket_id": {"type": "string"}},
     remembers=("sent_to",),
+    once=True,
 )
 def consultant_send_enquiry(world: AnyWorld, ticket_id: str) -> dict:
     ticket = _ticket(world, ticket_id)
@@ -42,10 +53,23 @@ def consultant_send_enquiry(world: AnyWorld, ticket_id: str) -> dict:
             + ". Finish collecting those before handing over."
         )
     consultant = _get(ticket, "consultant", None) or "the enquiry rota"
+    # Recorded in the world, not merely returned. A tool that only answers `sent: True`
+    # leaves a scenario nothing to assert against, and "the model said it happened" is
+    # the one kind of evidence this whole architecture refuses to accept.
+    world.record("enquiries", {"ticket_id": ticket.id, "to": consultant,
+                               "party": _get(ticket, "party"),
+                               "route": _get(ticket, "route"),
+                               "budget": _get(ticket, "budget"),
+                               "passports": _get(ticket, "passports"),
+                               "scope": _get(ticket, "scope")})
     return {
         "ok": True,
         "sent": True,
         "to": consultant,
+        # The name `remembers=("sent_to",)` is looking for. Without it the tool declared
+        # it remembered who the enquiry went to and remembered nothing, because the key
+        # it returned was `to`.
+        "sent_to": consultant,
         "confirmation": (
             f"Your enquiry is on its way to {consultant}, who will come back with "
             "options and a price."

@@ -146,6 +146,11 @@ def rules_get_fees(world: AnyWorld) -> dict[str, Any]:
             "free": p["consultation"]["free"],
             "wording": p["consultation"]["free_wording"],
         },
+        # Flat, under the name the ticket keeps it by. `remembers` reads the top level of
+        # what a tool returns and cannot see into a nested dict, so declaring
+        # `free_consultation` while answering `consultation: {free: ...}` remembered
+        # nothing at all.
+        "free_consultation": p["consultation"]["free_wording"],
         "late_filing": {"wording": p["late_filing"]["no_surcharge_wording"]},
     }
 
@@ -163,7 +168,8 @@ def rules_price_personal(world: AnyWorld, rental_or_selfemployment: bool) -> dic
     if rental_or_selfemployment:
         return {"tier": "rental_or_selfemployment", "fee": p["rental_or_selfemployment"],
                 "qualifier": p["qualifier"]}
-    return {"tier": "simple", "fee": p["simple"], "qualifier": p["qualifier"]}
+    return {"tier": "simple", "fee": p["simple"], "quoted_fee": p["simple"],
+            "qualifier": p["qualifier"]}
 
 
 @tool(
@@ -214,6 +220,9 @@ def rules_deadline_pressure(world: AnyWorld) -> dict[str, Any]:
     return {
         "days_left": days,
         "band": band,
+        # Under the names the ticket keeps them by.
+        "deadline_days": days,
+        "deadline_band": band,
         "deadline": deadline.strftime("%d %B %Y"),
         "no_surcharge": world.rules["pricing"]["late_filing"]["no_surcharge_wording"],
     }
@@ -248,6 +257,10 @@ def diary_find_slots(world: AnyWorld) -> dict[str, Any]:
     slots = slots[:5]
     return {
         "slots": slots,
+        # The name `remembers` looks for. It said `offered_slots` and returned `slots`,
+        # so the times a step offered never reached the ticket and the step that reads a
+        # choice had nothing to read them against.
+        "offered_slots": slots,
         "none_free": not slots,
         "technician": cpas[0].name if cpas else "",
     }
@@ -265,6 +278,7 @@ def diary_find_slots(world: AnyWorld) -> dict[str, Any]:
         "what": {"type": "string", "description": "What the appointment is for"},
     },
     remembers=("appointment_id", "starts", "reads_as", "mode"),
+    once=True,
 )
 def diary_book(world: AnyWorld, ticket_id: str, starts: str, mode: str,
                what: str) -> dict[str, Any]:
@@ -278,6 +292,7 @@ def diary_book(world: AnyWorld, ticket_id: str, starts: str, mode: str,
     technician = cpas[0] if cpas else next(iter(world.technicians.values()))
     # The meeting mode and office address inform the confirmation text. The office is the
     # destination for in-office meetings; video meetings meet on the firm's video link.
+    ticket.tags["booking_mode"] = mode
     ticket.tags["meeting_mode"] = mode
     office = world.rules["company"].get("office_address", "Chen & Associates CPA, Richmond BC")
     destination = office if mode == "office" else world.rules["company"].get("video_platform", "video link")
@@ -302,6 +317,7 @@ def diary_book(world: AnyWorld, ticket_id: str, starts: str, mode: str,
     "this is the only message here written for a colleague, so make it scannable. There is "
     "exactly one Michelle — no id to invent.",
     {"subject": {"type": "string"}, "body": {"type": "string"}},
+    once=True,
 )
 def manager_notify(world: AnyWorld, subject: str, body: str) -> dict[str, Any]:
     if not body.strip():

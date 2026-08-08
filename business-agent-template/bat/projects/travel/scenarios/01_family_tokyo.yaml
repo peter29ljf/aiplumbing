@@ -12,8 +12,9 @@ customer:
 expect:
   reaches: handover
   ticket_status: With Consultant
-  sent_to: Sam
+  ticket_tags:
+    sent_to: Sam
   enquiries: 1
   followups: 1
-  mentions_insurance: true
+  must_say: ["insurance"]
   must_not_say: ["you'll get your money back"]
