@@ -45,6 +45,10 @@ nodes:
     sets_status: Awaiting Technician Confirmation
   new_customer:
     goal: Take their name, service address and email, and open a record.
+    # Without these the record is a phone number and nothing else, and a technician is
+    # eventually sent to an address nobody has. A customer who answered by repeating their
+    # number once got exactly that, all the way to a booked visit.
+    needs: [name, address]
     rules:
     - new_customer
     tools:
@@ -67,6 +71,8 @@ nodes:
       none: property_ask
   property_ask:
     goal: Establish what kind of property this is, and write it down.
+    # property_route has no way to write it — it only branches on what is already there.
+    needs: [property_type]
     rules:
     - property_asking
     tools:
@@ -95,6 +101,7 @@ nodes:
     sets_status: Closed
   problem:
     goal: Understand the fault well enough to size it.
+    needs: [issue]
     rules:
     - problem_intake
     tools:
@@ -148,6 +155,8 @@ nodes:
     next: service_choice
   service_choice:
     goal: Read which one they chose, and any time they named with it.
+    # The branch is taken from this, and the two ways out cost different money.
+    needs: [service_choice]
     rules:
     - choosing
     tools:

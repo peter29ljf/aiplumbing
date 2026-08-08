@@ -144,6 +144,38 @@ def nudge(node: Any, spoke: int) -> str:
     )
 
 
+def not_yet(node: Any, tags: dict[str, Any]) -> str:
+    """A step told to write something down, trying to finish without it. Empty means go.
+
+    The third gate, and the one that was missing. `nudge` stops a step that will not
+    finish; `_undone` stops a last step signing off before it has done the outward thing.
+    Neither stops the case in between: a step that finishes having achieved nothing.
+
+    `new_customer` — goal, verbatim, "take their name, service address and email" — met a
+    customer who answered by repeating their phone number. It opened a record with both
+    fields blank, said it was finished, and the conversation ran all the way to a booked
+    visit with nowhere to send anybody. Every prompt was right and nothing checked.
+
+    Reads the ticket, never the transcript. A customer can say their address and the step
+    can still not have written it down, and the ticket is what the next step is handed.
+
+    One function because there are three engines, and the two rules that previously lived
+    in three copies both drifted — one silently weaker, one plainly broken on two of them.
+    """
+    missing = [f for f in getattr(node, "needs", ())
+               if not str(tags.get(f) or "").strip()]
+    if not missing:
+        return ""
+    # Names what is missing and says what to do about it. A refusal that only says no gets
+    # retried unchanged until the step is failed for going round in circles.
+    return (
+        f"[system] Not finished yet — the ticket still has no {', '.join(missing)}, and "
+        f"the next step reads the ticket rather than this conversation. If the customer "
+        f"has already told you, write it down with ticket.set_fields. If they have not, "
+        f"ask them for it. Then finish."
+    )
+
+
 class Conversation:
     def __init__(self, world: AnyWorld, llm: Any, flow: Flow, *,
                  start_at: str = "", known: dict[str, Any] | None = None) -> None:
@@ -193,11 +225,19 @@ class Conversation:
 
     @classmethod
     def resume(cls, state: dict[str, Any], llm: Any, flow: Flow, *,
-               rules: dict[str, Any]) -> "Conversation":
-        """Carry on from `save()`, on a world rebuilt from the same record."""
-        from bat.runtime.sim import World
+               rules: dict[str, Any], world: AnyWorld | None = None) -> "Conversation":
+        """Carry on from `save()`, on a world rebuilt from the same record.
 
-        world = World.restore(state["world"], rules=rules)
+        `world` is for the caller who has already rebuilt one — a live conversation coming
+        back is restored with its store attached, and a world without a store cannot find
+        the customer or write the booking through. This used to import `sim.World` and
+        build one unconditionally, which made every resumed conversation a simulated one
+        however it had started.
+        """
+        if world is None:
+            from bat.runtime.sim import World
+
+            world = World.restore(state["world"], rules=rules)
         talk = cls(world, llm, flow, start_at=state["node"])
         # `__init__` opens a ticket, because a new conversation needs one. This is not a
         # new conversation: the ticket it was writing to is in the record, and the one
@@ -296,7 +336,14 @@ class Conversation:
                 self._absorb(result, keep)
                 if isinstance(result, dict):
                     if result.get("finished"):
-                        outcome = str(result.get("outcome", ""))
+                        # The node's own postcondition, checked before it is let through.
+                        # A step whose goal is to take a name and an address can otherwise
+                        # take neither and still say it is done, and everything downstream
+                        # believes it.
+                        if (short := self._not_yet(node)):
+                            result = {"ok": False, "error": short}
+                        else:
+                            outcome = str(result.get("outcome", ""))
                     if result.get("ok") is False:
                         step.refusals.append(f"{call.function.name}: {result['error']}")
                 answered = json.dumps(result, default=str)
@@ -333,6 +380,9 @@ class Conversation:
         self.messages = []
         self.ticket_id = self.world.open_ticket().id
 
+
+    def _not_yet(self, node: Node) -> str:
+        return not_yet(node, self.world.ticket(self.ticket_id).tags)
 
     def _still_here(self, node: Node) -> str:
         spoke = sum(1 for m in self.messages

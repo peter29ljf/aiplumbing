@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from bat.runtime import assemble, memory, registry
-from bat.runtime.engine import Step, Turn, _changed, _tally, nudge
+from bat.runtime.engine import Step, Turn, _changed, _tally, not_yet, nudge
 from bat.runtime.graph import Flow, Node
 
 from bat.engines.claude_code import Session
@@ -164,6 +164,11 @@ class Conversation:
             outcome = next((str(e["result"].get("outcome", "")) for e in events
                             if isinstance(e["result"], dict) and e["result"].get("finished")),
                            None)
+            if outcome is not None and (short := self._not_yet(node)):
+                # Finished without what it was told to collect. Sent back rather than let
+                # through: everything downstream reads the ticket, not the conversation.
+                outcome, text = None, short
+                continue
             if outcome is not None:
                 gone = self._advance(outcome)
                 if gone is not None:      # an outcome that names no branch
@@ -246,6 +251,9 @@ class Conversation:
     # ------------------------------------------------------------------
     def _still_here(self, node: Node) -> str:
         return nudge(node, self.replies_here)
+
+    def _not_yet(self, node: Node) -> str:
+        return not_yet(node, self.world.ticket(self.ticket_id).tags)
 
 
     # What a last step owes before it can sign off: the things that reach outside this
