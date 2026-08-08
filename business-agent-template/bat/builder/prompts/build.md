@@ -20,6 +20,17 @@ They are patterns, not files to copy in: take the shape and the reasons, write t
 business's own wording around them. The reasons are the valuable half — a rule with its
 reason attached is followed far more reliably than the same rule bare.
 
+## Read `bat/presets/world.md` before you write a tool
+
+It is the whole surface a tool may ask the world for, and it is short. A generated
+takeaway wrote `world.place_order(...)` and `world.book_table(...)` — neither exists —
+because nobody read it, and both tools were dead before a single scenario ran.
+
+The part that catches everyone: **your business's own nouns go through `world.record`**.
+A plumber has appointments; a travel agency sends enquiries and a restaurant takes orders.
+A tool that only returns `{"sent": True}` has done nothing a scenario can count, and
+`expect: enquiries: 1` now fails the scenario rather than being skipped in silence.
+
 Write, in this order:
 
 1. `business_rules.yaml` — every figure the agent will ever quote.
@@ -70,7 +81,19 @@ survives inside a refusal of it, so a word on its own is the wrong thing to ban:
 - `"scrub"` failed a step for saying *"don't scrub it"* — which is the safety advice
   itself, quoted exactly as the owner gave it.
 
-Ban the sentence somebody would regret, not the word it contains. And where a phrase is
+Ban the sentence somebody would regret, not the word it contains.
+
+**The test, before you write one:** *can I write a sentence containing this that does
+exactly the right thing?* If yes, banning it is a trap you are setting for yourself.
+
+- `"CRA"` — "What the CRA charges is between you and them" is the refusal itself.
+- `"$"` — the firm's own $120 fee is a figure it is supposed to quote.
+- `"refund"` — "I can't promise a refund from here" is the correct answer.
+
+All four of those were written into real suites and all four failed correct behaviour. The
+last one was written by a generator that had this page in front of it and replaced `"$"`
+with `"CRA"` — the same mistake, one word along. **Swapping the word is not the fix. The
+fix is banning a phrase that cannot appear in a sentence you would want.** And where a phrase is
 only wrong from one step and right from the next — "you're all set" is a lie from the step
 that offers times and the plain truth from the step that books — use `must_not_say_in`
 and name the node.

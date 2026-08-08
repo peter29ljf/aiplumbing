@@ -14,6 +14,8 @@ instruction it failed to follow was in front of it.
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass
 from typing import Any
 
@@ -78,7 +80,21 @@ def diagnose(result: Any, flow: Flow) -> list[Verdict]:
     #    believes it, stops talking, and the step that would have done it never runs.
     verdicts.extend(_spoke_out_of_turn(result, flow))
 
-    if not result.passed and not result.snapshot.get("ended"):
+    # 4. It gave them a figure or a reference nothing produced. The delta check above
+    #    answers whether the thing happened; this one answers whether the thing described
+    #    is the thing that happened.
+    verdicts.extend(_figures_from_nowhere(result))
+
+    # Only ask why it stalled when it stalled. `world.ended` is not the same thing as the
+    # conversation having finished — a flow can walk to its last step, sign off cleanly,
+    # and leave `ended` false — so this fired on conversations that had gone perfectly and
+    # invented a reason for a stall that never happened. Five verdicts in one run, every
+    # one of them about a scenario whose only fault was an assertion about wording.
+    #
+    # The runner knows. `stopped` says why it came back.
+    finished_cleanly = getattr(result, "stopped", "") in ("the flow ended",
+                                                          "the customer left")
+    if not result.passed and not result.snapshot.get("ended") and not finished_cleanly:
         verdicts.extend(_why_it_stalled(result, flow, steps))
 
     for problem in result.problems:
@@ -253,7 +269,23 @@ def _why_it_stalled(result: Any, flow: Flow, steps: list) -> list[Verdict]:
                 f"the simulated customer left while the flow was still moving "
                 f"(last few: {path}) — it accepted a mid-flow reply as an ending",
             )]
-        return [Verdict(HARNESS, f"ran out of turns while still moving (last few: {path})")]
+        # Only say the budget ran out when it actually did. A scenario that used two of
+        # its thirty turns was told it had run out of them — the verdict inferring its own
+        # cause, which is the one failure this classifier exists to prevent. What
+        # `stopped` records is the truth; "budget" is only the truth when the numbers
+        # agree with it.
+        spent, allowed = getattr(result, "turns", 0), getattr(result, "budget", 0)
+        if allowed and spent >= allowed:
+            return [Verdict(HARNESS, f"ran out of turns after {spent} "
+                                     f"(last few: {path})")]
+        return [Verdict(
+            UNCLEAR,
+            f"stopped after {spent} turn(s)"
+            + (f" of {allowed}" if allowed else "")
+            + f" with the flow still moving (last few: {path})"
+            + (f" — the runner recorded: {why}" if why and why != "budget" else
+               " — and nothing recorded why"),
+        )]
 
     in_node = [step for step in steps if step.node == stuck_at]
     offered = set().union(*(set(step.offered) for step in in_node)) if in_node else set()
@@ -335,6 +367,74 @@ def summarise(results: list[Any]) -> str:
     lines.append(upstream_gaps(results))
     lines.append(how_slow(results))
     return "\n".join(lines)
+
+
+
+# Money with a currency symbol, and reference-shaped identifiers. Nothing else.
+#
+# The state-delta check answers "did it happen"; it cannot answer "is what you described
+# the thing that happened". A step saying "you're booked, reference TB-0007" satisfies it
+# the moment any appointment exists, whatever reference it invented. Every `always.md`
+# already forbids quoting a figure nobody looked up, and nothing enforced it.
+#
+# The scope is narrow on purpose. Three detectors in this project have read what was said
+# and been confidently wrong, every time by catching correct behaviour. Times and dates are
+# left out: a customer says "the 11:00 one" constantly, and a check that cannot tell their
+# words from an invention is worse than no check.
+MONEY = re.compile(r"\$\s?(\d[\d,]*(?:\.\d+)?)")
+REFERENCE = re.compile(r"\b([A-Z]{2,5}-?\d{3,})\b")
+
+
+def _same(figure: str) -> str:
+    """`$1,800` and `1800` are the same money."""
+    return figure.replace(",", "").rstrip("0").rstrip(".") if "." in figure \
+        else figure.replace(",", "")
+
+
+def _figures_from_nowhere(result: Any) -> list[Verdict]:
+    """Figures and references the customer was given that nothing produced.
+
+    Legitimate sources, all three of them: a tool answered it in this conversation, it is
+    on the ticket, or the customer said it themselves.
+    """
+    tags = " ".join(
+        f"{key} {value}" for ticket in (result.snapshot.get("tickets") or {}).values()
+        for key, value in (ticket.get("tags") or {}).items())
+    from_them = " ".join(text for who, text in result.transcript if who == "customer")
+
+    # Grounded against everything this *node* has been told, not this one model call.
+    #
+    # A step calls the quoting tool on one call and says the number on the next, and the
+    # `saw` of the first is not the `saw` of the second. Judged per call, "$4.00" came
+    # from nowhere; judged over the node, the tool had just answered it. This is the same
+    # per-call-versus-per-node mistake the delta detector made, arriving by a different
+    # road, and it produced the same shape of false accusation.
+    by_node: dict[str, str] = {}
+    for step in result.steps:
+        by_node[step.node] = by_node.get(step.node, "") + " " + \
+            (getattr(step, "saw", "") or "")
+
+    verdicts = []
+    for step in result.steps:
+        said = (getattr(step, "text", "") or "")
+        if not said:
+            continue
+        grounded = f"{by_node.get(step.node, '')} {tags} {from_them}"
+        loose = {_same(m) for m in MONEY.findall(grounded)} | \
+                {m.replace("-", "") for m in REFERENCE.findall(grounded)} | \
+                set(re.findall(r"\d[\d,]*(?:\.\d+)?", grounded))
+        loose |= {_same(v) for v in re.findall(r"\d[\d,]*(?:\.\d+)?", grounded)}
+
+        invented = [f"${m}" for m in MONEY.findall(said) if _same(m) not in loose]
+        invented += [m for m in REFERENCE.findall(said)
+                     if m.replace("-", "") not in loose]
+        if invented:
+            verdicts.append(Verdict(
+                MODEL,
+                f"gave the customer {', '.join(sorted(set(invented)))} — no tool in this "
+                f"step answered it, it is not on the ticket, and they did not say it",
+                step.node))
+    return verdicts
 
 
 def upstream_gaps(results: list[Any]) -> str:

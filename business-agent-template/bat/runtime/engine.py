@@ -88,6 +88,9 @@ class Step:
     # world, not about wording. Judged from words, a step saying "I won't say you're
     # booked just yet" was reported as claiming a booking.
     text: str = ""
+    # What the tools answered this step, flattened. The grounding a figure is checked
+    # against — without it, "your reference is TB-0007" cannot be told from a lookup.
+    saw: str = ""
     delta: dict[str, int] = field(default_factory=dict)
 
 
@@ -96,10 +99,49 @@ class Turn:
     reply: str
     steps: list[Step] = field(default_factory=list)
     nodes: list[str] = field(default_factory=list)
+    # What a step said on its way out, held until the step after it speaks. The two are
+    # sent together: "Got it — a dripping tap. May I have your phone number?" rather than
+    # the first half now and the second half only if the customer asks what is happening.
+    carried: list[str] = field(default_factory=list)
 
     @property
     def seconds(self) -> float:
         return round(sum(step.seconds for step in self.steps), 1)
+
+
+# How many replies a step gets before it is asked what it is still waiting for, and what
+# it is asked. One copy, because there were three and the shortest of them dropped the
+# reason — and a rule with its reason attached is followed far more reliably than the same
+# rule bare, which is the single most repeated finding in this project.
+#
+# Two, not three. `warranty_check` looked the old job up on its first call, wrote it down
+# on its second, and then argued with an angry customer for four turns — the nudge landed
+# on the fourth and it finished on the fifth, by which time the customer had asked the
+# same question four ways.
+REPLIES_BEFORE_A_NUDGE = 2
+
+
+def nudge(node: Any, spoke: int) -> str:
+    """A step that keeps talking and never finishes, told so.
+
+    The mirror of the closing gate. That one stops a last step signing off before its work
+    is done; this stops every other step doing the opposite — talking indefinitely with
+    the way out in front of it. `greeting` spent seventeen model calls sympathising with
+    an angry customer, and `offer_options`, cornered by "so is it booked?", answered yes.
+    Both had `step.finished` the whole time.
+
+    A step is not stuck because it lacks patience. It is stuck because what the customer
+    is pressing for lives further down the graph, and the only way to reach it is to
+    finish.
+    """
+    if getattr(node, "is_terminal", False) or spoke < REPLIES_BEFORE_A_NUDGE:
+        return ""
+    return (
+        f"[system] You have replied {spoke} times from this step without calling "
+        f"step.finished. If this step's goal is met, call it now. If you are waiting "
+        f"on something this step has no tool for, a later step has it — finishing is "
+        f"how they get it, and repeating yourself is not."
+    )
 
 
 class Conversation:
@@ -132,6 +174,41 @@ class Conversation:
         self.finished = False
 
     # ------------------------------------------------------------------
+    def save(self) -> dict[str, Any]:
+        """Everything needed to pick this conversation up somewhere else.
+
+        Three things, and the shortness of the list is the architecture's doing rather
+        than luck: a node reads the ticket and never the transcript, and the message list
+        is thrown away at every boundary. So what survives a crash is the world, which
+        node we are standing in, and which ticket we are writing to. At worst the exchange
+        in progress is lost, and the customer repeats one sentence instead of everything.
+
+        The in-flight messages are deliberately not saved. They belong to the node that is
+        running, they are discarded the moment it finishes anyway, and writing them down
+        would make the record larger than the thing it protects.
+        """
+        return {"world": self.world.save(), "node": self.node.name,
+                "entry": self.entry, "ticket_id": self.ticket_id,
+                "finished": self.finished}
+
+    @classmethod
+    def resume(cls, state: dict[str, Any], llm: Any, flow: Flow, *,
+               rules: dict[str, Any]) -> "Conversation":
+        """Carry on from `save()`, on a world rebuilt from the same record."""
+        from bat.runtime.sim import World
+
+        world = World.restore(state["world"], rules=rules)
+        talk = cls(world, llm, flow, start_at=state["node"])
+        # `__init__` opens a ticket, because a new conversation needs one. This is not a
+        # new conversation: the ticket it was writing to is in the record, and the one
+        # just opened is an empty duplicate nobody would ever read.
+        world.tickets.pop(talk.ticket_id, None)
+        talk.ticket_id = state["ticket_id"]
+        talk.entry = state.get("entry") or talk.entry
+        talk.finished = bool(state.get("finished"))
+        return talk
+
+    # ------------------------------------------------------------------
     @property
     def tags(self) -> dict[str, Any]:
         ticket = self.world.tickets.get(self.ticket_id)
@@ -149,14 +226,27 @@ class Conversation:
         turn = Turn(reply="")
         self.messages.append({"role": "user", "content": text})
 
+        # What the customer will see, joined. A step that acknowledges and then hands on
+        # used to end the turn on its acknowledgement: "Got it — a dripping tap." and
+        # nothing else, while the step that would have asked for their phone number waited
+        # for them to speak again. They had nothing to answer, so they sat there. A real
+        # customer testing this by hand typed "?" six times in one conversation, once for
+        # each of these.
+        #
+        # The prompt asks a step with nothing to add to say nothing at all, and it mostly
+        # does not — an acknowledgement is a very natural thing to write. So the engine
+        # carries it: what the acknowledging step said and what the next step asks arrive
+        # together, as one message, which is what a person would have sent anyway.
+        said: list[str] = []
+
         for _ in range(MAX_NODES_PER_TURN):
             reply = self._run_node(turn)
             if reply is not None:
-                turn.reply = reply
-                return turn
+                said.append(reply)
+                break
             if self.finished:
                 break
-        turn.reply = turn.reply or ""
+        turn.reply = " ".join(part for part in [*turn.carried, *said] if part).strip()
         return turn
 
     # ------------------------------------------------------------------
@@ -209,15 +299,20 @@ class Conversation:
                         outcome = str(result.get("outcome", ""))
                     if result.get("ok") is False:
                         step.refusals.append(f"{call.function.name}: {result['error']}")
+                answered = json.dumps(result, default=str)
+                step.saw += " " + answered
                 messages.append({"role": "tool", "tool_call_id": call.id,
-                                 "content": json.dumps(result, default=str)})
+                                 "content": answered})
 
             step.delta = _changed(before, _tally(self.world))
 
             if outcome is not None:
-                said = (message.content or "").strip()
+                spoke = (message.content or "").strip()
                 self._advance(str(outcome))
-                return said or None
+                if spoke:
+                    # Held, not sent. `say` joins it to whatever the next step asks.
+                    turn.carried.append(spoke)
+                return None
 
             # A last step may do its work and say its piece in one message. Checked here
             # as well as above, because a reply that arrives alongside tool calls used to
@@ -238,43 +333,28 @@ class Conversation:
         self.messages = []
         self.ticket_id = self.world.open_ticket().id
 
-    # How many replies a step gets before it is asked what it is still waiting for.
-    #
-    # Two, not three. `warranty_check` looked the old job up on its first call, wrote it
-    # down on its second, and then argued with an angry customer for four turns — the
-    # nudge landed on the fourth and it finished on the fifth, by which time the customer
-    # had asked the same question four ways. A step whose work is done is not made better
-    # by another exchange, and the one node here that genuinely needs several rounds
-    # (`new_customer`, three fields) is asking questions rather than repeating itself.
-    REPLIES_BEFORE_A_NUDGE = 2
 
     def _still_here(self, node: Node) -> str:
-        """A step that keeps talking and never finishes, told so.
-
-        The mirror of `_ends_here`. That one stops a last step signing off before its work
-        is done; this one stops every other step doing the opposite — talking indefinitely
-        with the way out in front of it. `greeting` spent seventeen model calls
-        sympathising with an angry customer, and `offer_options`, cornered by "so is it
-        booked?", answered yes. Both had step.finished the whole time.
-
-        A step is not stuck because it lacks patience. It is stuck because what the
-        customer is pressing for lives further down the graph, and the only way to reach
-        it is to finish.
-        """
-        if node.is_terminal:
-            return ""
         spoke = sum(1 for m in self.messages
                     if m.get("role") == "assistant" and (m.get("content") or "").strip())
-        if spoke < self.REPLIES_BEFORE_A_NUDGE:
-            return ""
-        return (
-            f"[system] You have replied {spoke} times from this step without calling "
-            f"step.finished. If this step's goal is met, call it now. If you are waiting "
-            f"on something this step has no tool for, a later step has it — finishing is "
-            f"how they get it, and repeating yourself is not."
-        )
+        return nudge(node, spoke)
 
     # Bookkeeping, not work: writing a field down is not doing the thing.
+    # What a last step must have done before it can sign off: the things that reach
+    # outside this process. Not everything it holds.
+    #
+    # It used to be "every tool except these two", and that made a tool compulsory the
+    # moment it was granted. A step answering general questions was given the delivery
+    # checker so it could answer one about delivery — and a customer who asked about
+    # opening hours, having no address, left it unable to finish. It went round three
+    # times and the scenario failed for circling.
+    #
+    # A lookup is never somebody's job. Nobody's work is to have looked something up, and
+    # a step that answers a question without needing the diary has done its work. An
+    # action is always the job: a booking step that signs off having booked nothing is the
+    # exact failure this gate was built for. `once=True` already names that distinction —
+    # it marks the tools that touch a diary, a phone, or a person — so the gate reads it
+    # rather than keeping a second list that has to agree with the first.
     NOT_WORK = frozenset({"ticket.set_fields", "step.finished"})
 
     def _ends_here(self, node: Node, turn: Turn, messages: list[dict[str, Any]]) -> bool:
@@ -306,7 +386,7 @@ class Conversation:
         used = {tool for step in turn.steps if step.node == node.name for tool in step.tools}
         return [
             name for name in node.tools
-            if name not in self.NOT_WORK and name.replace(".", "_", 1) not in used
+            if sim_tools.reaches_outside(name) and name.replace(".", "_", 1) not in used
         ]
 
     def _system(self) -> str:

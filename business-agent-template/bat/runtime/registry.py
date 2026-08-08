@@ -44,7 +44,8 @@ class NoToolsRegistered(BrokenFlow):
 
 def tool(name: str, description: str, properties: dict[str, Any],
          required: list[str] | None = None,
-         remembers: tuple[str, ...] = ()) -> Callable[[Handler], Handler]:
+         remembers: tuple[str, ...] = (),
+         once: bool = False) -> Callable[[Handler], Handler]:
     """`remembers` names the facts this tool handles that belong on the ticket.
 
     They are copied there by the engine, from the arguments and from the answer, without
@@ -58,6 +59,7 @@ def tool(name: str, description: str, properties: dict[str, Any],
             "name": name,
             "handler": handler,
             "remembers": remembers,
+            "once": once,
             "schema": {
                 "type": "function",
                 "function": {
@@ -74,6 +76,16 @@ def tool(name: str, description: str, properties: dict[str, Any],
         return handler
 
     return register
+
+
+def reaches_outside(name: str) -> bool:
+    """Does this tool touch a diary, a phone, or a person? Then doing it is the work.
+
+    The closing gate asks this of a last step's tools. Anything that only reads — a
+    price, the clock, what is free — is never the reason a step exists, and requiring it
+    turns a granted tool into a compulsory one.
+    """
+    return bool(_TOOLS.get(name, {}).get("once"))
 
 
 def names() -> set[str]:
@@ -109,6 +121,18 @@ def call(world: AnyWorld, wire_name: str, arguments: str,
     name = next((n for n in allowed if _TOOLS.get(n, {}).get("schema", {})
                  .get("function", {}).get("name") == wire_name), None)
     if name is None:
+        # A last step has no `step.finished` — it ends by replying, and its list says so.
+        # But an engine that shows every tool in the graph (one session, one MCP server)
+        # lets the model reach for it anyway, and "not available here" reads as an error
+        # to retry. One did, three times, and the scenario was failed for going round in
+        # circles. It was not confused about what it wanted; it was told no without being
+        # told what instead.
+        if wire_name in ("step_finished", "step.finished"):
+            return {"ok": False,
+                    "error": "This is the last step, so there is nothing to finish into. "
+                             "Do whatever this step still has to do, then write the "
+                             "message the customer is left with — your reply is what ends "
+                             "the conversation."}, {}
         return {"ok": False,
                 "error": f"'{wire_name}' is not available here. You can use: {list(allowed)}"}, {}
 
@@ -117,12 +141,30 @@ def call(world: AnyWorld, wire_name: str, arguments: str,
     except json.JSONDecodeError as bad:
         return {"ok": False, "error": f"Those arguments are not JSON: {bad}"}, {}
 
+    # An action that reaches outside the process, already done with these arguments. Hand
+    # back what it answered the first time and touch nothing: the caller cannot tell, which
+    # is the whole idea. The attempt is recorded because a step that had to be stopped from
+    # booking twice is a step worth looking at.
+    done = getattr(world, "done", None)
+    key = ""
+    if _TOOLS[name].get("once") and done is not None:
+        key = f"{name}:{json.dumps(args, sort_keys=True, default=str)}"
+        if key in done:
+            world.repeats.append({"tool": name, "arguments": args})
+            return done[key], {}
+
     try:
         result = _TOOLS[name]["handler"](world, **args)
     except Refused as refusal:
+        # Not remembered: it did not happen, so a step that fixes its arguments and calls
+        # again must be allowed to. Remembering a refusal would hand the same refusal back
+        # forever.
         return {"ok": False, "error": str(refusal)}, {}
     except TypeError as bad_args:
         return {"ok": False, "error": f"Wrong arguments for {name}: {bad_args}"}, {}
+
+    if key and done is not None:
+        done[key] = result
 
     keep: dict[str, Any] = {}
     for key in _TOOLS[name]["remembers"]:

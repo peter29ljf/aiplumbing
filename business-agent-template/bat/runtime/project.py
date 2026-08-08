@@ -77,6 +77,29 @@ class Project:
         return (self.rules_dir / f"{name}.md").read_text(encoding="utf-8").strip()
 
     # ---- what it costs and how it is judged ---------------------------
+    def records(self) -> tuple[str, ...]:
+        """The business's own nouns, read off the tools that record them.
+
+        A count of zero is the most useful count there is — `enquiries: 0` is exactly
+        what a decline scenario asserts — and a kind that has never been recorded is
+        absent from the snapshot, so counting it would have meant treating "missing" as
+        "zero". That would let a typo pass whenever the expected number was nought.
+
+        Scanning the source instead makes the distinction the right way round: a noun a
+        tool records exists at zero, and a noun no tool has ever heard of is still an
+        unchecked assertion. No new configuration file, and nothing to keep in step.
+        """
+        import re
+
+        found: set[str] = set()
+        for directory in (self.tools_dir, PRESETS / "tools"):
+            if not directory.exists():
+                continue
+            for module in directory.glob("*.py"):
+                found.update(re.findall(r"""\.record\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']""",
+                                        module.read_text(encoding="utf-8")))
+        return tuple(sorted(found))
+
     def business_rules(self) -> dict[str, Any]:
         return _yaml(self.dir / "business_rules.yaml")
 

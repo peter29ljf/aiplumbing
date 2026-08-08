@@ -53,16 +53,29 @@ def tick(world: World, now: datetime | None = None) -> list[dict[str, Any]]:
         if technician is None:
             continue                      # nobody on duty; ask again tomorrow regardless
 
-        followup["asked"] = int(followup.get("asked", 0)) + 1
-        followup["due"] = (when + timedelta(hours=ASK_AGAIN_HOURS)).isoformat()
+        # The outward thing first, the bookkeeping after — and never the other way round.
+        #
+        # It was the other way round: the due time moved to tomorrow and *then* the
+        # message went out. A stop between the two — the process killed, the messaging
+        # service down — lost that day's ask entirely and rearmed for tomorrow, so the job
+        # sat unchased while the record said it had been chased. Of the two ways to get
+        # this wrong, that is the worse one: asking twice annoys a technician, and not
+        # asking leaves a customer waiting on a job nobody is watching.
+        #
+        # Nothing here is a retry loop. If the send raises, the follow-up is untouched and
+        # still due, so the next tick asks again. That is the whole recovery.
         world.technician_messages.append({
             "technician_id": technician.id,
             "subject": f"Follow-up: {followup['ticket_id']}",
+            # Read before `asked` moves, so the count in the message is the count of this
+            # ask rather than of the next one.
             "body": _ask(world, followup),
             "channel": "telegram",
             "kind": "followup",
             "at": when.isoformat(),
         })
+        followup["asked"] = int(followup.get("asked", 0)) + 1
+        followup["due"] = (when + timedelta(hours=ASK_AGAIN_HOURS)).isoformat()
         asked.append(followup)
     return asked
 
@@ -102,7 +115,9 @@ def _who(world: World, followup: dict[str, Any]):
 def _ask(world: World, followup: dict[str, Any]) -> str:
     ticket = world.tickets.get(followup["ticket_id"])
     what = (ticket.tags.get("issue") if ticket else "") or "the job"
-    times = int(followup.get("asked", 1))
+    # `asked` is still the count *before* this ask, because the message is written
+    # before the bookkeeping moves. This is that ask's own number.
+    times = int(followup.get("asked", 0)) + 1
     chased = f" (asked {times} times now)" if times > 1 else ""
     return (f"Is {followup['ticket_id']} — {what} — finished?{chased} "
             f"Reply done, or tell me what is still outstanding.")

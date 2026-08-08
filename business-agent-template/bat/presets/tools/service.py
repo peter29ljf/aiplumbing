@@ -145,7 +145,38 @@ def rules_service_options(world: AnyWorld) -> dict[str, Any]:
     pricing = world.rules["pricing"]
     dispatch = world.rules["emergency_dispatch"]
     standard = pricing["standard_inspection_fee"]
-    urgent = pricing.get("emergency_callout_fee") or pricing.get("emergency_fee") or {}
+    # The emergency fee, for the hour it actually is.
+    #
+    # This looked for `emergency_callout_fee`, and the rules call it
+    # `emergency_inspection_fee` — so it found nothing, answered `fee: null`, and the step
+    # that asks a customer to choose between two options quoted a price for one of them
+    # and the *deposit* for the other. A real customer was offered "a scheduled visit at
+    # CAD 100" against "a refundable CAD 100 deposit" and had nothing to compare.
+    #
+    # It is also four figures, not one: 200 in working hours, 300 before eight, 400 after
+    # six and on Sundays. Which one applies is the whole reason it cannot be written down
+    # in a rules file — it depends on when they are ringing.
+    urgent = (pricing.get("emergency_inspection_fee")
+              or pricing.get("emergency_callout_fee")
+              or pricing.get("emergency_fee") or {})
+    band = {}
+    if urgent.get("tiers"):
+        tiers = {t["id"]: t for t in urgent["tiers"]}
+        when = world.now
+        holidays = set((world.rules.get("schedule") or {}).get("holidays") or [])
+        for tier_id in urgent.get("tier_precedence", list(tiers)):
+            if tier_id == "sunday_or_holiday" and (
+                    when.weekday() == 6 or when.date().isoformat() in holidays):
+                break
+            if tier_id == "night_after_18" and when.hour >= 18:
+                break
+            if tier_id == "workday_business_hours" and 8 <= when.hour < 18:
+                break
+            if tier_id == "workday_offhours_before_18" and when.hour < 8:
+                break
+        else:
+            tier_id = list(tiers)[0]
+        band = tiers[tier_id]
 
     return {
         "scheduled": {
@@ -159,12 +190,27 @@ def rules_service_options(world: AnyWorld) -> dict[str, Any]:
             "deposit": None,
         },
         "emergency": {
-            "fee": urgent.get("amount"),
+            "fee": band.get("amount", urgent.get("amount")),
             "currency": urgent.get("currency", standard["currency"]),
             "qualifier": urgent.get("qualifier", ""),
+            # Which band, and why, so the customer can be told what makes it that figure
+            # rather than being handed a number that changes if they ring back at seven.
+            "band": band.get("id", ""),
+            "band_applies": band.get("condition", ""),
+            "display": (f"{urgent.get('currency', standard['currency'])} "
+                        f"{band['amount']} ({urgent.get('qualifier', '')})"
+                        if band else ""),
+            # Named for what it is. It was handed over as a bare `fee` beside a deposit,
+            # and the two got muddled in the telling — one customer was quoted "a
+            # refundable CAD 100 deposit" as though that were the price of coming out.
+            "what_the_figure_is": "call-out fee",
             "how_soon": "The technician on duty is contacted straight away, at any hour.",
-            "deposit": pricing["emergency_deposit"],
-            "deposit_required_first": dispatch.get("deposit_required_before_dispatch", True),
+            "credited_if_accepted": pricing["fee_offset"]["accepted_quote"],
+            "payable_if_declined": pricing["fee_offset"]["rejected_quote"],
+            # No deposit. There was one in the hand-written original, with a step that
+            # took it, checked it and gave it back when nobody could come. That step does
+            # not exist here — so quoting a deposit promises something no tool can do,
+            # and the customer hears a second figure that never gets collected.
         },
     }
 
@@ -262,6 +308,7 @@ def calendar_find_booking(world: AnyWorld, phone: str) -> dict[str, Any]:
     },
     remembers=("appointment_id", "starts", "reads_as", "technician",
                 "technician_id"),
+    once=True,
 )
 def calendar_create(world: AnyWorld, ticket_id: str, starts: str, address: str,
                     what: str) -> dict[str, Any]:
@@ -292,10 +339,18 @@ def calendar_create(world: AnyWorld, ticket_id: str, starts: str, address: str,
     "Text the customer.",
     {"to": {"type": "string", "description": "Their phone number"},
      "body": {"type": "string"}},
+    once=True,
 )
 def sms_send(world: AnyWorld, to: str, body: str) -> dict[str, Any]:
     if not body.strip():
         raise Refused("There is no point sending an empty message.")
+    # A text to nobody was recorded as a text sent, which is the exact shape the delta
+    # detector is built to catch and could not: the world's count went up, so a step
+    # saying "I've texted you the details" passed every check while the customer's phone
+    # never moved.
+    if not to.strip():
+        raise Refused("No number to text. Look the customer up, or ask them for one, "
+                      "before saying anything has been sent.")
     return world.send_sms(to, body)
 
 
@@ -309,6 +364,7 @@ def sms_send(world: AnyWorld, to: str, body: str) -> dict[str, Any]:
                                                   "fault, the time. Everything, so they "
                                                   "do not have to ask."},
     },
+    once=True,
 )
 def technician_notify(world: AnyWorld, technician_id: str, subject: str,
                       body: str) -> dict[str, Any]:
@@ -328,6 +384,7 @@ def technician_notify(world: AnyWorld, technician_id: str, subject: str,
         "details": {"type": "string"},
     },
     remembers=("reason",),
+    once=True,
 )
 def escalate_raise(world: AnyWorld, ticket_id: str, reason: str, details: str) -> dict[str, Any]:
     return world.escalate(ticket_id, reason, details)
@@ -338,6 +395,7 @@ def escalate_raise(world: AnyWorld, ticket_id: str, reason: str, details: str) -
     "Arrange for somebody to check how the visit went.",
     {"ticket_id": {"type": "string"},
      "hours": {"type": "integer", "description": "How long to wait"}},
+    once=True,
 )
 def schedule_followup(world: AnyWorld, ticket_id: str, hours: int) -> dict[str, Any]:
     return world.schedule_followup(ticket_id, int(hours))

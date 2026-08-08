@@ -123,17 +123,24 @@ def test_a_node_prompt_does_not_mention_the_rest_of_the_graph(flow):
 def test_every_node_prompt_stays_small(flow):
     """The whole reason for the rewrite. The old agents send 42,968 characters a call.
 
-    This measured the first node only, against 4,000 — a figure taken when `greeting` was
-    the one node with no rules file at all. It has one now, and that file is why three
-    scenarios stopped failing, so the number moved. It moved to a ceiling over every node
-    rather than a reading of one, which is the thing actually worth holding: 8,000 is
-    under a fifth of what a single old call cost, and the fattest node here is 6,600.
+    Measured on **what the node itself contributes** — its goal, its own rules, its exits —
+    rather than on the finished prompt. The finished prompt also carries `always.md` and
+    the block about writing to a customer, and those are byte-identical in every node in
+    every project: counting them here means one shared paragraph tips fifteen nodes over
+    a line that is supposed to be about a node growing too big for its own job. It did,
+    the day that block was added.
+
+    The ceiling is not about running out of room. Context is not the constraint and has
+    not been for a while. It is about compliance: the more separate instructions a step
+    carries, the less reliably each of them is followed, and the ones in the middle go
+    first. 5,000 characters of a node's own material is a lot of instructions already.
     """
-    from bat.runtime.assemble import build
+    from bat.runtime.assemble import ALWAYS_TRUE, build
 
-    biggest = max((len(build(node)), node.name) for node in flow.nodes.values())
+    shared = len(flow.project.always()) + ALWAYS_TRUE
+    biggest = max((len(build(node)) - shared, node.name) for node in flow.nodes.values())
 
-    assert biggest[0] < 8_000, biggest
+    assert biggest[0] < 6_000, biggest
 
 
 # ---- moving on --------------------------------------------------------
@@ -288,14 +295,22 @@ def test_a_fact_a_tool_handled_is_kept_without_being_asked(flow):
     went with the messages — so the next step asked for it again. Being asked twice for the
     same thing is the clearest sign nobody is listening, and it should not depend on the
     model remembering to write things down."""
+    # Four scripted answers for two turns, not three. A step that acknowledges and hands
+    # on no longer ends the turn on the acknowledgement — it is carried, and the step
+    # after it speaks in the same message. So the first `say` walks two nodes, which is
+    # the point of the change: "Noted — one moment." and the question that follows arrive
+    # together instead of the customer being left with nothing to answer.
     llm = ScriptedLLM(
         calls(("step.finished", {"outcome": "done"}), text="Noted — one moment."),
+        says("What number are you on?"),
         calls(("crm.lookup_by_phone", {"phone": "604 555 0166"})),
         says("You're not on file yet."),
     )
     conversation = _talk(llm, flow)
 
-    conversation.say("hi")
+    first = conversation.say("hi")
+    assert "Noted" in first.reply and "?" in first.reply, (
+        "the acknowledgement and the question should reach the customer together")
     conversation.say("604 555 0166")
 
     assert conversation.tags["phone"] == "604 555 0166"
@@ -304,6 +319,7 @@ def test_a_fact_a_tool_handled_is_kept_without_being_asked(flow):
 def test_what_a_lookup_found_is_kept_too(flow):
     llm = ScriptedLLM(
         calls(("step.finished", {"outcome": "done"}), text="Noted — one moment."),
+        says("What number are you on?"),
         calls(("crm.lookup_by_phone", {"phone": "604-555-7788"})),
         says("Welcome back, Emily."),
     )

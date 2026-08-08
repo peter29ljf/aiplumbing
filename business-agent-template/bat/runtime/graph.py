@@ -20,6 +20,9 @@ import yaml
 from bat.runtime.project import Project, find
 
 
+TOO_LONG = 8_000
+
+
 class BrokenFlow(Exception):
     """flow.yaml does not describe a graph anyone can walk."""
 
@@ -37,6 +40,13 @@ class Node:
     sets_status: str
     next: str | None = None
     branch: dict[str, str] = field(default_factory=dict)
+    # Which model works this step. Empty means the project's default.
+    #
+    # A node is a separate model session, so this costs nothing to vary — and the steps
+    # are not alike. Taking down three facts and deciding whether a destination is one
+    # this agency will touch are different jobs, and a travel suite spent 84% of its wall
+    # clock on the agent thinking, most of it in steps that were only writing things down.
+    model: str = ""
 
     @property
     def is_terminal(self) -> bool:
@@ -118,6 +128,7 @@ def load(project: Project | str | Path, *, known_tools: set[str] | None = None) 
             sets_status=str(spec.get("sets_status", "")).strip(),
             next=spec.get("next"),
             branch=dict(spec.get("branch") or {}),
+            model=str(spec.get("model", "")).strip(),
         )
 
     _check(project, entry, nodes, known_tools)

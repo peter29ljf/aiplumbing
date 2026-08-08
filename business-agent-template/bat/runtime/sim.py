@@ -41,7 +41,8 @@ class World:
     """One conversation's worth of everything."""
 
     def __init__(self, now: str, seed: dict[str, Any] | None = None, *,
-                 rules: dict[str, Any] | None = None) -> None:
+                 rules: dict[str, Any] | None = None,
+                 records: tuple[str, ...] = ()) -> None:
         """`rules` is the project's business_rules.yaml, already read.
 
         It used to be fetched from a module that knew one company's config directory,
@@ -56,6 +57,19 @@ class World:
         self.customers: dict[str, Customer] = {}
         for spec in seed.get("customers", []):
             self.add_customer(**spec)
+
+        # What a project's own tools record, under names the kit does not know: a travel
+        # agency sends `enquiries`, a takeaway takes `orders`. They reach the snapshot
+        # alongside the built-in lists, so a scenario can assert on the thing the business
+        # actually does rather than only on the six nouns a plumber has.
+        # Seeded with the kinds this project's tools are capable of recording, so a
+        # scenario asserting none of something is checking a real zero rather than an
+        # absent key. `Project.records()` reads them off the tool source.
+        self.extras: dict[str, list[Any]] = {kind: [] for kind in records}
+        # What has already been done to the outside world, by tool and arguments, so
+        # doing it again does nothing. See `registry.tool(once=True)`.
+        self.done: dict[str, Any] = {}
+        self.repeats: list[dict[str, Any]] = []
 
         self.technicians: dict[str, Technician] = {}
         for spec in seed.get("technicians") or [
@@ -225,6 +239,77 @@ class World:
         return found
 
     # ---- what a run is judged on -------------------------------------
+    def record(self, kind: str, entry: Any) -> None:
+        """A project's own tool, saying something happened that the kit has no word for.
+
+        The alternative is what travel did: return a dict saying `sent: True` and leave no
+        trace in the world, so `expect: enquiries: 1` had nothing to count — and, because
+        the judge quietly ignored a key it did not know, said nothing about it either. The
+        enquiry was never sent in any of fifteen scenarios and the suite scored 13/15.
+        """
+        self.extras.setdefault(kind, []).append(entry)
+
+    def save(self) -> dict[str, Any]:
+        """Everything needed to carry on. Not the same thing as `snapshot()`.
+
+        `snapshot()` is the view a scenario asserts against: what happened, in the words
+        the assertions use. It deliberately leaves out the machinery — the id counters, the
+        customer book, the times already taken, what has already been done to the outside
+        world — because none of that is what a test is asking about.
+
+        Carrying on needs all of it. A conversation resumed with fresh counters mints a
+        second TK-0001; one resumed without the idempotency ledger texts the customer
+        again, and a crash is precisely when a step retries what it already did.
+        """
+        return {
+            "now": self.now.isoformat(),
+            "counters": dict(self._counters),
+            "ended": self.ended,
+            "end_reason": self.end_reason,
+            "customers": {phone: {"phone": c.phone, "name": c.name, "address": c.address,
+                                  "email": c.email, "property_type": c.property_type}
+                          for phone, c in self.customers.items()},
+            "technicians": {i: vars(t) | {"skills": list(t.skills)}
+                            for i, t in self.technicians.items()},
+            "busy": [[a.isoformat(), b.isoformat()] for a, b in self.busy],
+            "tickets": {t.id: {"id": t.id, "status": t.status, "phone": t.phone,
+                               "tags": t.tags, "history": t.history}
+                        for t in self.tickets.values()},
+            "appointments": {a.id: vars(a) | {"starts": a.starts.isoformat()}
+                             for a in self.appointments.values()},
+            "texts": self.texts, "emails": self.emails,
+            "technician_messages": self.technician_messages,
+            "escalations": self.escalations, "followups": self.followups,
+            "extras": self.extras, "done": self.done, "repeats": self.repeats,
+        }
+
+    @classmethod
+    def restore(cls, state: dict[str, Any], *, rules: dict[str, Any]) -> "World":
+        """The other direction. `save()` had none until conversations needed to survive."""
+        world = cls(now=state["now"], rules=rules)
+        world._counters = dict(state.get("counters") or {})
+        world.ended = bool(state.get("ended"))
+        world.end_reason = str(state.get("end_reason") or "")
+
+        world.customers = {phone: Customer(**spec)
+                           for phone, spec in (state.get("customers") or {}).items()}
+        world.technicians = {
+            i: Technician(**(spec | {"skills": tuple(spec.get("skills") or ())}))
+            for i, spec in (state.get("technicians") or {}).items()}
+        world.busy = [(datetime.fromisoformat(a), datetime.fromisoformat(b))
+                      for a, b in (state.get("busy") or [])]
+        world.tickets = {i: Ticket(**spec) for i, spec in (state.get("tickets") or {}).items()}
+        world.appointments = {
+            i: Appointment(**(spec | {"starts": datetime.fromisoformat(spec["starts"])}))
+            for i, spec in (state.get("appointments") or {}).items()}
+
+        for key in ("texts", "emails", "technician_messages", "escalations", "followups",
+                    "repeats"):
+            setattr(world, key, list(state.get(key) or []))
+        world.extras = {k: list(v) for k, v in (state.get("extras") or {}).items()}
+        world.done = dict(state.get("done") or {})
+        return world
+
     def snapshot(self) -> dict[str, Any]:
         return {
             "tickets": {t.id: {"status": t.status, "tags": t.tags, "history": t.history}
@@ -238,4 +323,6 @@ class World:
             "followups": self.followups,
             "ended": self.ended,
             "end_reason": self.end_reason,
+            **self.extras,
+            "repeats": self.repeats,
         }
