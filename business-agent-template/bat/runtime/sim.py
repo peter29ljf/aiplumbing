@@ -42,13 +42,24 @@ class World:
 
     def __init__(self, now: str, seed: dict[str, Any] | None = None, *,
                  rules: dict[str, Any] | None = None,
-                 records: tuple[str, ...] = ()) -> None:
+                 records: tuple[str, ...] = (), store: Any = None) -> None:
         """`rules` is the project's business_rules.yaml, already read.
 
         It used to be fetched from a module that knew one company's config directory,
         which is most of how a general simulator came to be a plumbing company. Handed in,
         two projects can run in one process and neither can read the other's prices.
+
+        `store` is optional and **nothing about a run without one changes** — which is what
+        the whole test suite depends on. With one, the handful of facts that outlive a
+        conversation are written through as they happen and read back when they are looked
+        for: a customer who rang last week, an appointment made on a ticket that is closed,
+        a follow-up owed tomorrow.
+
+        Persistence, not reality. Everything still goes to the simulator; a world that has
+        a store and no live switches is a real staging environment, and that is the point
+        of keeping the two separable.
         """
+        self.store = store
         self.rules = rules or {}
         self.tz = ZoneInfo(self.rules["company"]["timezone"])
         self.now = datetime.fromisoformat(now)
@@ -111,19 +122,48 @@ class World:
         jobs = [Job(**j) for j in fields.pop("jobs", [])]
         customer = Customer(phone=phone, jobs=jobs, **fields)
         self.customers[phone_key(phone)] = customer
+        if self.store is not None:
+            self.store.upsert_customer(phone, **{k: v for k, v in fields.items()
+                                                 if k != "jobs"})
         return customer
 
     def find_customer(self, phone: str) -> Customer | None:
-        return self.customers.get(phone_key(phone))
+        """This conversation's memory first, then the database.
+
+        The order matters: something learned a minute ago has not been written through
+        yet in every case, and the fresher answer is the right one.
+        """
+        found = self.customers.get(phone_key(phone))
+        if found is not None or self.store is None:
+            return found
+        row = self.store.find_customer(phone)
+        if row is None:
+            return None
+        # Cached in memory as well, so the rest of this conversation sees one customer
+        # rather than a fresh object per lookup.
+        return self.add_customer(
+            row["phone"],
+            **{k: row.get(k) or "" for k in ("name", "address", "email", "property_type")},
+            jobs=[{"job_id": j["job_id"], "what": j.get("service_name") or "",
+                   "finished_on": j.get("completed_at") or "",
+                   "technician": j.get("technician_id") or ""}
+                  for j in row.get("jobs") or []],
+        )
 
     # ---- bookkeeping -------------------------------------------------
     def next_id(self, prefix: str) -> str:
+        # From the database when there is one. The in-memory counter restarts at 1 every
+        # process, which is right for a scenario and would hand two different customers
+        # the same ticket number in production.
+        if self.store is not None:
+            return self.store.next_id(prefix)
         self._counters[prefix] = self._counters.get(prefix, 0) + 1
         return f"{prefix}-{self._counters[prefix]:04d}"
 
     def open_ticket(self, phone: str = "") -> Ticket:
         ticket = Ticket(id=self.next_id("TK"), phone=phone)
         self.tickets[ticket.id] = ticket
+        self._keep(ticket)
         return ticket
 
     def set_status(self, ticket_id: str, status: str) -> None:
@@ -135,6 +175,18 @@ class World:
             return
         ticket.history.append(f"{ticket.status} -> {status}")
         ticket.status = status
+        self._keep(ticket)
+
+    def _keep(self, ticket: Ticket) -> None:
+        """Write a ticket through, if there is anywhere to write it.
+
+        Called on the world's own changes only. `ticket.tags` is mutated straight by
+        `ticket.set_fields` and nothing here can see that happen — the tags reach the
+        database when the conversation is saved at the end of a turn, which is the
+        durability boundary that actually matters.
+        """
+        if self.store is not None:
+            self.store.save_ticket(ticket)
 
     # ---- the diary ---------------------------------------------------
     def free_slots(self, *, days: int = 7, limit: int = 3) -> list[datetime]:
@@ -162,11 +214,23 @@ class World:
         finish = when + timedelta(hours=1)
         booked = [(a.starts, a.starts + timedelta(minutes=a.minutes))
                   for a in self.appointments.values()]
+        if self.store is not None:
+            # Everybody else's bookings, not only this conversation's. Two people on the
+            # widget at once would otherwise be offered the same eleven o'clock.
+            booked += [
+                (datetime.fromisoformat(row["start_at"]),
+                 datetime.fromisoformat(row["start_at"])
+                 + timedelta(minutes=int(row["duration_minutes"] or 60)))
+                for row in self.store.appointments_between(
+                    when - timedelta(hours=8), finish + timedelta(hours=8))
+            ]
         return any(when < end and finish > start for start, end in self.busy + booked)
 
     def book(self, **fields: Any) -> Appointment:
         appointment = Appointment(id=self.next_id("AP"), **fields)
         self.appointments[appointment.id] = appointment
+        if self.store is not None:
+            self.store.save_appointment(appointment)
         return appointment
 
     def find_appointments(self, phone: str) -> list[Appointment]:
@@ -175,10 +239,23 @@ class World:
         A customer ringing about a visit booked last week is on a new ticket, so looking
         by ticket would find nothing and the conversation would tell them they have no
         appointment — which is worse than not looking at all.
+
+        And not on this conversation either, once there is a store: last week's visit was
+        made in a process that has since exited.
         """
         key = phone_key(phone)
-        found = [a for a in self.appointments.values() if phone_key(a.phone) == key]
-        return sorted(found, key=lambda a: a.starts)
+        found = {a.id: a for a in self.appointments.values()
+                 if phone_key(a.phone) == key}
+        if self.store is not None:
+            for row in self.store.appointments_for(phone):
+                found.setdefault(row["appointment_id"], Appointment(
+                    id=row["appointment_id"], ticket_id=row["ticket_id"] or "",
+                    starts=datetime.fromisoformat(row["start_at"]),
+                    minutes=int(row["duration_minutes"] or 60),
+                    technician=row["technician_id"] or "", address=row["address"] or "",
+                    what=row["description"] or "", phone=row["phone"] or "",
+                ))
+        return sorted(found.values(), key=lambda a: a.starts)
 
     # ---- telling people ----------------------------------------------
     #
@@ -280,13 +357,35 @@ class World:
             "texts": self.texts, "emails": self.emails,
             "technician_messages": self.technician_messages,
             "escalations": self.escalations, "followups": self.followups,
-            "extras": self.extras, "done": self.done, "repeats": self.repeats,
+            # `dict(...)` rather than the object: a live world's `done` is a
+            # database-backed ledger, and it went into the blob as its own repr —
+            # `str(Ledger)` — which restored as a string and crashed the next resume.
+            "extras": self.extras, "done": dict(self.done.items()),
+            "repeats": self.repeats,
         }
 
     @classmethod
-    def restore(cls, state: dict[str, Any], *, rules: dict[str, Any]) -> "World":
-        """The other direction. `save()` had none until conversations needed to survive."""
-        world = cls(now=state["now"], rules=rules)
+    def restore(cls, state: dict[str, Any], *, rules: dict[str, Any],
+                store: Any = None) -> "World":
+        """The other direction. `save()` had none until conversations needed to survive.
+
+        `store` is passed in rather than saved, because it is a connection to a database
+        and not a fact about the world. A live conversation coming back has to be given
+        one — without it the world it resumes into is a simulated one that happens to
+        remember the right things, and the next booking it makes reaches nobody.
+        """
+        return cls(now=state["now"], rules=rules, store=store)._reload(state)
+
+    def _reload(self, state: dict[str, Any]) -> "World":
+        """Fill a world that has already been constructed, and hand it back.
+
+        Split from `restore` so a subclass can reuse it. `LiveWorld.__init__` needs things
+        this classmethod knows nothing about — a session id, a supervisor — and without
+        this seam the only way to restore one was to build a plain world and copy its
+        `__dict__` across, which is the kind of thing that works until somebody adds a
+        field.
+        """
+        world = self
         world._counters = dict(state.get("counters") or {})
         world.ended = bool(state.get("ended"))
         world.end_reason = str(state.get("end_reason") or "")
@@ -307,7 +406,11 @@ class World:
                     "repeats"):
             setattr(world, key, list(state.get(key) or []))
         world.extras = {k: list(v) for k, v in (state.get("extras") or {}).items()}
-        world.done = dict(state.get("done") or {})
+        # Written through key by key rather than replaced. A live world's `done` is not a
+        # dictionary — it is a database-backed ledger, and assigning over it would swap
+        # the one thing here that has to outlive the process for one that cannot.
+        for key, value in (state.get("done") or {}).items():
+            world.done[key] = value
         return world
 
     def snapshot(self) -> dict[str, Any]:
