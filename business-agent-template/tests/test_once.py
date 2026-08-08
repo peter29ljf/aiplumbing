@@ -42,6 +42,12 @@ def _call(world, wire, args, allowed):
     return registry.call(world, wire, args, allowed)
 
 
+def _ledger_key(name: str, arguments: str) -> str:
+    """The same key `registry.call` builds, built the same way rather than guessed."""
+    import json
+    return f"{name}:{json.dumps(json.loads(arguments), sort_keys=True, default=str)}"
+
+
 # ---- the point of it ----------------------------------------------------
 
 
@@ -104,6 +110,75 @@ def test_two_worlds_do_not_share_a_memory():
     _call(two, "sms_send", args, ("sms.send",))
 
     assert len(one.texts) == 1 and len(two.texts) == 1
+
+
+# ---- the crash in the middle --------------------------------------------
+#
+# Everything above is one process staying alive. The ledger was written after the handler
+# returned, which holds for as long as nothing stops in between. Twilio acknowledging a
+# message and this process recording that it did are two events with a gap between them,
+# and a gap is a place to die. Come back, find nothing recorded, send again.
+#
+# So the intent goes in first. These three are what that has to mean.
+
+
+def test_a_crash_between_sending_and_recording_does_not_send_again():
+    """The whole reason for the change. The handler reached the outside world and then the
+    process died; the world is restored from its last save and the step tries again."""
+    world = _world()
+    world.open_ticket()
+    args = '{"to": "604-555-0166", "body": "Booked for Tuesday at 11."}'
+
+    def explode(_world, **_kwargs):
+        _world.texts.append({"to": "604-555-0166", "body": "sent for real"})
+        raise RuntimeError("killed after Twilio said yes")
+
+    real = registry._TOOLS["sms.send"]["handler"]
+    registry._TOOLS["sms.send"]["handler"] = explode
+    try:
+        _call(world, "sms_send", args, ("sms.send",))
+    except RuntimeError:
+        pass
+    finally:
+        registry._TOOLS["sms.send"]["handler"] = real
+
+    revived = World.restore(world.save(), rules=RULES)
+    result, _ = _call(revived, "sms_send", args, ("sms.send",))
+
+    assert len(revived.texts) == 1, "the customer's phone went twice"
+    assert result.get("ok") is False
+
+
+def test_the_step_is_told_it_is_unknown_rather_than_told_it_worked():
+    """Handing back a cheerful answer would be worse than sending twice: the step would
+    tell the customer it was done, and nobody would ever look."""
+    world = _world()
+    world.open_ticket()
+    args = '{"to": "604-555-0166", "body": "Booked."}'
+    world.done[_ledger_key("sms.send", args)] = registry.UNCONFIRMED
+
+    result, _ = _call(world, "sms_send", args, ("sms.send",))
+
+    assert result["ok"] is False
+    assert "escalate" in result["error"], "no way out was offered"
+    assert world.texts == []
+
+
+def test_an_unconfirmed_repeat_is_marked_as_one():
+    """A repeat that was stopped and a repeat nobody can account for are different things
+    to find in a report, and only one of them needs a person."""
+    world = _world()
+    world.open_ticket()
+    args = '{"to": "604-555-0166", "body": "Booked."}'
+
+    _call(world, "sms_send", args, ("sms.send",))
+    _call(world, "sms_send", args, ("sms.send",))
+    assert world.repeats[-1]["unconfirmed"] is False
+
+    world.done[_ledger_key("sms.send", args)] = registry.UNCONFIRMED
+    _call(world, "sms_send", args, ("sms.send",))
+
+    assert world.repeats[-1]["unconfirmed"] is True
 
 
 def test_a_refusal_is_not_remembered_as_done():

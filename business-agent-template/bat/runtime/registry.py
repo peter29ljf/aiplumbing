@@ -23,6 +23,18 @@ _TOOLS: dict[str, dict[str, Any]] = {}
 
 COMPLAINTS: list[str] = []
 
+# What the idempotency ledger holds between "about to do this" and "here is what it
+# answered". Survives `world.save()` like any other entry, which is the point: it is only
+# ever seen after something stopped between the two.
+UNCONFIRMED = "__unconfirmed__"
+
+UNCONFIRMED_SAYS = (
+    "{name} was already attempted with these exact arguments and the outcome is unknown — "
+    "something stopped between sending it and recording the answer. It has NOT been done "
+    "again, because doing it twice is worse than doing it once. Do not retry and do not "
+    "tell the customer it is done. Say a colleague is checking, and use escalate.raise."
+)
+
 
 class NoToolsRegistered(BrokenFlow):
     """A file in a project's tools/ that defined nothing the registry can see.
@@ -150,27 +162,50 @@ def call(world: AnyWorld, wire_name: str, arguments: str,
     if _TOOLS[name].get("once") and done is not None:
         key = f"{name}:{json.dumps(args, sort_keys=True, default=str)}"
         if key in done:
-            world.repeats.append({"tool": name, "arguments": args})
+            world.repeats.append({"tool": name, "arguments": args,
+                                  "unconfirmed": done[key] == UNCONFIRMED})
+            if done[key] == UNCONFIRMED:
+                return {"ok": False, "error": UNCONFIRMED_SAYS.format(name=name)}, {}
             return done[key], {}
+
+        # Written *before* the call, not after.
+        #
+        # It was after, which is right in a simulated world and wrong in a real one. The
+        # window between Twilio acknowledging a message and this line is small and it is
+        # not zero, and a process that dies inside it comes back with no record that
+        # anything was sent. The next attempt sends again — the customer gets two texts,
+        # the technician two jobs, and the money is spent twice.
+        #
+        # So the ledger records the *intent*, and the outcome overwrites it. A key still
+        # reading UNCONFIRMED after a restart means exactly one thing: this was attempted
+        # and nobody knows whether it landed. It is not repeated. Of the two ways to be
+        # wrong, a person checking a message that did go out is recoverable and a customer
+        # billed twice is not.
+        done[key] = UNCONFIRMED
 
     try:
         result = _TOOLS[name]["handler"](world, **args)
     except Refused as refusal:
         # Not remembered: it did not happen, so a step that fixes its arguments and calls
         # again must be allowed to. Remembering a refusal would hand the same refusal back
-        # forever.
+        # forever — and leaving the intent behind would do worse, turning a fixable mistake
+        # into a permanently unconfirmed action.
+        if key and done is not None:
+            done.pop(key, None)
         return {"ok": False, "error": str(refusal)}, {}
     except TypeError as bad_args:
+        if key and done is not None:
+            done.pop(key, None)
         return {"ok": False, "error": f"Wrong arguments for {name}: {bad_args}"}, {}
 
     if key and done is not None:
         done[key] = result
 
     keep: dict[str, Any] = {}
-    for key in _TOOLS[name]["remembers"]:
-        value = args.get(key, result.get(key) if isinstance(result, dict) else None)
+    for fact in _TOOLS[name]["remembers"]:
+        value = args.get(fact, result.get(fact) if isinstance(result, dict) else None)
         if value not in (None, "", [], {}):
-            keep[key] = value
+            keep[fact] = value
     return result, keep
 
 
