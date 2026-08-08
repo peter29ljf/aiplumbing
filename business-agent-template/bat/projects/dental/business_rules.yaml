@@ -1,0 +1,205 @@
+# ==========================================================================
+# Northshore Dental — every figure and every piece of wording the agent will
+# ever say out loud.
+#
+# Nothing here is repeated in a rules file. A price in prose is a promise
+# somebody else has to keep, and the four verbatim passages below are said to
+# patients almost word for word, so they live in one place and are served by a
+# tool rather than paraphrased from memory.
+#
+# Two placeholders are marked TO CONFIRM. Both go out to patients or to Wendy.
+# ==========================================================================
+
+company:
+  name: "Northshore Dental"
+  timezone: "America/Vancouver"
+  currency: "CAD"
+  language: "en"                        # English only
+  where: "North Vancouver, BC"
+  # TO CONFIRM — the street address. It goes in the confirmation text, so a patient
+  # reads it and drives to it. Left without a street rather than invented.
+  address: "Northshore Dental, North Vancouver, BC"
+  # The customer comes to us. Nobody travels, so there is no service address to ask
+  # for and no travel time to allow for.
+  service_delivery: in_store
+
+  # Where work goes. One person, one channel — `manager.notify` takes no recipient
+  # argument precisely because there is nothing here to choose between.
+  manager:
+    id: "wendy"
+    name: "Wendy"
+    role: "practice manager"
+    channel: "telegram"
+    telegram: "6045550188"              # TO CONFIRM — placeholder chat id
+
+practice:
+  # A booking needs a dentist and a chair free at the same time. Two of each, so at
+  # most two appointments overlap; `diary.book` is what enforces that.
+  chairs: 2
+  dentists:
+    - { id: "shen", name: "Dr. Amy Shen" }
+    - { id: "patel", name: "Dr. Raj Patel" }
+  # Any free dentist is fine. Which one it turned out to be is recorded on the ticket.
+  dentist_choice: "whoever is free"
+  minimum_age: 16
+
+# ---------------------------- When we are open ---------------------------
+schedule:
+  # 0 = Monday ... 6 = Sunday. Monday to Friday only — Saturday is closed as well
+  # as Sunday, which `diary.find_slots` reads from this list rather than from prose.
+  working_days: [0, 1, 2, 3, 4]
+  working_hours:
+    start: "08:00"
+    end: "17:00"
+  # There is no out-of-hours cover to offer. Nothing may promise one.
+  outside_hours: "closed"
+  # BC statutory holidays. Not the same list as a federal one — Boxing Day and Easter
+  # Monday are not BC statutory holidays.
+  public_holidays:
+    - { date: "2026-01-01", name: "New Year's Day" }
+    - { date: "2026-02-16", name: "Family Day" }
+    - { date: "2026-04-03", name: "Good Friday" }
+    - { date: "2026-05-18", name: "Victoria Day" }
+    - { date: "2026-07-01", name: "Canada Day" }
+    - { date: "2026-08-03", name: "BC Day" }
+    - { date: "2026-09-07", name: "Labour Day" }
+    - { date: "2026-09-30", name: "National Day for Truth and Reconciliation" }
+    - { date: "2026-10-12", name: "Thanksgiving" }
+    - { date: "2026-11-11", name: "Remembrance Day" }
+    - { date: "2026-12-25", name: "Christmas Day" }
+
+# ---------------------------- The diary ----------------------------------
+booking:
+  # Assumed in the plan, not given by the practice. It decides how many patients a
+  # day holds, and it is one number in one place.
+  appointment_minutes: 60
+  slots_offered: 3
+  search_days: 14
+
+# ---------------------------- What things cost ---------------------------
+pricing:
+  # Both flat. Not "starting at" — the qualifier is part of the figure and goes with it.
+  new_patient_exam:
+    amount: 180
+    currency: "CAD"
+    qualifier: "flat"
+    includes: "the examination and X-rays"
+    applies_when: "they are not on our books yet"
+  recall_checkup:
+    amount: 95
+    currency: "CAD"
+    qualifier: "flat"
+    applies_when: "they are already a patient of ours"
+
+  same_day_surcharge:
+    amount: 60
+    currency: "CAD"
+    on_top_of: "whatever the treatment itself costs"
+    # Read literally from what the practice said: the surcharge belongs to an emergency
+    # same-day slot, which only the dentist opens. A patient who simply picked a free
+    # time out of the diary is not paying it, whatever day that time falls on.
+    applies_when: >-
+      Only when the dentist opens a same-day emergency slot. Never on an appointment the
+      patient chose from the diary.
+
+  # Said when they book, every time. `diary.book` returns this alongside the booking so
+  # the step cannot put a visit in the diary without being handed the words for it.
+  change_policy:
+    free_notice_hours: 24
+    late_fee:
+      amount: 50
+      currency: "CAD"
+    say: >-
+      Moving or cancelling is free with more than 24 hours' notice. Inside 24 hours
+      there is a CAD 50 charge.
+
+  # There is no figure for this and there must never be one. The step is given a
+  # sentence to say instead, because a step told to talk about cost and given nothing
+  # to look up refuses to answer at all.
+  treatment_quotes: >-
+    Anything beyond the exam is quoted by the dentist once they have had a look. We
+    don't quote treatment over chat.
+
+# ---------------------------- What we will not do ------------------------
+# The first two are said to patients nearly verbatim; they are reception's own words.
+declines:
+  under_16:
+    what: "We do not treat patients under 16. It is a decline, not a referral we chase."
+    say: >-
+      We only see patients 16 and over, so we're not able to book your daughter in.
+      North Shore Kids Dentistry on Lonsdale takes new patients — 604-555-0142 — and
+      your family doctor can refer as well.
+    # The wording above says "your daughter" because that is how it was given. Whoever
+    # the child actually is, say it about them.
+    adapt: "Say it about whoever the appointment is for — their son, their daughter, them."
+  cosmetic:
+    what: "Whitening, veneers, anything cosmetic-only. We are a general practice."
+    # Deliberately softer, and it ends on an invitation: these are often good patients
+    # otherwise. The invitation is real — if they take it up they are booked.
+    say: >-
+      We're a general practice, so we don't do whitening or veneers. If you'd like a
+      check-up or there's anything bothering you, we'd be glad to see you.
+
+service_policy:
+  walk_ins:
+    policy: "No walk-ins. Everything is booked."
+    # WORDING NOT SUPPLIED by the practice — this is a first draft to be checked.
+    # Deliberately without an offer on the end: this sentence is also read out to
+    # somebody who has no phone number, and "we can find you a time" is exactly what
+    # cannot be done for them.
+    say: >-
+      Everything with us is booked, so there's no walk-in clinic.
+
+# ---------------------------- Decisions a person makes -------------------
+# Neither of these is ever answered here. Both are stated plainly, once, and written
+# onto the ticket so the person who does decide has it in front of them.
+never_ours_to_answer:
+  emergency_judgement:
+    who: "the dentist, through Wendy"
+    what: >-
+      Whether something is worth a same-day slot. The patient says how much pain they
+      are in and we take that at face value and pass it on, in their words.
+    promise: "Wendy will message you within the hour."
+  insurance_coverage:
+    who: "reception"
+    what: "Whether a plan covers something, and what it pays."
+    say: >-
+      Reception handles insurance questions — they'll come back to you on that.
+
+# ---------------------------- Safety ------------------------------------
+# Read by `rules.get_safety_advisory`, which matches a key inside whatever the symptom
+# was described as. Given whenever one of these is described, whether or not the patient
+# calls it urgent — it is not conditional on them asking.
+#
+# `default` is empty on purpose. No match means there is nothing to say, and a step that
+# invents dental advice to fill the gap is the worst failure available here.
+safety_advisories:
+  swelling: >-
+    If you have swelling in your face or neck, trouble swallowing or breathing, or
+    bleeding that won't stop, please go to Lions Gate Hospital emergency now — that's
+    past what we can help with from here.
+  swallow: >-
+    If you have swelling in your face or neck, trouble swallowing or breathing, or
+    bleeding that won't stop, please go to Lions Gate Hospital emergency now — that's
+    past what we can help with from here.
+  breath: >-
+    If you have swelling in your face or neck, trouble swallowing or breathing, or
+    bleeding that won't stop, please go to Lions Gate Hospital emergency now — that's
+    past what we can help with from here.
+  bleeding: >-
+    If you have swelling in your face or neck, trouble swallowing or breathing, or
+    bleeding that won't stop, please go to Lions Gate Hospital emergency now — that's
+    past what we can help with from here.
+  knocked: >-
+    Keep the tooth in milk or your own saliva, don't scrub it, and get to us or an
+    emergency dentist within the hour — that hour matters.
+  default: ""
+
+# ---------------------------- After the appointment ---------------------
+followup:
+  # 24 hours after the appointment, Wendy is asked whether they came and what was done.
+  # The loop asks every day and never gives up, which is the "ticket stays open and we
+  # chase" the practice described.
+  after_hours: 24
+  asks: "the practice manager"
+  what: "Did they come, and what was done?"

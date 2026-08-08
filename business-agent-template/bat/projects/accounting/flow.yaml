@@ -1,0 +1,134 @@
+# Chen & Associates CPA — one conversation walking a graph of steps.
+entry: greeting
+nodes:
+
+  greeting:
+    goal: Greet the customer in their own language, and get one plain sentence about what they came for.
+    rules: [greeting]
+    tools: [ticket.set_fields, step.finished]
+    sets_status: New Inquiry
+    next: identify
+
+  identify:
+    goal: Get their phone number, find out whether we know them, and what they came about.
+    rules: [identify]
+    tools: [crm.lookup_by_phone, ticket.set_fields, step.finished]
+    sets_status: Phone Verified
+    branch:
+      new: new_client
+      existing: existing_client
+      no_number: no_number
+
+  no_number:
+    goal: Answer what can be answered, say plainly nothing can be booked without a phone number, and close.
+    rules: [no_number]
+    tools: [rules.get_fees, ticket.set_fields]
+    sets_status: Closed
+
+  new_client:
+    goal: Get name, email, preferred language, and whether they are here about a personal or corporate matter. Open a record.
+    rules: [new_client]
+    tools: [client.create, ticket.set_fields, step.finished]
+    sets_status: Client Identified
+    next: what_for
+
+  existing_client:
+    goal: Ask whether this is about work we already have in hand, or a new matter.
+    rules: [existing_client]
+    tools: [client.work_in_progress, ticket.set_fields, step.finished]
+    sets_status: Client Identified
+    branch:
+      in_progress: work_handover
+      new_matter: what_for
+
+  what_for:
+    goal: Hear, in their own words, what they actually need. Listen and write it down; decide nothing here.
+    rules: [what_for]
+    tools: [ticket.set_fields, step.finished]
+    sets_status: Needs Routing
+    next: service_route
+
+  service_route:
+    goal: Read what they came for off the ticket and route it to the matching way out.
+    rules: [service_route]
+    tools: [ticket.set_fields, step.finished]
+    sets_status: Needs Routing
+    branch:
+      us_tax: decline_us_tax
+      cra_audit: decline_audit
+      crypto: decline_crypto
+      personal_tax: personal_tax
+      other_work: consult_intro
+
+  decline_us_tax:
+    goal: Decline in the firm's words, and text them the cross-border firm's name and number.
+    rules: [decline_us_tax]
+    tools: [rules.get_decline, sms.send, ticket.set_fields]
+    sets_status: Declined
+
+  decline_audit:
+    goal: Decline, and say a CRA audit already in progress needs a tax lawyer.
+    rules: [decline_audit]
+    tools: [rules.get_decline, ticket.set_fields]
+    sets_status: Declined
+
+  decline_crypto:
+    goal: Decline plainly and without hedging that we do not do crypto trading gains.
+    rules: [decline_crypto]
+    tools: [rules.get_decline, ticket.set_fields]
+    sets_status: Declined
+
+  personal_tax:
+    goal: Find out whether there is rental or self-employment income, get the tier from the tool, and state the figure.
+    rules: [personal_tax]
+    tools: [rules.price_personal_return, ticket.set_fields, step.finished]
+    sets_status: Quoted
+    next: deadline_check
+
+  deadline_check:
+    goal: Say where the customer stands against the 30 April deadline, and how soon they should be seen.
+    rules: [deadline_check]
+    tools: [rules.deadline_pressure, ticket.set_fields, step.finished]
+    sets_status: Quoted
+    next: offer_times
+
+  consult_intro:
+    goal: For corporate, bookkeeping or a tax-question enquiry, state the figure that applies and that the first half hour is free.
+    rules: [consult_intro]
+    tools: [rules.get_fees, ticket.set_fields, step.finished]
+    sets_status: Quoted
+    next: offer_times
+
+  offer_times:
+    goal: Offer the next free times, and ask whether they want to come to the office or meet on video.
+    rules: [offer_times]
+    tools: [clock.now, diary.find_slots, ticket.set_fields, step.finished]
+    sets_status: Awaiting Appointment Selection
+    next: pick_time
+
+  pick_time:
+    goal: Read which time they picked and which way they want to meet.
+    rules: [pick_time]
+    tools: [ticket.set_fields, step.finished]
+    sets_status: Awaiting Appointment Selection
+    branch:
+      chose: book
+      none_suit: hand_scheduling
+
+  book:
+    goal: Put the appointment in the diary, text the customer, tell Michelle, and arrange the check-back.
+    rules: [book]
+    tools: [diary.book, sms.send, manager.notify, schedule.create_followup, ticket.set_fields]
+    sets_status: Appointment Booked
+
+  hand_scheduling:
+    goal: Hand the scheduling to Michelle when none of the offered times suit.
+    rules: [hand_scheduling]
+    tools: [escalate.raise, schedule.create_followup, ticket.set_fields]
+    sets_status: With Michelle — Scheduling
+
+  work_handover:
+    goal: Put a "where is my return" enquiry in front of Michelle with the file attached.
+    rules: [work_handover]
+    tools: [escalate.raise, schedule.create_followup, ticket.set_fields]
+    sets_status: With Michelle — Work In Progress

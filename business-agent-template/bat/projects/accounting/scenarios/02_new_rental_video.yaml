@@ -1,0 +1,18 @@
+id: new_rental_video
+now: "2026-03-12T11:00:00-07:00"
+customer:
+  persona: |
+    You are Priya, a new client of Chen & Associates CPA. You need your personal tax return
+    filed. You have rental income from a basement suite, no self-employment. You want to
+    meet on video. Your phone number is 604-555-0182, your name Priya Nair, your email
+    priya@example.com. Answer briefly.
+  phone: "604-555-0182"
+  max_turns: 34
+expect:
+  reaches: book
+  ticket_status: Appointment Booked
+  appointments: 1
+  texts: 1
+  must_say: ["250"]
+  ticket_tags:
+    booking_mode: video

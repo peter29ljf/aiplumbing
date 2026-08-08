@@ -1,0 +1,13 @@
+id: two_weeks_havana
+now: "2026-05-01T10:00:00-07:00"
+customer:
+  persona: |
+    You are Diego. You want to book two weeks in Havana, Cuba in the fall. You live in
+    Toronto and your phone number is 416-555-0198. You'd like help planning the trip.
+    Answer briefly.
+  phone: "416-555-0198"
+  max_turns: 20
+expect:
+  reaches: decline_destination
+  ticket_status: Declined — Destination
+  enquiries: 0

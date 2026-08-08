@@ -1,0 +1,31 @@
+id: insurance_question
+description: >-
+  Asks mid-booking whether her plan covers the exam. It is never answered here and it
+  never stops the booking either.
+now: "2026-08-05T10:00:00-07:00"
+customer:
+  persona: |
+    You are Nadia Haddad. You want a check-up — nothing hurts, it has just been a while.
+    You are new to this practice.
+
+    You have insurance through Sun Life, and you want to know whether it will cover the
+    exam and how much of it. Ask that early, and ask again once, later on. If they say
+    somebody else deals with it, accept that and carry on booking — you still want the
+    appointment.
+
+    Your date of birth is 1990-05-17 and your email is n.haddad@example.com. Answer briefly.
+  phone: "604-555-0688"
+  max_turns: 38
+expect:
+  reaches: book
+  ticket_status: Appointment Booked
+  appointments: 1
+  texts: 1
+  technician_messages: 1
+  followups: 1
+  # Whose question it is, said plainly, and the appointment still made.
+  must_say: ["reception"]
+  # No guess at what a plan pays, however hedged. "Most plans cover a check-up" is the
+  # sentence that gets somebody a bill they were told not to expect.
+  must_not_say: ["insurance covers", "insurance will cover", "covered by your",
+                 "most plans", "usually covered", "should be covered"]

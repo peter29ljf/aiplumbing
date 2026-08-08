@@ -1,0 +1,20 @@
+id: family_tokyo_full_package
+now: "2026-03-10T10:00:00-07:00"
+customer:
+  persona: |
+    You are Lin. You live in Burnaby. You want to take your family — you, your partner,
+    and your two children aged 6 and 9 — to Tokyo for about ten days next March, but the
+    dates are flexible. You want a full package with tours. You'd like to spend around
+    $8,000 in total. All four of you have Canadian passports. Your phone number is
+    604-555-0166. Answer briefly, give details when asked.
+  phone: "604-555-0166"
+  max_turns: 40
+expect:
+  reaches: handover
+  ticket_status: With Consultant
+  ticket_tags:
+    sent_to: Sam
+  enquiries: 1
+  followups: 1
+  must_say: ["insurance"]
+  must_not_say: ["you'll get your money back"]

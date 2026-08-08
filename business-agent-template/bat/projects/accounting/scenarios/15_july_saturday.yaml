@@ -1,0 +1,15 @@
+id: july_saturday
+now: "2026-07-10T10:00:00-07:00"
+customer:
+  persona: |
+    You are Avery, a new client. You need a simple personal tax return filed. You only have
+    Saturdays free, so you ask about a Saturday appointment, but you will take whatever is
+    offered. Your phone number is 604-555-0304, name Avery Kim, email avery@example.com.
+    Answer briefly.
+  phone: "604-555-0304"
+  max_turns: 34
+expect:
+  reaches: book
+  ticket_status: Appointment Booked
+  appointments: 1
+  must_say: ["Saturday"]

@@ -1,0 +1,33 @@
+# Kept as the hand-written original the engine was built against, not run
+# routinely: a full pass costs several hundred thousand tokens and proves
+# nothing `dental` does not. Run it deliberately or not at all.
+reference_only: true
+
+# How a project is tested, and what counts as finished.
+#
+# The three numbers under `usable` are the generator's stop condition. It keeps fixing and
+# re-running until they are met, or until nothing has improved for `stop_after_flat_rounds`.
+
+repeat: 4          # never 1. A single run's verdict has been wrong here, and a whole
+                   # day's failure list was thrown away because of it.
+workers: 10
+slow_call_seconds: 20
+
+usable:
+  every_scenario_clean: true   # every scenario passes all `repeat` runs
+  min_pass_rate: 0.95          # or, failing that, this share of runs overall
+  config_faults: 0             # not negotiable — see below
+  stop_after_flat_rounds: 2
+
+# `config_faults: 0` is the one that cannot be relaxed. A configuration fault is a rules
+# file and a tool list contradicting each other, which is the generator's own bug: one
+# node was told to quote a price, forbidden from stating any figure it had not looked up,
+# and given no tool to look one up with. It refused to answer at all and spent nineteen
+# seconds composing the refusal.
+#
+# Model faults are different — the tool and the instruction were both there and it did
+# something else. Those are the case for a better model, and the only ones that are.
+
+# Which engine drives the agent. The fix loop and the deployment have to be the
+# same thing: a score measured on one model is not a statement about another.
+engine: claude-code-skills

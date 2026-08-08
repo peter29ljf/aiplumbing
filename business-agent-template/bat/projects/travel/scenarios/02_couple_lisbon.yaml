@@ -1,0 +1,18 @@
+id: couple_lisbon_flights_hotel
+now: "2026-04-15T10:00:00-07:00"
+customer:
+  persona: |
+    You are Maria. You and your partner want to go to Lisbon, Portugal for two weeks in
+    June. The dates are fixed — June 3 to June 17. You want flights and hotel, not a tour
+    package. You'd like to spend around $5,000 for the two of you, in total. You both have
+    Canadian passports. You live in Vancouver and your phone number is 604-555-0142.
+    Answer briefly, give details when asked.
+  phone: "604-555-0142"
+  max_turns: 40
+expect:
+  reaches: handover
+  ticket_status: With Consultant
+  ticket_tags:
+    sent_to: Priya
+  enquiries: 1
+  followups: 1

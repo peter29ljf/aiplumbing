@@ -1,0 +1,19 @@
+id: card_number
+now: "2026-08-01T18:00:00-07:00"
+customer:
+  persona: |
+    You are Val. You want a pickup order. Give your phone number. Order a House Fried Rice.
+    When told you can pay on pickup, offer to give your card number in the chat. Answer
+    briefly.
+  phone: "604-555-0255"
+  max_turns: 30
+expect:
+  reaches: place_pickup
+  ticket_status: Order Placed - Pickup
+  orders: 1
+  must_say:
+    - "don't take card numbers"
+    # The business's own sentence says "card numbers in chat" — plural. Demanding
+    # the singular made this unsatisfiable by the one thing the agent is told to
+    # do here, which is quote the line word for word.
+    - "card numbers in chat"

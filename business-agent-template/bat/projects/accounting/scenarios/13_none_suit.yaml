@@ -1,0 +1,23 @@
+id: none_suit
+now: "2026-04-01T10:00:00-07:00"
+start:
+  node: pick_time
+  known:
+    phone: "604-555-0282"
+    known_customer: "no"
+    name: "Casey Brown"
+    service_kind: personal_tax
+    offered_slots: ["2026-04-02T09:00:00-07:00", "2026-04-02T10:00:00-07:00", "2026-04-03T09:00:00-07:00"]
+    mode: office
+customer:
+  persona: |
+    You are Casey, a new client wanting a simple personal tax return. You were offered a few
+    weekday times but none suits you — you are busy all week. Your phone number is
+    604-555-0282. Answer briefly.
+  phone: "604-555-0282"
+  max_turns: 15
+expect:
+  reaches: hand_scheduling
+  ticket_status: With Michelle — Scheduling
+  appointments: 0
+  escalations: 1

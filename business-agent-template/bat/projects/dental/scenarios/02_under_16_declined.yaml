@@ -1,0 +1,24 @@
+id: under_16_declined
+description: A parent asking for a twelve-year-old. Declined, and given the referral in writing.
+now: "2026-08-05T10:00:00-07:00"
+customer:
+  persona: |
+    You are Marcus Ellery. You are booking for your daughter Sophie, who is twelve — her
+    date of birth is 2013-11-02. She has a chipped front tooth from a fall at school. It
+    is not bleeding and she is not in much pain.
+
+    You are not the patient; Sophie is. If they ask for your details, you are happy to
+    give them: your date of birth is 1985-06-21, your email is m.ellery@example.com, and
+    yes, you have insurance through Sun Life. Answer briefly.
+  phone: "604-555-0388"
+  max_turns: 34
+expect:
+  reaches: decline_age
+  ticket_status: Declined
+  appointments: 0
+  # The referral is the whole use of the message. One text, and the number in it.
+  texts: 1
+  must_say: ["604-555-0142", "north shore kids"]
+  # No door left open: no offer of a time, and nobody hinting the dentist might make an
+  # exception if asked again.
+  must_not_say: ["exception", "we could still"]

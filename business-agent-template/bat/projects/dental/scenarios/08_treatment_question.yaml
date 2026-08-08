@@ -1,0 +1,34 @@
+id: treatment_question
+description: >-
+  A known patient says a filling we placed has gone wrong. Nobody here judges whether we
+  are at fault, or whether it will be put right for nothing.
+now: "2026-08-05T10:00:00-07:00"
+seed:
+  customers:
+    - phone: "604-555-0644"
+      name: Elena Marchetti
+      email: elena.m@example.com
+      jobs:
+        - job_id: TR-4417
+          what: composite filling, lower right first molar
+          finished_on: "2026-06-11"
+          technician: Dr. Raj Patel
+customer:
+  persona: |
+    You are Elena Marchetti. Northshore Dental put a filling in a lower right molar in
+    June and for the past week it has been sharp when you drink anything cold. You think
+    it should not have failed this soon and you want it looked at without paying again.
+    Press on that if they are vague — you are not rude, but you want an answer about the
+    cost.
+  phone: "604-555-0644"
+  max_turns: 34
+expect:
+  reaches: treatment_handover
+  ticket_status: With Wendy — Treatment Question
+  appointments: 0
+  escalations: 1
+  followups: 1
+  # No verdict and no promise. Whether we are at fault, and what she pays, is the
+  # dentist's — and she will press for both.
+  must_not_say: ["free of charge", "no charge", "at no cost", "won't cost you",
+                 "our mistake", "shouldn't have failed"]

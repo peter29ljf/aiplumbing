@@ -1,0 +1,143 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Build console</title>
+<link rel="stylesheet" href="/style.css">
+
+<header>
+  <h1>Build console</h1>
+  <select id="project"></select>
+  <button id="new">New</button>
+  <nav>
+    <button data-tab="build" class="on">Build</button>
+    <button data-tab="flow">Flow</button>
+    <button data-tab="rules">Rules</button>
+    <button data-tab="tools">Tools</button>
+    <button data-tab="chat">Test chat</button>
+    <button data-tab="harness">Harness</button>
+    <button data-tab="dash">Dashboard</button>
+  </nav>
+  <span id="phase" class="pill"></span>
+</header>
+
+<main>
+  <!-- ---------------------------------------------------------------- -->
+  <section id="build" class="tab on">
+    <div id="waiting" class="waiting hidden">
+      <p id="waiting-note"></p>
+      <button id="approve">Approve the plan</button>
+      <button id="resume">Resume</button>
+    </div>
+
+    <div id="log" class="log"></div>
+
+    <form id="say">
+      <textarea id="text" rows="4" placeholder="Paste a flowchart, or answer what it asked. Ctrl+Enter to send."></textarea>
+      <div class="row">
+        <button type="submit" id="send">Send</button>
+        <button type="button" id="pause">Pause</button>
+        <span id="spend" class="muted"></span>
+      </div>
+    </form>
+  </section>
+
+  <!-- ---------------------------------------------------------------- -->
+  <section id="flow" class="tab">
+    <p class="muted">Every node, and what its prompt costs on every call. The byte count
+      is an acceptance figure — a node that quietly grows back is visible here first.</p>
+    <table id="nodes">
+      <thead><tr>
+        <th>node</th><th>goal</th><th>rules</th><th>tools</th>
+        <th class="num">prompt</th><th class="num">schemas</th><th class="num">total</th>
+        <th>leads to</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <!-- ---------------------------------------------------------------- -->
+  <section id="rules" class="tab">
+    <p class="muted">Assembled into the prompt at that node, on every call — so length is
+      a cost, not a style question. Saving keeps the version it replaced.</p>
+    <div class="split">
+      <ul id="rule-list" class="list"></ul>
+      <div class="editor">
+        <div class="row"><b id="rule-name">—</b>
+          <span id="rule-used" class="muted"></span>
+          <button id="rule-save">Save</button></div>
+        <textarea id="rule-text" rows="26"></textarea>
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- -->
+  <section id="tools" class="tab">
+    <p class="muted">A tool nothing uses is a step nobody wrote yet, or a leftover.
+      A node with eight tools is usually two nodes.</p>
+    <table id="tool-table">
+      <thead><tr><th>tool</th><th>from</th><th>used by</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <!-- ---------------------------------------------------------------- -->
+  <section id="chat" class="tab">
+    <div class="row">
+      <span id="chat-where" class="pill">not started</span>
+      <button id="chat-restart">Start over</button>
+    </div>
+    <div id="chat-log" class="log"></div>
+    <form id="chat-say">
+      <textarea id="chat-text" rows="2" placeholder="Say something as a customer. Ctrl+Enter to send."></textarea>
+      <div class="row"><button type="submit">Send</button>
+        <span id="chat-ticket" class="muted"></span></div>
+    </form>
+  </section>
+
+  <!-- ---------------------------------------------------------------- -->
+  <section id="harness" class="tab">
+    <div class="row">
+      <button id="run-all">Run everything</button>
+      <button id="run-nodes">Node scenarios only</button>
+      <input id="run-only" placeholder="or a scenario id fragment">
+      <span class="muted">Output goes to the Build log.</span>
+    </div>
+    <h2>Scenarios</h2>
+    <table id="scenario-table">
+      <thead><tr><th>id</th><th>what it covers</th><th>kind</th><th>asserts</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <h2>Settings</h2>
+    <p class="muted">The three numbers under <code>usable</code> are when the generator
+      stops. <code>config_faults: 0</code> is the one that does not bend.</p>
+    <textarea id="harness-yaml" rows="20"></textarea>
+    <div class="row"><button id="harness-save">Save</button>
+      <span id="harness-said" class="muted"></span></div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- -->
+  <section id="dash" class="tab">
+    <div class="cards">
+      <div class="card"><b id="rate">—</b><span>pass rate</span></div>
+      <div class="card"><b id="counts">—</b><span>runs</span></div>
+      <div class="card"><b id="builder-usd">—</b><span>builder spend (Anthropic)</span></div>
+      <div class="card"><b id="agent-cache">—</b><span>agent cache hits</span></div>
+    </div>
+
+    <h2>Scenarios</h2>
+    <table id="scenarios"><tbody></tbody></table>
+
+    <h2>Faults</h2>
+    <p class="muted">Configuration faults are ours — a rules file and a tool list
+      contradicting each other. Model faults are the only ones a different model answers.</p>
+    <table id="faults"><tbody></tbody></table>
+
+    <h2>How long each node takes</h2>
+    <table id="timings">
+      <thead><tr><th>node</th><th class="num">worst</th><th class="num">mean</th>
+        <th class="num">calls</th><th class="num">over 20s</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+</main>
+
+<script src="/app.js"></script>

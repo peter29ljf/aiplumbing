@@ -140,18 +140,49 @@ must_not_call:
   - crm.create_customer                  # unscoped: nobody may
 ```
 
+## What production actually runs
+
+**A customer talks to `flow/`, not to `agents/`.** The five agents below are the older
+shape and are still what the `testkit` suite exercises; the live path was rewritten as one
+agent walking a graph, and everything a real customer touches goes through it.
+
+```
+flow/flow.yaml        the graph: seventeen nodes, each with its own rules and its own tools
+flow/rules/           one file per node's instructions, assembled into its prompt
+flow/sim/tools.py     the tools, written once and run against either world
+flow/world.py         the words both worlds share, and the one exception either can raise
+flow/sim/world.py       everything in memory — what the scenarios run against
+flow/live/world.py      sqlite plus the real services — what a customer runs against
+flow/runner/engine.py one conversation walking the graph
+flow/runner/harness.py the scenario suite: `python3 -m flow.runner.harness --repeat 3`
+```
+
+The two worlds are the point. A node prompt is tested against the simulator and then put in
+front of a person unchanged, because the tools, the schemas and the wording are the same
+object — only what is underneath differs. Anything that reaches outside the process
+(`send_sms`, `send_email`, `notify_technician`, `escalate`, `schedule_followup`) is a
+method on the world, gated by `PLUMBING_LIVE_*`, and raises rather than failing quietly:
+a text that will not send stops the agent telling somebody they are booked.
+
+`python3 scripts/check_live.py --all` fires one harmless call down every outbound leg and
+says which of them can reach its service. Run it before a real customer.
+
 ## Layout
 
 ```
 config/     business rules, state machine, agent registry, tool catalogue, model config, world seed
-agents/     each agent's prompt; _shared/ holds the common fragments
+flow/       the graph a customer actually talks to — see above
+agents/     each agent's prompt for the older five-agent shape; still driven by testkit
 personas/   the AI-played customer, technician and supervisor
-scenarios/  test scenarios (customer definition + expected assertions)
+scenarios/  testkit scenarios; flow/scenarios/ holds the graph's own
 src/plumbing/
   world.py        simulated world: virtual clock, CRM, calendar, payments, outboxes, hard gates
+  store.py        sqlite: customers, tickets, appointments, follow-ups, messages, events
   tools/          simulated tools, signatures matching the real systems
   agent.py        the generic agent loop (assemble prompt + tools + tool calling)
   orchestrator.py conversation orchestration and agent handoff
+  integrations/   the real adapters — Twilio, Telegram, Gmail, Google Calendar, Stripe
+  live/           production: the HTTP surface, sessions, job offers, follow-up reminders
   sim/            the three human simulators
   testkit/        runner / assertions / judge / doctor / loop
   livestatus.py   writes "who is working" to runs/live.json for the console

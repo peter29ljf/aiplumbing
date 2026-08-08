@@ -1,0 +1,89 @@
+# Chen & Associates CPA — the single source of truth.
+# Every figure the agent quotes lives here and is served by a tool, never written in prose.
+
+company:
+  name: "Chen & Associates CPA"
+  city: "Richmond BC"
+  timezone: "America/Vancouver"
+  currency: "CAD"
+  languages: ["English", "Mandarin"]
+  # The agent answers in the language it was written to in.
+  office_address: "1234 No. 3 Road, Richmond BC"   # OPEN QUESTION 11 — placeholder
+  video_platform: "secure video link"               # OPEN QUESTION 11 — placeholder
+  manager_name: "Michelle"
+  manager_id: "manager_michelle"
+  manager_channel: "Telegram"
+
+hours:
+  open_weekday:
+    start: "09:00"
+    end: "17:00"
+  saturday:
+    start: "10:00"
+    end: "14:00"
+  saturday_season:           # Saturdays are open only in tax season
+    from: "02-01"
+    to: "04-30"
+  # Sundays, evenings and BC statutory holidays are closed; the diary enforces it.
+
+pricing:
+  personal_return:
+    simple: 120
+    rental_or_selfemployment: 250
+    currency: "CAD"
+    qualifier: "flat"
+  corporate_year_end:
+    starting_at: 1800
+    currency: "CAD"
+    qualifier: "starting at"
+    # Never quoted over chat. A CPA quotes it after seeing the books.
+  consultation:
+    minutes: 30
+    free: true
+    free_wording: "The first half hour with one of our CPAs is free."
+  bookkeeping:
+    hourly: 90
+    currency: "CAD"
+  late_filing:
+    # No surcharge from us. What CRA charges is between the client and CRA.
+    no_surcharge_wording: "There's no surcharge from us for a late filing. What CRA itself charges is between you and them."
+
+deadline:
+  personal_return:
+    month_day: "04-30"
+    # The deadline line is for personal returns only.
+  # The 15 June self-employed deadline is an open question; not modelled until settled.
+
+refusals:
+  us_tax:
+    wording: "We don't prepare US tax filings. For that we refer you to a cross-border firm, {name}, at {phone}."
+    referral_name: "Cross-Border Tax Services"     # OPEN QUESTION 1 — placeholder
+    referral_phone: "604-555-0140"                 # OPEN QUESTION 1 — placeholder
+  cra_audit:
+    wording: "If CRA has already opened an audit, that's past what we can take on — that's work for a tax lawyer rather than an accountant, and we'd rather say so now than three weeks in."
+  crypto:
+    wording: "We don't do crypto trading gains. It's not our expertise and we'd be guessing, so we say so plainly rather than get it wrong on your return."
+  tax_advice:
+    wording: "That's a question for one of our CPAs rather than something I should answer here. The first half hour with them is free — shall I find you a time?"
+
+handover:
+  # The two judgements a person must always make: whether a CPA is needed rather than the
+  # bookkeeper, and the answer to any tax question. Both resolve to booking the free
+  # consultation — the agent never assigns the bookkeeper and never answers a tax question.
+  check_after_hours: 24
+
+schedule:
+  working_hours:
+    start: "09:00"
+    end: "17:00"
+  technicians:
+    - name: "Alice CPA"
+      role: "CPA"
+    - name: "Bob CPA"
+      role: "CPA"
+    - name: "Carol CPA"
+      role: "CPA"
+    - name: "Dana Bookkeeper"
+      role: "Bookkeeper"
+    - name: "Michelle"
+      role: "Office Manager"

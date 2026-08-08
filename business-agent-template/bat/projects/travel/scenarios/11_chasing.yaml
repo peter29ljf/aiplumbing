@@ -1,0 +1,13 @@
+id: chasing_options
+now: "2026-08-09T10:00:00-07:00"
+customer:
+  persona: |
+    You are Robin. You sent an enquiry to Pacific Compass last Tuesday and nobody has come
+    back. You're following up. You don't want to re-answer anything — you just want it
+    looked at. Phone 604-555-0155. You live in Vancouver. Answer briefly.
+  phone: "604-555-0155"
+  max_turns: 20
+expect:
+  reaches: chase_enquiry
+  ticket_status: Chasing Consultant
+  enquiries: 0

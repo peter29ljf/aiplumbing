@@ -1,0 +1,16 @@
+id: pickup
+now: "2026-08-01T18:00:00-07:00"
+customer:
+  persona: |
+    You are Ray. You want to order takeaway for pickup. Give your phone number. Order two
+    dishes: Kung Pao Chicken and House Fried Rice. Answer briefly.
+  phone: "604-555-0144"
+  max_turns: 30
+expect:
+  reaches: place_pickup
+  ticket_status: Order Placed - Pickup
+  orders: 1
+  texts: 1
+  followups: 0
+  must_not_say:
+    - "delivery fee"

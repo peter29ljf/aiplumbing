@@ -1,0 +1,12 @@
+id: catering
+now: "2026-08-01T10:00:00-07:00"
+customer:
+  persona: |
+    You are Alex. You want catering for forty people for a birthday. Answer briefly.
+  phone: "604-555-0233"
+  max_turns: 30
+expect:
+  reaches: decline_catering
+  ticket_status: Declined - Catering
+  orders: 0
+  bookings: 0

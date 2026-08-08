@@ -1,0 +1,23 @@
+id: node.age_check.under_16
+description: A parent asking for a twelve-year-old. Declined, and the referral given.
+now: "2026-08-05T10:00:00-07:00"
+# Everything the three steps before this one would have written. The node reads the ticket
+# and never the transcript, so this is the state it would really have arrived in.
+start:
+  node: age_check
+  known:
+    phone: "604-555-0301"
+    name: Hannah Reid
+    email: hannah@example.com
+    known_customer: "no"
+    issue: her daughter has toothache
+customer:
+  persona: |
+    You are Hannah Reid. The toothache is your daughter's, and she is twelve. You will say
+    her age plainly if asked. You are not asking for yourself.
+  opens: "It's for my daughter — she's twelve."
+  phone: "604-555-0301"
+  max_turns: 4
+expect:
+  reaches: decline_age
+  finishes: false

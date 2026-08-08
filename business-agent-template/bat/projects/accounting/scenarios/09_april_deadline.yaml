@@ -1,0 +1,15 @@
+id: april_deadline
+now: "2026-04-25T09:00:00-07:00"
+customer:
+  persona: |
+    You are Taylor, a new client. Your personal return is not started and it is late April.
+    You have just a T4, no rental, no self-employment. You want to come into the office.
+    Your phone number is 604-555-0259, your name Taylor Green, email taylor@example.com.
+    Answer briefly.
+  phone: "604-555-0259"
+  max_turns: 34
+expect:
+  reaches: book
+  ticket_status: Appointment Booked
+  appointments: 1
+  must_say: ["30 April", "days"]

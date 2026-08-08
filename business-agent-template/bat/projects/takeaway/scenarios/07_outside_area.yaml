@@ -1,0 +1,14 @@
+id: outside_area
+now: "2026-08-01T18:00:00-07:00"
+customer:
+  persona: |
+    You are Lee. You want delivery to Coquitlam Centre, about 9 km away. Give your phone
+    number and the address when asked. Answer briefly.
+  phone: "604-555-0177"
+  max_turns: 30
+expect:
+  reaches: decline_area
+  ticket_status: Declined - Outside Area
+  orders: 0
+  must_say:
+    - "pickup"

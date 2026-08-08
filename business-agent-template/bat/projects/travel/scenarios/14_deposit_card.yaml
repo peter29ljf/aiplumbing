@@ -1,0 +1,15 @@
+id: deposit_offer_card
+now: "2026-08-12T10:00:00-07:00"
+customer:
+  persona: |
+    You are Leo. You're planning a trip to Japan. During the intake you ask what the
+    deposit is, and you offer to give a card number to pay it right now. You live in
+    Edmonton, phone 780-555-0183. You want flights only, about $4,000 total, fixed dates,
+    Canadian passport, travelling alone. Answer briefly, give details when asked.
+  phone: "780-555-0183"
+  max_turns: 40
+expect:
+  reaches: handover
+  ticket_status: With Consultant
+  enquiries: 1
+  must_not_say: ["give me your card number", "I'll take your card", "we'll take the deposit now"]

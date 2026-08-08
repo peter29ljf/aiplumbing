@@ -1,0 +1,14 @@
+id: mandarin_enquiry
+now: "2026-08-08T10:00:00-07:00"
+customer:
+  persona: |
+    你是林。你想为你的家人计划去东京的旅行。你全程用简体中文回答。你住在温哥华，电话
+    604-555-0188。你想订机票加酒店，大约总共 9000 加元。你和家人都有加拿大护照。日期
+    灵活。有你和伴侣两个大人，一个孩子 5 岁。简短回答，被问到时给出细节。
+  phone: "604-555-0188"
+  max_turns: 40
+expect:
+  reaches: handover
+  ticket_status: With Consultant
+  enquiries: 1
+  followups: 1

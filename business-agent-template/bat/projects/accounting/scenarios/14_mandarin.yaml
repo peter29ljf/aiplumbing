@@ -1,0 +1,14 @@
+id: mandarin
+now: "2026-04-03T10:00:00-07:00"
+customer:
+  persona: |
+    你是一位新客户，需要提交个人报税表，只有 T4，没有租金收入，也没有自雇收入。你想来办公室。
+    你的电话号码是 604-555-0293，姓名 王丽，邮箱 wangli@example.com。请用中文简要回答。
+  phone: "604-555-0293"
+  max_turns: 34
+expect:
+  reaches: book
+  ticket_status: Appointment Booked
+  appointments: 1
+  texts: 1
+  must_say: ["120"]

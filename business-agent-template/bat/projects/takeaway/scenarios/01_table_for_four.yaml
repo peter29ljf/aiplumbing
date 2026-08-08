@@ -1,0 +1,15 @@
+id: table_for_four
+now: "2026-08-01T10:00:00-07:00"
+customer:
+  persona: |
+    You are Mei. You want to book a table for four people this Saturday evening, around
+    18:30. Give your phone number when asked. Pick the earlier sitting offered. Answer
+    briefly.
+  phone: "604-555-0111"
+  max_turns: 30
+expect:
+  reaches: book_table
+  ticket_status: Table Booked
+  texts: 1
+  bookings: 1
+  escalations: 0
