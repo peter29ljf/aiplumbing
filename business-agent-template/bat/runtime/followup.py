@@ -64,16 +64,20 @@ def tick(world: World, now: datetime | None = None) -> list[dict[str, Any]]:
         #
         # Nothing here is a retry loop. If the send raises, the follow-up is untouched and
         # still due, so the next tick asks again. That is the whole recovery.
-        world.technician_messages.append({
-            "technician_id": technician.id,
-            "subject": f"Follow-up: {followup['ticket_id']}",
+        #
+        # Through the world's method, not straight onto `world.technician_messages`. In the
+        # simulated world the two are the same thing and the assertions cannot tell them
+        # apart; in a live world the list is a record and the method is what reaches
+        # Telegram. Appending would have left every chase visible in the report and absent
+        # from the technician's phone.
+        world.notify_technician(
+            technician.id,
+            f"Follow-up: {followup['ticket_id']}",
             # Read before `asked` moves, so the count in the message is the count of this
             # ask rather than of the next one.
-            "body": _ask(world, followup),
-            "channel": "telegram",
-            "kind": "followup",
-            "at": when.isoformat(),
-        })
+            _ask(world, followup),
+        )
+        _stamp(world.technician_messages, kind="followup", at=when)
         followup["asked"] = int(followup.get("asked", 0)) + 1
         followup["due"] = (when + timedelta(hours=ASK_AGAIN_HOURS)).isoformat()
         asked.append(followup)
@@ -135,12 +139,21 @@ def _thank(world: World, ticket_id: str, followup: dict[str, Any],
     if not number:
         return                            # nobody to text; the close still stands
     technician = _who(world, followup)
-    world.texts.append({
-        "to": number,
-        "body": THANKS.format(
-            company=world.rules["company"]["name"],
-            technician=technician.name if technician else "The technician",
-        ),
-        "kind": "thanks",
-        "at": when.isoformat(),
-    })
+    # Through `send_sms` for the same reason `tick` goes through `notify_technician`: in a
+    # live world appending to the list thanks nobody.
+    world.send_sms(number, THANKS.format(
+        company=world.rules["company"]["name"],
+        technician=technician.name if technician else "The technician",
+    ))
+    _stamp(world.texts, kind="thanks", at=when)
+
+
+def _stamp(records: list[dict[str, Any]], *, kind: str, at: datetime) -> None:
+    """Mark the record the world just wrote as this module's, at this module's clock.
+
+    The world stamps `at` from its own clock, which is right for a conversation and wrong
+    here: `tick` and `technician_says` both take a `now`, because a loop that runs for days
+    has to be testable without waiting days for it.
+    """
+    if records:
+        records[-1].update({"kind": kind, "at": at.isoformat()})
