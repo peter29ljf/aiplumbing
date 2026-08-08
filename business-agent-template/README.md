@@ -30,7 +30,14 @@ bat/presets/     the service-dispatch tool kit, the always-preamble, and five ru
 bat/builder/     drives `claude -p` headless, holds the five phases, keeps the ledger
 bat/console/     one page, `http.server`, no dependencies
 bat/projects/    the agents themselves. `plumbing` is the reference — 17 nodes, 59/60
+bat/live/        what turns one of them into a business: a sqlite store, a world that
+                 reaches Twilio and Google, and the web chat a customer types into
 ```
+
+Everything under `bat/live/` is switched off until two environment variables say
+otherwise, and a world without a store behaves exactly as it always has — which is what
+the whole suite depends on. **[GOING-LIVE.md](GOING-LIVE.md)** is the runbook: what to
+type, in what order to turn things on, and what to look at when something is wrong.
 
 ## The four documents
 
