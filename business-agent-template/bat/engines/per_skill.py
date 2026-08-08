@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from bat.runtime import assemble, memory, registry
-from bat.runtime.engine import Step, Turn, _changed, _tally, nudge
+from bat.runtime.engine import Step, Turn, _changed, _tally, not_yet, nudge
 from bat.runtime.graph import Flow, Node
 
 from bat.engines.claude_code import Session
@@ -52,7 +52,13 @@ skill names**, never one belonging to another step. You will then be told which 
 are on next.
 
 Everything the customer said stays in front of you. What earlier steps recorded is on the
-ticket."""
+ticket.
+
+**Everything you write is sent to the customer.** There is no scratch space here and no
+narration channel: reading a skill, choosing a tool and moving between steps are your own
+machinery, and a customer who is told about them learns that they are talking to software
+having a think. Write only what a receptionist would say out loud. Never "I'll read the
+greeting skill first", never "the next step will", never the name of a step or a tool."""
 
 
 def _write_skills(flow: Flow, root: Path, tags: dict, ticket_id: str) -> None:
@@ -224,6 +230,11 @@ class SkillConversation:
             outcome = next((str(e["result"].get("outcome", "")) for e in events
                             if isinstance(e["result"], dict)
                             and e["result"].get("finished")), None)
+            if outcome is not None and (short := self._not_yet(node)):
+                # Finished without what it was told to collect. Sent back rather than let
+                # through: everything downstream reads the ticket, not the conversation.
+                outcome, text = None, short
+                continue
             if outcome is not None:
                 gone = self._advance(outcome)
                 if gone is not None:
@@ -268,6 +279,9 @@ class SkillConversation:
 
     def _still_here(self, node: Node) -> str:
         return nudge(node, self.replies_here)
+
+    def _not_yet(self, node: Node) -> str:
+        return not_yet(node, self.world.ticket(self.ticket_id).tags)
 
 
     def _undone(self, node: Node) -> list[str]:

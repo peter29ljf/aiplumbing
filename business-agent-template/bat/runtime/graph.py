@@ -40,6 +40,17 @@ class Node:
     sets_status: str
     next: str | None = None
     branch: dict[str, str] = field(default_factory=dict)
+    # Facts that must be on the ticket before this node is allowed to say it is finished.
+    #
+    # A node's `goal` says what it is for and nothing enforces it. `new_customer` — "take
+    # their name, service address and email" — met a customer who answered by repeating
+    # their phone number, opened a record with both fields blank, called `step.finished`,
+    # and the conversation carried on to a booked visit with nowhere to send anybody. The
+    # goal was in the prompt the whole time.
+    #
+    # Only for what a later step or a real person actually needs. A node that lists
+    # everything it touches becomes a node that cannot finish.
+    needs: tuple[str, ...] = ()
     # Which model works this step. Empty means the project's default.
     #
     # A node is a separate model session, so this costs nothing to vary — and the steps
@@ -129,6 +140,7 @@ def load(project: Project | str | Path, *, known_tools: set[str] | None = None) 
             next=spec.get("next"),
             branch=dict(spec.get("branch") or {}),
             model=str(spec.get("model", "")).strip(),
+            needs=tuple(spec.get("needs") or ()),
         )
 
     _check(project, entry, nodes, known_tools)
@@ -170,6 +182,21 @@ def _check(project: Project, entry: str, nodes: dict[str, Node],
                 f"{node.name} has to move on but cannot call step.finished, so it has "
                 f"no way to say it is done"
             )
+
+        # A node that must have written something down, and has nothing that writes to the
+        # ticket, can never be allowed to finish. Caught here rather than discovered as a
+        # step going round in circles halfway through a conversation.
+        if node.needs and known_tools is not None:
+            from bat.runtime.registry import _TOOLS
+
+            writes = "ticket.set_fields" in node.tools or any(
+                _TOOLS.get(t, {}).get("remembers") for t in node.tools)
+            if not writes:
+                problems.append(
+                    f"{node.name} needs {list(node.needs)} on the ticket before it can "
+                    f"finish, but none of its tools write to the ticket — give it "
+                    f"ticket.set_fields or drop the `needs`"
+                )
 
         # Terminal nodes need no way to end. Being terminal is what ends them — the
         # engine closes the conversation on the reply. Asking the model to announce a

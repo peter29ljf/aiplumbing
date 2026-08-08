@@ -25,10 +25,10 @@ from bat.runtime import harness  # noqa: E402
 from bat.runtime.sim import World  # noqa: E402
 
 
-def _result(snapshot: dict, transcript=()):
+def _result(snapshot: dict, transcript=(), steps=()):
     return SimpleNamespace(
         id="x", problems=[], passed=True, snapshot=snapshot, nodes=["handover"],
-        transcript=list(transcript),
+        transcript=list(transcript), steps=list(steps),
         wrong=lambda p: (_result_problems.append(p), None)[1],
     )
 
@@ -36,13 +36,17 @@ def _result(snapshot: dict, transcript=()):
 _result_problems: list[str] = []
 
 
-def _judge(expect: dict, snapshot: dict, *, finished=True, transcript=()) -> list[str]:
+def _judge(expect: dict, snapshot: dict, *, finished=True, transcript=(),
+           steps=(), terminal=()) -> list[str]:
     _result_problems.clear()
     snapshot = {"tickets": {}, "appointments": [], "texts": [], "emails": [],
                 "technician_messages": [], "escalations": [], "followups": [],
                 **snapshot}
-    harness._judge(_result(snapshot, transcript), expect,
-                   SimpleNamespace(finished=finished), None)
+    # The graph, as far as the judge needs it: which nodes end a conversation.
+    flow = {name: SimpleNamespace(name=name, is_terminal=name in terminal)
+            for name in {*terminal, *(s.node for s in steps), "handover"}}
+    harness._judge(_result(snapshot, transcript, steps), expect,
+                   SimpleNamespace(finished=finished, flow=flow), None)
     return list(_result_problems)
 
 
@@ -125,3 +129,50 @@ def test_a_follow_up_chase_is_still_told_apart_from_being_told_about_the_job():
     messages = [{"kind": "handover"}, {"kind": "followup"}]
 
     assert _judge({"technician_messages": 1}, {"technician_messages": messages}) == []
+
+
+# ---- the closing message of a conversation that was not the last ---------
+
+
+_BOOKED = ("Understood. Mike Wang is coming to 12 Alder Way today, Wednesday 05 August, "
+           "at 12:00 PM for the dripping cloakroom tap. I've texted those details to "
+           "604-555-0244.")
+
+
+def _came_back(**kw) -> list[str]:
+    """A customer who books, then remembers something else. Verbatim shape from a real
+    run of `returning_customer`."""
+    said = [_BOOKED, "Is 12 Alder Way a house or a townhouse?"]
+    return _judge(
+        {"asks_every_time": True}, {},
+        transcript=[("customer", "my tap is dripping"), ("agent", said[0]),
+                    ("customer", "the outside tap is stuck too"), ("agent", said[1])],
+        steps=[SimpleNamespace(node="booking", said=True, text=said[0]),
+               SimpleNamespace(node="property_ask", said=True, text=said[1])],
+        terminal=("booking",), **kw)
+
+
+def test_a_sign_off_is_not_a_dead_end_just_because_the_customer_came_back():
+    """`spoken[:-1]` assumed one conversation per run. A customer with a second thing to
+    ask makes the first conversation's sign-off a message in the middle, and it was
+    blamed for having no question in it — in `returning_customer`, the one scenario
+    written to make the customer come back, which therefore could never pass."""
+    assert _came_back() == []
+
+
+def test_a_middle_message_with_nothing_to_answer_is_still_caught():
+    """The exemption is for closing messages, not for silence in general. Widening it
+    until nothing fails would be the fourth detector in this project to be talked out of
+    its own job."""
+    said = _judge(
+        {"asks_every_time": True}, {},
+        transcript=[("customer", "hi"),
+                    ("agent", "Thanks, Dana — your record is open."),
+                    ("customer", "...okay?"),
+                    ("agent", "What has gone wrong?")],
+        steps=[SimpleNamespace(node="new_customer", said=True,
+                               text="Thanks, Dana — your record is open."),
+               SimpleNamespace(node="problem", said=True, text="What has gone wrong?")],
+        terminal=("booking",))
+
+    assert said and "nothing to answer" in said[0]

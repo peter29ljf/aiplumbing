@@ -23,6 +23,7 @@ business_rules.yaml  prices, hours, what we will not take on
     rules: [crm_lookup]                 # -> rules/crm_lookup.md
     tools: [crm.lookup_by_phone, ticket.set_fields, step.finished]
     sets_status: Phone Verified
+    needs: [phone]                      # optional; see below
     branch:                             # several ways out ...
       new: new_customer
       existing: warranty_check
@@ -31,6 +32,17 @@ business_rules.yaml  prices, hours, what we will not take on
 
 or `next: some_node` for exactly one way out, or **neither** — a node with no way out is
 where the conversation ends.
+
+`needs` is what must be on the ticket before this node is allowed to finish. A goal is a
+hope; this is a gate. A node whose goal read "take their name, service address and email"
+met a customer who answered by repeating their phone number, opened a record with both
+fields blank, said it was finished, and the conversation ran all the way to a booked visit
+with nowhere to send anybody.
+
+Give it to a node whose facts a later node **cannot recover** — typically one that branches
+on something it holds no tool to write. Do not list everything a node touches: a node that
+needs more than it can reasonably get is a node that cannot finish, and a step held back
+with nothing to offer goes round in circles until the run is failed.
 
 Rules that the loader enforces, so a mistake fails at load rather than in front of a
 customer:
@@ -41,6 +53,7 @@ customer:
 - a node that is not the last one **must** have `step.finished` in its tools
 - every node must be reachable from `entry`
 - `goal` and `sets_status` are required; `next` and `branch` are mutually exclusive
+- a node with `needs` must hold something that writes to the ticket, or it can never finish
 
 ## How a step ends
 

@@ -429,7 +429,22 @@ def _judge(result: Result, expect: dict, talk: Conversation, world: World) -> No
 
         spoken = [text for who, text in result.transcript
                   if who == "agent" and (text or "").strip()]
-        dead = [t for t in spoken[:-1] if not _asks_for_something(t)]
+        # Every closing message is exempt, not only the last one in the transcript.
+        #
+        # `spoken[:-1]` assumed one conversation per run, and a customer who comes back
+        # makes the first conversation's sign-off a message in the middle. `Mike Wang is
+        # coming to 12 Alder Way today at 12:00 PM. I've texted those details.` is exactly
+        # what a booking step should say and exactly what it should not put a question on
+        # — and it was blamed for it, in the one scenario written to make the customer
+        # come back, which therefore could never pass.
+        #
+        # Read off the graph rather than the words: a message written while standing in a
+        # terminal node ends a conversation, by definition.
+        closings = [step.text for step in result.steps
+                    if step.text and talk.flow[step.node].is_terminal]
+        dead = [t for t in spoken[:-1]
+                if not _asks_for_something(t)
+                and not any(said in t for said in closings)]
         if len(dead) > allowed:
             result.wrong(
                 f"{len(dead)} of {max(len(spoken) - 1, 0)} messages gave them nothing to "

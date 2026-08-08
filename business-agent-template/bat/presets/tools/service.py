@@ -65,7 +65,30 @@ def crm_lookup(world: AnyWorld, phone: str) -> dict[str, Any]:
     },
     remembers=("phone", "name", "address", "email"),
 )
-def crm_create(world: AnyWorld, phone: str, name: str, address: str, email: str) -> dict[str, Any]:
+def crm_create(world: AnyWorld, phone: str, name: str, address: str,
+               email: str = "") -> dict[str, Any]:
+    # A record with no name and no address is not a record, and this used to accept one.
+    #
+    # A customer who answered a question about their details by repeating their phone
+    # number got a record created with both fields blank, `{"created": True}` handed back,
+    # and the step moved on satisfied. Nothing downstream could tell — the customer existed,
+    # the ticket carried a phone number, and the conversation went all the way to a booked
+    # visit. In a simulated world that is a scoring problem. In a real one a technician
+    # drives to an empty address.
+    #
+    # The refusal names what is missing and says what to do with it, because a refusal that
+    # only says no gets retried verbatim three times and then the step is failed for
+    # circling.
+    missing = [field for field, value in
+               (("name", name), ("service address", address), ("phone number", phone))
+               if not str(value or "").strip()]
+    if missing:
+        raise Refused(
+            f"Cannot open a record without a {' and a '.join(missing)}. Nothing has been "
+            f"saved. Ask the customer for what is missing, in your own words, and call "
+            f"this again once you have it. Do not guess and do not use a placeholder."
+        )
+
     customer = world.add_customer(phone=phone, name=name, address=address, email=email)
     return {"created": True, "phone": customer.phone, "name": customer.name}
 
