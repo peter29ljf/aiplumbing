@@ -11,6 +11,11 @@ ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = ROOT / "config"
 AGENTS_DIR = ROOT / "agents"
 SHARED_DIR = AGENTS_DIR / "_shared"
+# The graph a customer actually talks to. `agents/` above is the older five-agent shape,
+# still driven by the testkit suite.
+FLOW_DIR = ROOT / "flow"
+FLOW_RULES_DIR = FLOW_DIR / "rules"
+FLOW_RUNS_DIR = FLOW_DIR / "runs"
 PERSONAS_DIR = ROOT / "personas"
 SCENARIOS_DIR = ROOT / "scenarios"
 RUNS_DIR = ROOT / "runs"

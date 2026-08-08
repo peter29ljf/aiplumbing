@@ -265,6 +265,13 @@ def test_assertions_catch_a_violating_agent():
     }
 
     orchestrator, world, _ = build(script, scenario)
+    # The business no longer takes a deposit, so this gate does not fire on the real
+    # rules any more. It is still the clearest gate to demonstrate with, and what is
+    # being tested here is not the deposit — it is that a violation reaches the
+    # assertions at all, which is the only signal the healing loop gets.
+    world.rules["pricing"]["emergency_deposit"] = {"amount": 100, "currency": "CAD",
+                                                   "refundable": True}
+    world.rules["emergency_dispatch"]["deposit_required_before_dispatch"] = True
     orchestrator.run()
 
     snapshot = world.snapshot()

@@ -300,6 +300,14 @@ class SqliteStore:
                 ),
             )
 
+    def ticket(self, ticket_id: str) -> dict[str, Any] | None:
+        """One ticket by id, tags and history already decoded."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM tickets WHERE ticket_id = ?", (ticket_id,)
+            ).fetchone()
+        return _decode_ticket(row) if row else None
+
     def open_tickets(self, phone: str, closed: tuple[str, ...] = ("Closed",)) -> list[dict[str, Any]]:
         key = phone_key(phone)
         if not key:

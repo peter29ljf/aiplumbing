@@ -59,6 +59,29 @@
     return el;
   }
 
+  /* The dots have to actually move.
+   *
+   * The keyframes are injected rather than asked of the host page: this widget is dropped
+   * into a marketing site nobody here edits, so anything it needs to look alive it has to
+   * bring with it. Injected once, guarded by id.
+   */
+  function ensureStyle() {
+    if (document.getElementById('chat-typing-style')) return;
+    var style = document.createElement('style');
+    style.id = 'chat-typing-style';
+    style.textContent =
+      '@keyframes fx-bounce{0%,70%,100%{transform:translateY(0);opacity:.35}' +
+      '35%{transform:translateY(-5px);opacity:1}}' +
+      '.fx-dots{display:inline-flex;gap:4px;margin-left:8px;vertical-align:middle}' +
+      '.fx-dots i{width:6px;height:6px;border-radius:50%;background:currentColor;' +
+      'display:inline-block;animation:fx-bounce 1.25s ease-in-out infinite}' +
+      '.fx-dots i:nth-child(2){animation-delay:.16s}' +
+      '.fx-dots i:nth-child(3){animation-delay:.32s}';
+    document.head.appendChild(style);
+  }
+
+  var DOTS = '<span class="fx-dots"><i></i><i></i><i></i></span>';
+
   /* Replies take a few seconds — without this the panel looks dead. */
   function typing(on, doing) {
     var existing = document.getElementById('chat-typing');
@@ -66,15 +89,19 @@
       if (existing) existing.remove();
       return;
     }
-    if (existing) {
-      /* The server says what it is working on. A minute of three dots looks the same as
-         a system that has died, and the customer cannot tell which they are looking at. */
-      if (doing) existing.textContent = doing + ' · · ·';
-      return;
+    ensureStyle();
+    /* The server says what it is working on. A minute of three dots looks the same as a
+       system that has died, and the customer cannot tell which they are looking at. The
+       label is set as text and the dots as markup, so a tool phrase can never carry
+       markup of its own into the page. */
+    var label = doing || 'One moment';
+    if (!existing) {
+      existing = bubble('bot', '');
+      existing.id = 'chat-typing';
+      existing.style.opacity = '.75';
+      existing.innerHTML = '<span id="chat-typing-label"></span>' + DOTS;
     }
-    var el = bubble('bot', doing ? doing + ' · · ·' : '· · ·');
-    el.id = 'chat-typing';
-    el.style.opacity = '.65';
+    document.getElementById('chat-typing-label').textContent = label;
   }
 
   function setBusy(on) {

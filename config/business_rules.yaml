@@ -14,6 +14,11 @@ company:
   currency: "CAD"
   language: "en"                       # English-only service
   phone: "(778) 200-4962"              # Also accepts text messages
+  # Where a customer sends photographs and paperwork, and the address outbound email is
+  # sent from. It was typed into flow/rules/large_project.md as prose, which made it a
+  # second copy nobody would think to change — and the one place it appears is the moment
+  # somebody is trying to send us the thing a quote depends on.
+  email: "sdf024846@gmail.com"
   website: "https://www.smartstrategy.services/"
   service_region: "Metro Vancouver"
 
@@ -113,13 +118,12 @@ pricing:
         amount: 400
         condition: "Sundays and BC statutory holidays"
 
-  # Refundable emergency deposit
-  emergency_deposit:
-    amount: 100
-    currency: "CAD"
-    refundable: true
-    offsets_inspection_fee: true      # Applied against the call-out fee
-    note: "Once the technician arrives, only the remaining balance of the call-out fee is charged."
+  # No deposit. There used to be a refundable CAD 100 taken before a technician was sent,
+  # offset against the call-out fee — the business no longer charges it. Removed rather
+  # than set to zero: a deposit of nothing is still a deposit as far as every piece of
+  # code and prose that mentions one is concerned, and somebody would have gone on
+  # explaining it to customers.
+  emergency_deposit: null
 
   # How the call-out fee is applied
   fee_offset:
@@ -215,10 +219,10 @@ emergency_dispatch:
   technician_call_interval_minutes: 10   # One calling round every 10 minutes
   max_call_rounds: 6                     # At most 6 rounds
   max_search_window_minutes: 60          # Search window capped at 1 hour
-  deposit_required_before_dispatch: true # No dispatch before the deposit clears
-  # The cut-off for an automatic refund is the moment the customer is told a technician
-  # is coming — not some later internal status. A technician who accepts an emergency call
-  # sets off straight away, so by the time that text lands they are already on the road.
+  deposit_required_before_dispatch: false # Nothing is taken up front any more
+  # Left for the older five-agent flow, which still has the payment tools. Nothing in
+  # `flow/` takes money, so with the deposit gone none of this is reachable from a real
+  # conversation — it describes refunding something nobody was charged.
   refund_rules:
     before_dispatch_confirmed: "auto_refund"        # Agent refunds the deposit automatically
     after_dispatch_confirmed: "supervisor_review"   # No auto-refund; must escalate

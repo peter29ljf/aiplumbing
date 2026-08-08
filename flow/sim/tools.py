@@ -1,9 +1,21 @@
-"""The sixteen tools flow.yaml names. All simulated; nothing leaves the process.
+"""The tools flow.yaml names. Written once, run against either world.
+
+Nothing here knows whether it is talking to the simulator or to the real thing. The
+schemas, the descriptions and the `remembers` lists are the same either way; what differs
+is the world underneath, and everything that reaches outside the process goes through a
+method on it (`world.send_sms`, `world.notify_technician`, ...). See `flow/world.py` for
+the surface a backend has to provide.
+
+That split is what makes it safe to put this in front of a customer. The tool descriptions
+are what the model was tested against — twenty-three scenarios' worth of evidence hangs off
+their exact wording — so a live backend that needed its own copy of them would be a system
+nobody had actually tested.
 
 **No gates.** Nothing here refuses anything on business grounds — not an apartment
 booking, not a dispatch to a technician who cannot be reached, not a ticket walking into a
 status that makes no sense. A tool raises only when it was called with something it cannot
-act on at all, like a ticket id that does not exist.
+act on at all, like a ticket id that does not exist, or when the world says the thing did
+not happen.
 
 That is the point of this pass. The old system has seven gates and every one was written
 after a real failure; this rewrite is finding out which of those failures the new shape
@@ -17,15 +29,10 @@ run produced it.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Callable
 
-from flow.sim.world import World, phone_key
-
-
-class Refused(Exception):
-    """The tool cannot act on what it was given. Returned to the model to try again."""
-
+from flow.world import AnyWorld, Refused, emergency_tier
 
 Handler = Callable[..., Any]
 _TOOLS: dict[str, dict[str, Any]] = {}
@@ -69,6 +76,11 @@ def names() -> set[str]:
     return set(_TOOLS)
 
 
+def remembers(name: str) -> tuple[str, ...]:
+    """Which of this tool's facts the engine copies onto the ticket by itself."""
+    return tuple(_TOOLS.get(name, {}).get("remembers", ()))
+
+
 def schemas_for(wanted: tuple[str, ...], *,
                outcomes: tuple[str, ...] = ()) -> list[dict[str, Any]]:
     """The node's tools. `step.finished` is given that node's own ways out as an enum."""
@@ -88,15 +100,28 @@ def schemas_for(wanted: tuple[str, ...], *,
     return built
 
 
-def call(world: World, wire_name: str, arguments: str,
+def dotted(wire_name: str, allowed: tuple[str, ...]) -> str | None:
+    """`crm_lookup_by_phone` back to `crm.lookup_by_phone`, or None if this node has no
+    such tool.
+
+    A model is given the wire name because OpenAI function names may not contain dots;
+    everything a person writes — flow.yaml, the logs, the line the customer sees while
+    they wait — uses the dotted one. Guessing the conversion by putting the dot back after
+    the first underscore is right for every tool here and wrong the day one is not, so it
+    is resolved against the node's own list instead.
+    """
+    return next((n for n in allowed if _TOOLS.get(n, {}).get("schema", {})
+                 .get("function", {}).get("name") == wire_name), None)
+
+
+def call(world: AnyWorld, wire_name: str, arguments: str,
          allowed: tuple[str, ...]) -> tuple[Any, dict[str, Any]]:
     """Run one tool call, and say what it learned that outlives this step.
 
     `allowed` is the node's list — a node cannot reach past it. The second return value is
     what belongs on the ticket, taken from the tool's `remembers`.
     """
-    name = next((n for n in allowed if _TOOLS.get(n, {}).get("schema", {})
-                 .get("function", {}).get("name") == wire_name), None)
+    name = dotted(wire_name, allowed)
     if name is None:
         return {"ok": False,
                 "error": f"'{wire_name}' is not available here. You can use: {list(allowed)}"}, {}
@@ -121,13 +146,6 @@ def call(world: World, wire_name: str, arguments: str,
     return result, keep
 
 
-def _ticket(world: World, ticket_id: str):
-    found = world.tickets.get(ticket_id)
-    if found is None:
-        raise Refused(f"No ticket '{ticket_id}'. Open ones: {sorted(world.tickets)}")
-    return found
-
-
 # ======================================================================
 # who they are
 # ======================================================================
@@ -142,7 +160,7 @@ def _ticket(world: World, ticket_id: str):
     # it did not, and a customer with four years of history was asked to introduce herself.
     remembers=("phone", "name", "address", "email", "property_type", "known_customer"),
 )
-def crm_lookup(world: World, phone: str) -> dict[str, Any]:
+def crm_lookup(world: AnyWorld, phone: str) -> dict[str, Any]:
     customer = world.find_customer(phone)
     if customer is None:
         return {"found": False, "known_customer": "no", "phone": phone}
@@ -155,6 +173,10 @@ def crm_lookup(world: World, phone: str) -> dict[str, Any]:
         "email": customer.email,
         "property_type": customer.property_type,
         "past_jobs": len(customer.jobs),
+        # What of theirs is still open. Somebody who rang last week about a boiler and has
+        # rung again is not a fresh enquiry, and this is the only point in the whole graph
+        # where anything from before this conversation is visible at all.
+        "open_work": customer.open_work,
     }
 
 
@@ -169,7 +191,7 @@ def crm_lookup(world: World, phone: str) -> dict[str, Any]:
     },
     remembers=("phone", "name", "address", "email"),
 )
-def crm_create(world: World, phone: str, name: str, address: str, email: str) -> dict[str, Any]:
+def crm_create(world: AnyWorld, phone: str, name: str, address: str, email: str) -> dict[str, Any]:
     customer = world.add_customer(phone=phone, name=name, address=address, email=email)
     return {"created": True, "phone": customer.phone, "name": customer.name}
 
@@ -180,7 +202,7 @@ def crm_create(world: World, phone: str, name: str, address: str, email: str) ->
     "technician without asking the customer twice.",
     {"phone": {"type": "string"}},
 )
-def crm_warranty_candidates(world: World, phone: str) -> dict[str, Any]:
+def crm_warranty_candidates(world: AnyWorld, phone: str) -> dict[str, Any]:
     customer = world.find_customer(phone)
     jobs = customer.jobs if customer else []
     return {
@@ -210,11 +232,8 @@ def crm_warranty_candidates(world: World, phone: str) -> dict[str, Any]:
         },
     },
 )
-def ticket_set_fields(world: World, ticket_id: str, fields: dict[str, Any]) -> dict[str, Any]:
-    ticket = _ticket(world, ticket_id)
-    ticket.tags.update(fields)
-    if "phone" in fields and not ticket.phone:
-        ticket.phone = str(fields["phone"])
+def ticket_set_fields(world: AnyWorld, ticket_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    ticket = world.remember(ticket_id, fields)
     return {"ticket_id": ticket.id, "tags": ticket.tags}
 
 
@@ -224,7 +243,7 @@ def ticket_set_fields(world: World, ticket_id: str, fields: dict[str, Any]) -> d
 
 
 @tool("clock.now", "The date and time now. Check before quoting any time.", {})
-def clock_now(world: World) -> dict[str, Any]:
+def clock_now(world: AnyWorld) -> dict[str, Any]:
     return {
         "now": world.now.isoformat(),
         "day": world.now.strftime("%A"),
@@ -239,17 +258,23 @@ def clock_now(world: World) -> dict[str, Any]:
     "them and cannot choose from half the picture.",
     {},
 )
-def rules_service_options(world: World) -> dict[str, Any]:
+def rules_service_options(world: AnyWorld) -> dict[str, Any]:
     """One tool rather than two, deliberately.
 
     The rule is that a customer is shown both service levels and picks. When those were
     two separate tools, showing only one was a step the model could simply not take, and
     then the choice it offered was not a choice. Here there is no way to fetch half.
+
+    **The emergency fee depends on the hour, so this reads the clock itself.** It used to
+    look for `pricing.emergency_callout_fee`, a key that has never existed in the rules
+    file — the real one is `emergency_inspection_fee` and it is banded. So the fee came
+    back as null, `always.md` correctly forbids saying a figure nobody looked up, and the
+    agent quoted a deposit and no price. Half the choice was missing and nothing anywhere
+    reported a fault.
     """
     pricing = world.rules["pricing"]
-    dispatch = world.rules["emergency_dispatch"]
     standard = pricing["standard_inspection_fee"]
-    urgent = pricing.get("emergency_callout_fee") or pricing.get("emergency_fee") or {}
+    urgent = emergency_tier(world.rules, world.now)
 
     return {
         "scheduled": {
@@ -260,15 +285,20 @@ def rules_service_options(world: World) -> dict[str, Any]:
             "credited_if_accepted": pricing["fee_offset"]["accepted_quote"],
             "payable_if_declined": pricing["fee_offset"]["rejected_quote"],
             "how_soon": "At the appointment time they pick, during working hours.",
-            "deposit": None,
         },
         "emergency": {
-            "fee": urgent.get("amount"),
-            "currency": urgent.get("currency", standard["currency"]),
-            "qualifier": urgent.get("qualifier", ""),
+            "fee": urgent["amount"],
+            "currency": urgent["currency"],
+            "qualifier": urgent["qualifier"],
+            "display": f"{urgent['currency']} {urgent['amount']} ({urgent['qualifier']})",
+            # Which band, and what makes it that band. A customer told CAD 400 and not
+            # told why has been handed a number somebody could have invented; told it is
+            # after six in the evening, they can check it against their own watch.
+            "rate_applies_because": urgent["condition"],
+            "it_is_now": urgent["right_now"],
             "how_soon": "The technician on duty is contacted straight away, at any hour.",
-            "deposit": pricing["emergency_deposit"],
-            "deposit_required_first": dispatch.get("deposit_required_before_dispatch", True),
+            # No deposit. The business stopped taking one; see pricing.emergency_deposit.
+            "deposit": None,
         },
     }
 
@@ -278,7 +308,7 @@ def rules_service_options(world: World) -> dict[str, Any]:
     "The threshold and the criteria that separate a small repair from a larger project.",
     {},
 )
-def rules_job_sizing(world: World) -> dict[str, Any]:
+def rules_job_sizing(world: AnyWorld) -> dict[str, Any]:
     sizing = world.rules["job_sizing"]
     return {
         "threshold": sizing["large_job_threshold"],
@@ -294,7 +324,7 @@ def rules_job_sizing(world: World) -> dict[str, Any]:
     "What to tell somebody to do right now, before anybody arrives.",
     {"risk": {"type": "string", "description": "e.g. water, gas, electrical, sewage"}},
 )
-def rules_safety(world: World, risk: str) -> dict[str, Any]:
+def rules_safety(world: AnyWorld, risk: str) -> dict[str, Any]:
     advisories = world.rules.get("safety_advisories", {})
     key = next((k for k in advisories if k in risk.lower()), None)
     return {
@@ -315,7 +345,7 @@ def rules_safety(world: World, risk: str) -> dict[str, Any]:
     "not looked up.",
     {},
 )
-def calendar_find_slots(world: World) -> dict[str, Any]:
+def calendar_find_slots(world: AnyWorld) -> dict[str, Any]:
     slots = world.free_slots()
     technician = next(iter(world.technicians.values()), None)
     return {
@@ -335,7 +365,7 @@ def calendar_find_slots(world: World) -> dict[str, Any]:
     {"phone": {"type": "string"}},
     remembers=("appointment_id", "reads_as", "technician", "technician_id"),
 )
-def calendar_find_booking(world: World, phone: str) -> dict[str, Any]:
+def calendar_find_booking(world: AnyWorld, phone: str) -> dict[str, Any]:
     found = world.find_appointments(phone)
     if not found:
         return {"found": False, "appointments": []}
@@ -367,11 +397,25 @@ def calendar_find_booking(world: World, phone: str) -> dict[str, Any]:
     remembers=("appointment_id", "starts", "reads_as", "technician",
                 "technician_id"),
 )
-def calendar_create(world: World, ticket_id: str, starts: str, address: str,
+def calendar_create(world: AnyWorld, ticket_id: str, starts: str, address: str,
                     what: str) -> dict[str, Any]:
-    ticket = _ticket(world, ticket_id)
+    ticket = world.ticket(ticket_id)
     technician = next(iter(world.technicians.values()), None)
-    when = datetime.fromisoformat(starts)
+    try:
+        when = datetime.fromisoformat(starts)
+    except (TypeError, ValueError) as bad_time:
+        # Refused, not raised. It was raised, and a customer coming back with a second job
+        # sent `starts` as an empty string — `ValueError` went past the handler in `call`,
+        # took the whole conversation down and they got no answer at all. Whatever the
+        # model meant to write, the time it needs is one `calendar.find_slots` handed it a
+        # moment ago, and saying so is a round trip rather than a dead conversation.
+        # Run 20260806-091719.
+        raise Refused(
+            f"'{starts}' is not a time this can act on ({bad_time}). Use one of the ISO "
+            f"times `calendar.find_slots` returned, exactly as it gave it to you. Nothing "
+            f"has been booked."
+        ) from bad_time
+
     appointment = world.book(
         ticket_id=ticket.id, starts=when, minutes=120,
         technician=technician.id if technician else "", address=address, what=what,
@@ -397,11 +441,41 @@ def calendar_create(world: World, ticket_id: str, starts: str, address: str,
     {"to": {"type": "string", "description": "Their phone number"},
      "body": {"type": "string"}},
 )
-def sms_send(world: World, to: str, body: str) -> dict[str, Any]:
+def sms_send(world: AnyWorld, to: str, body: str) -> dict[str, Any]:
     if not body.strip():
         raise Refused("There is no point sending an empty message.")
-    world.texts.append({"to": to, "body": body, "at": world.now.isoformat()})
-    return {"sent": True, "to": to}
+    return world.send_sms(to, body)
+
+
+@tool(
+    "email.send",
+    "Email the customer. Use it for anything they have to do in their own time — the "
+    "photographs a quote needs, what to send and where. The chat ends and they lose it; "
+    "the email is still in their inbox tomorrow, and replying to it reaches a person.",
+    {
+        "to": {"type": "string", "description": "Their email address, off the ticket"},
+        "subject": {"type": "string"},
+        "body": {"type": "string", "description": "Plain text, no markdown. Say exactly "
+                                                  "what you need from them, and that "
+                                                  "replying to this email is how it gets "
+                                                  "to us."},
+    },
+)
+def email_send(world: AnyWorld, to: str, subject: str, body: str) -> dict[str, Any]:
+    if "@" not in (to or ""):
+        # Redirected, not asked to try again. `new_customer` takes an email from everyone
+        # and is told to let it go if they will not give one, so arriving here without one
+        # means they have already refused once — and asking a second time for something
+        # they have already declined is how a conversation stops being a conversation.
+        company = world.rules["company"]
+        raise Refused(
+            f"There is no email address for them, so nothing was sent and nothing will be. "
+            f"Do not ask them for one again. Tell them in the chat to send it to "
+            f"{company.get('email', '')} instead, and carry on with the rest of this step."
+        )
+    if not body.strip():
+        raise Refused("There is no point sending an empty email.")
+    return world.send_email(to, subject, body)
 
 
 @tool(
@@ -415,16 +489,11 @@ def sms_send(world: World, to: str, body: str) -> dict[str, Any]:
                                                   "do not have to ask."},
     },
 )
-def technician_notify(world: World, technician_id: str, subject: str,
+def technician_notify(world: AnyWorld, technician_id: str, subject: str,
                       body: str) -> dict[str, Any]:
-    technician = world.technicians.get(technician_id)
-    if technician is None:
-        raise Refused(f"No technician '{technician_id}'. On duty: {sorted(world.technicians)}")
-    world.technician_messages.append({
-        "technician_id": technician_id, "subject": subject, "body": body,
-        "channel": "telegram", "at": world.now.isoformat(),
-    })
-    return {"sent": True, "to": technician.name, "channel": "telegram"}
+    if not body.strip():
+        raise Refused("There is no point sending a technician an empty message.")
+    return world.notify_technician(technician_id, subject, body)
 
 
 @tool(
@@ -439,13 +508,8 @@ def technician_notify(world: World, technician_id: str, subject: str,
     },
     remembers=("reason",),
 )
-def escalate_raise(world: World, ticket_id: str, reason: str, details: str) -> dict[str, Any]:
-    ticket = _ticket(world, ticket_id)
-    world.escalations.append({
-        "ticket_id": ticket.id, "reason": reason, "details": details,
-        "tags": dict(ticket.tags), "at": world.now.isoformat(),
-    })
-    return {"raised": True, "ticket_id": ticket.id}
+def escalate_raise(world: AnyWorld, ticket_id: str, reason: str, details: str) -> dict[str, Any]:
+    return world.escalate(ticket_id, reason, details)
 
 
 @tool(
@@ -454,12 +518,8 @@ def escalate_raise(world: World, ticket_id: str, reason: str, details: str) -> d
     {"ticket_id": {"type": "string"},
      "hours": {"type": "integer", "description": "How long to wait"}},
 )
-def schedule_followup(world: World, ticket_id: str, hours: int) -> dict[str, Any]:
-    ticket = _ticket(world, ticket_id)
-    due = world.now + timedelta(hours=int(hours))
-    world.followups.append({"ticket_id": ticket.id, "due": due.isoformat(),
-                            "answered": False, "asked": 0})
-    return {"scheduled": True, "due": due.isoformat()}
+def schedule_followup(world: AnyWorld, ticket_id: str, hours: int) -> dict[str, Any]:
+    return world.schedule_followup(ticket_id, int(hours))
 
 
 @tool(
@@ -467,7 +527,7 @@ def schedule_followup(world: World, ticket_id: str, hours: int) -> dict[str, Any
     "This step is done. Say which way it came out.",
     {"outcome": {"type": "string"}},
 )
-def step_finished(world: World, outcome: str) -> dict[str, Any]:
+def step_finished(world: AnyWorld, outcome: str) -> dict[str, Any]:
     """Its own tool, not a field on ticket.set_fields.
 
     It was a field, and for seven exchanges the model wrote every other field faithfully

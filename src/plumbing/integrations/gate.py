@@ -112,6 +112,59 @@ def live_status() -> dict[str, Any]:
     }
 
 
+def set_switches(*, enabled: bool, tools: list[str]) -> dict[str, Any]:
+    """Turn services on or off **for this process only**, until it restarts.
+
+    The console needs this and it is all the console can honestly have. What production
+    reaches lives in the systemd unit on the server; a switch here that wrote a tracked
+    file would put it back in git, which is the exact arrangement that let a `git pull`
+    silently stop Telegram notifications with nothing anywhere reporting an error.
+
+    So: nothing is persisted. Flipping this on and walking away is safe in the one way
+    that matters — the next restart is simulated again.
+    """
+    os.environ[ENV_MASTER] = "true" if enabled else "false"
+    os.environ[ENV_TOOLS] = ",".join(sorted(tools))
+    return live_status()
+
+
+# What each service needs before it can reach anything, and the library it needs it with.
+# Checked without sending, so the console can show a light rather than a bill.
+NEEDS = {
+    "sms.send": (("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER"), ""),
+    "email.send": (("GMAIL_USER", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET",
+                    "GMAIL_REFRESH_TOKEN"), ""),
+    "telegram.send": (("TELEGRAM_BOT_TOKEN",), ""),
+    "calendar.find_slots": (("GOOGLE_CALENDAR_ID",), "googleapiclient"),
+    "calendar.create_appointment": (("GOOGLE_CALENDAR_ID",), "googleapiclient"),
+}
+
+
+def preflight(gate_key: str) -> str:
+    """What stands between this service and working, or "" if nothing does.
+
+    Credentials and imports only — nothing is sent and nothing is billed. It cannot prove
+    a token is still valid, so a green light means "everything it needs is here", not
+    "known good". Proving it takes `scripts/check_live.py`, which really sends.
+    """
+    load_dotenv()
+    names, module = NEEDS.get(gate_key, ((), ""))
+    missing = [name for name in names if not os.environ.get(name)]
+    if gate_key.startswith("calendar.") and not (
+        os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+        or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    ):
+        missing.append("GOOGLE_SERVICE_ACCOUNT_JSON")
+    if missing:
+        return f"missing {', '.join(missing)}"
+    if module:
+        import importlib.util  # noqa: PLC0415
+
+        if importlib.util.find_spec(module) is None:
+            return f"{module} is not installed"
+    return ""
+
+
 def require_env(*names: str) -> dict[str, str]:
     """Fetch credentials, or fail with a message that names what is missing."""
     load_dotenv()

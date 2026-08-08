@@ -33,6 +33,17 @@ class Node:
     sets_status: str
     next: str | None = None
     branch: dict[str, str] = field(default_factory=dict)
+    # Ticket fields this node must have written before it may finish.
+    #
+    # A rules file saying "write it down as `issue`" is an instruction the model can
+    # simply not follow, and when it does not, nothing notices: the step ends, the
+    # messages go with it, and four nodes later somebody asks the customer a question
+    # they answered in their first sentence. That happened — a customer said "install a
+    # faucet" three times and was asked what had gone wrong.
+    #
+    # The mirror of `_undone` for terminal nodes. That one stops a last step signing off
+    # with its work not done; this stops any step handing on with its findings unrecorded.
+    records: tuple[str, ...] = ()
 
     @property
     def is_terminal(self) -> bool:
@@ -98,6 +109,7 @@ def load(path: Path | None = None, *, known_tools: set[str] | None = None) -> Fl
             sets_status=str(spec.get("sets_status", "")).strip(),
             next=spec.get("next"),
             branch=dict(spec.get("branch") or {}),
+            records=tuple(spec.get("records") or ()),
         )
 
     _check(entry, nodes, known_tools)
@@ -129,6 +141,15 @@ def _check(entry: str, nodes: dict[str, Node], known_tools: set[str] | None) -> 
             for tool in node.tools:
                 if tool not in known_tools:
                     problems.append(f"{node.name} wants the tool '{tool}', which does not exist")
+
+        # A node told to record something, with no way to write it down, can never
+        # finish — it would be held at the gate forever, which reads as the model refusing
+        # to move on.
+        if node.records and "ticket.set_fields" not in node.tools:
+            problems.append(
+                f"{node.name} must record {list(node.records)} but has no "
+                f"ticket.set_fields to write them with"
+            )
 
         # A node signals it is finished by writing `outcome` with ticket.set_fields. One
         # that cannot call it has no way to say so and the conversation stops there —

@@ -120,10 +120,13 @@ def _spoke_out_of_turn(result: Any, flow: Flow) -> list[Verdict]:
     """Claims made from a node that has no tool to back them."""
     found = []
     said_in: dict[str, list[str]] = {}
-    turn_nodes = [s.node for s in result.steps if s.said]
-    agent_lines = [text for who, text in result.transcript if who == "agent" and text]
-    for node_name, line in zip(turn_nodes, agent_lines):
-        said_in.setdefault(node_name, []).append(line.lower())
+    # Off the step that said it. Zipping the speaking steps against the transcript lines
+    # held only while one step meant one line, and a turn that joins a step's parting
+    # words to the next step's answer breaks that without saying so — after which this
+    # blames the wrong node, which is worse than not looking.
+    for step in result.steps:
+        if step.text:
+            said_in.setdefault(step.node, []).append(step.text.lower())
 
     for node_name, lines in said_in.items():
         node = flow.nodes.get(node_name)

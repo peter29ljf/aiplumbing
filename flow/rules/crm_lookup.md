@@ -1,10 +1,9 @@
-Ask for their phone number and say what it is for:
+**Unless a number is already in what you know** — then do not ask for one at all, and call
+`crm.lookup_by_phone` with it before you reply. They are reaching us on that number, or
+they typed it in to open the chat a minute ago.
 
-> May I have your phone number? I'll use it to look up your service history,
-> appointments and warranty records.
-
-Then `crm.lookup_by_phone`. If the number is not a number, confirm it with them and look
-it up again rather than guessing at what they meant.
+Once you have a number, `crm.lookup_by_phone`. If it is not a number, confirm it with them
+and look it up again rather than guessing at what they meant.
 
 Four ways out, and they are read in this order:
 

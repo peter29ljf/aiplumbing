@@ -1,6 +1,10 @@
-"""The world the flow runs against. Everything in memory, nothing leaves the process.
+"""The simulated world. Everything in memory, nothing leaves the process.
 
-Small on purpose. It holds what the sixteen tools in flow.yaml need and nothing else —
+One of two backends behind the same set of tools; the other is `flow/live/world.py`, which
+writes to the database and calls real services. What both of them have to provide, and the
+words they share, are in `flow/world.py`.
+
+Small on purpose. It holds what the tools in flow.yaml need and nothing else —
 the old simulator carries fifty-one tools' worth of state, and copying it would have
 brought the assumptions behind all of them along too.
 
@@ -18,9 +22,7 @@ nobody charges.
 
 from __future__ import annotations
 
-import re
 import sys
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -28,64 +30,16 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
+from flow.world import (  # noqa: E402,F401 - re-exported; callers import them from here
+    Appointment,
+    Customer,
+    Job,
+    Refused,
+    Technician,
+    Ticket,
+    phone_key,
+)
 from plumbing import config  # noqa: E402
-
-
-def phone_key(number: str) -> str:
-    """Last ten digits. `+1 (604) 721-8629` and `6047218629` are one customer."""
-    return re.sub(r"\D", "", number or "")[-10:]
-
-
-@dataclass
-class Job:
-    job_id: str
-    what: str
-    finished_on: str
-    technician: str
-
-
-@dataclass
-class Customer:
-    phone: str
-    name: str = ""
-    address: str = ""
-    email: str = ""
-    property_type: str = ""
-    jobs: list[Job] = field(default_factory=list)
-
-
-@dataclass
-class Technician:
-    id: str
-    name: str
-    telegram: str = ""
-    skills: tuple[str, ...] = ()
-
-
-@dataclass
-class Appointment:
-    id: str
-    ticket_id: str
-    starts: datetime
-    minutes: int
-    technician: str
-    address: str
-    what: str
-    # Whose it is. The ticket knows, but a customer ringing about an appointment made last
-    # week is on a new ticket, and the only thing they can be found by is their number.
-    phone: str = ""
-
-
-@dataclass
-class Ticket:
-    id: str
-    status: str = "New Inquiry"
-    phone: str = ""
-    # Everything the conversation has concluded so far. This is the memory that survives
-    # between nodes: each one reads it instead of the transcript, and writes its own
-    # conclusion back. See flow/runner/memory.py.
-    tags: dict[str, Any] = field(default_factory=dict)
-    history: list[str] = field(default_factory=list)
 
 
 class World:
@@ -118,6 +72,7 @@ class World:
 
         # What went out. Assertions read these; nothing else does.
         self.texts: list[dict[str, Any]] = []
+        self.emails: list[dict[str, Any]] = []
         self.technician_messages: list[dict[str, Any]] = []
         self.escalations: list[dict[str, Any]] = []
         self.followups: list[dict[str, Any]] = []
@@ -209,6 +164,92 @@ class World:
         found = [a for a in self.appointments.values() if phone_key(a.phone) == key]
         return sorted(found, key=lambda a: a.starts)
 
+    # ---- telling people ----------------------------------------------
+    #
+    # Methods rather than the tools appending to these lists themselves. Appending to
+    # `world.texts` is something a tool can do; sending a text is not, and the live world
+    # has to reach Twilio to do it. Keeping the shape of the call the same on both sides
+    # is what lets one set of tools drive either.
+    #
+    # Each one records what a run is judged on and returns what the model is told.
+
+    def send_sms(self, to: str, body: str) -> dict[str, Any]:
+        self.texts.append({"to": to, "body": body, "at": self.now.isoformat()})
+        return {"sent": True, "to": to}
+
+    def send_email(self, to: str, subject: str, body: str) -> dict[str, Any]:
+        self.emails.append({"to": to, "subject": subject, "body": body,
+                            "at": self.now.isoformat()})
+        return {"sent": True, "to": to}
+
+    def notify_technician(self, technician_id: str, subject: str,
+                          body: str) -> dict[str, Any]:
+        technician = self.technicians.get(technician_id)
+        if technician is None:
+            raise Refused(
+                f"No technician '{technician_id}'. On duty: {sorted(self.technicians)}"
+            )
+        self.technician_messages.append({
+            "technician_id": technician_id, "subject": subject, "body": body,
+            "channel": "telegram", "at": self.now.isoformat(),
+        })
+        return {"sent": True, "to": technician.name, "channel": "telegram"}
+
+    def escalate(self, ticket_id: str, reason: str, details: str) -> dict[str, Any]:
+        """Raised, and put in front of somebody.
+
+        The notification is not decoration. No node in the graph holds both
+        `escalate.raise` and `technician.notify` — a warranty claim, a project to price and
+        a burst pipe all reach a person through this and nothing else. Recorded here and
+        left there, an escalation is a row in a list nobody is watching, and the customer
+        has just been told a technician will come back to them.
+        """
+        ticket = self.ticket(ticket_id)
+        self.escalations.append({
+            "ticket_id": ticket.id, "reason": reason, "details": details,
+            "tags": dict(ticket.tags), "at": self.now.isoformat(),
+        })
+        technician = self.on_duty()
+        if technician is not None:
+            self.notify_technician(technician.id, f"{reason} — {ticket.id}", details)
+        return {"raised": True, "ticket_id": ticket.id}
+
+    def on_duty(self) -> Technician | None:
+        return next(iter(self.technicians.values()), None)
+
+    def remember(self, ticket_id: str, fields: dict[str, Any]) -> Ticket:
+        """Put facts on the ticket. Every tag mutation goes through here.
+
+        Nothing needs writing anywhere in the simulator, so this only updates the object —
+        but it is the same call the live world makes, and there it is the difference
+        between a fact being kept and a fact being lost. A mutation that reaches into
+        `ticket.tags` directly works here and silently does nothing there.
+        """
+        ticket = self.ticket(ticket_id)
+        ticket.tags.update(fields)
+        if fields.get("phone") and not ticket.phone:
+            ticket.phone = str(fields["phone"])
+        return ticket
+
+    def schedule_followup(self, ticket_id: str, hours: int) -> dict[str, Any]:
+        ticket = self.ticket(ticket_id)
+        due = self.now + timedelta(hours=int(hours))
+        self.followups.append({"ticket_id": ticket.id, "due": due.isoformat(),
+                               "answered": False, "asked": 0})
+        return {"scheduled": True, "due": due.isoformat()}
+
+    def ticket(self, ticket_id: str) -> Ticket:
+        """The ticket, or a refusal naming the ones that exist.
+
+        On the world rather than in the tools because the live world's tickets come out of
+        the database, and a tool that indexed `world.tickets` directly would only ever see
+        the ones this conversation happened to open.
+        """
+        found = self.tickets.get(ticket_id)
+        if found is None:
+            raise Refused(f"No ticket '{ticket_id}'. Open ones: {sorted(self.tickets)}")
+        return found
+
     # ---- what a run is judged on -------------------------------------
     def snapshot(self) -> dict[str, Any]:
         return {
@@ -217,6 +258,7 @@ class World:
             "appointments": [vars(a) | {"starts": a.starts.isoformat()}
                              for a in self.appointments.values()],
             "texts": self.texts,
+            "emails": self.emails,
             "technician_messages": self.technician_messages,
             "escalations": self.escalations,
             "followups": self.followups,

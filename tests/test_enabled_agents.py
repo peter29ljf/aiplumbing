@@ -90,8 +90,16 @@ def test_the_prompt_and_the_tool_agree():
 # ---- the config -------------------------------------------------------
 
 
-def test_the_enabled_set_comes_from_config_not_a_hardcoded_tuple():
-    assert config.enabled_agents() == list(LIVE)
+def test_live_config_no_longer_decides_who_answers_a_customer():
+    """Production runs the flow graph, which has one way in and no agents to switch.
+
+    `enabled_agents` was a line in live.yaml when five agents shared the door and only two
+    had earned real customers. Leaving it there once the graph took over would be a second
+    place the routing lives, quietly disagreeing with `flow/flow.yaml`. The tuple above is
+    the test rig's own scope now, not a description of production.
+    """
+    assert "enabled_agents" not in config.live_config()
+    assert "entry_agent" not in config.live_config()
 
 
 def test_no_live_config_means_everything_runs(monkeypatch):

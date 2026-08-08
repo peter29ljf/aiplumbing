@@ -23,7 +23,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
@@ -35,15 +35,25 @@ from flow.sim.world import World
 # One customer message must not be able to spend the afternoon. Generous enough that a
 # node asking two questions and calling three tools is nowhere near it.
 MAX_CALLS_PER_TURN = 8
-# A node that finishes without saying anything hands straight on to the next. More than a
-# few of those in one turn means the graph is walking itself, which is worth stopping.
+
+# A fuse, not a budget.
 #
-MAX_NODES_PER_TURN = 4
-
-NOTHING_SAID = (
-    "[system] You did not say anything to the customer. Reply in plain text now."
-)
-
+# A node that finishes without saying anything hands straight on to the next, and a turn
+# owes the customer one reply — so the only reasons to stop without one are that the
+# conversation ended or that something has genuinely run away. "It walked four nodes" is
+# not one of them: the longest ordinary silent stretch in this graph is six hops,
+# `identify → new_customer → property_ask → property_route → problem → sizing →
+# offer_options`, and every one of those is a step doing its job.
+#
+# It was four, and it cut that stretch in half. A customer said "house", four nodes moved
+# in silence, the turn ended with nothing to send, and the fallback line went out — "bear
+# with me one moment", from a conversation that had just stopped. `offer_options` was next
+# and would have spoken immediately. They waited, then typed "?".
+#
+# Runaway is held off by other things anyway: a node can only move by calling
+# `step.finished` with an outcome from its own enum, `records` holds it until it has
+# written down what it found, and the graph has no edge leading backwards.
+MAX_NODES_PER_TURN = 8
 
 @dataclass
 class Step:
@@ -61,6 +71,15 @@ class Step:
     offered: list[str] = field(default_factory=list)
     said: bool = False
     refusals: list[str] = field(default_factory=list)
+    # What it actually said, kept beside the node that said it.
+    #
+    # Whether a line was a promise no tool here could keep is the difference between a
+    # model fault and a configuration one, and answering it needs to know which node the
+    # words came from. That used to be worked out by zipping the steps that spoke against
+    # the agent's transcript lines and trusting the two to stay in step. They did, until a
+    # turn started joining two nodes' words into one reply — at which point every pairing
+    # after it was wrong, and silently.
+    text: str = ""
 
 
 @dataclass
@@ -68,6 +87,12 @@ class Turn:
     reply: str
     steps: list[Step] = field(default_factory=list)
     nodes: list[str] = field(default_factory=list)
+    # Words said by a step on its way out, before the step that actually answers.
+    #
+    # "Thanks, noted" from `sizing` and the two service options from `offer_options` are
+    # one message to the customer, which is what the prompt promises them: *the next step
+    # replies in the same breath*. Held here and joined at the end.
+    bridges: list[str] = field(default_factory=list)
 
     @property
     def seconds(self) -> float:
@@ -76,7 +101,9 @@ class Turn:
 
 class Conversation:
     def __init__(self, world: World, llm: Any, flow: Flow | None = None, *,
-                 start_at: str = "", known: dict[str, Any] | None = None) -> None:
+                 start_at: str = "", known: dict[str, Any] | None = None,
+                 progress: Callable[[str], None] | None = None,
+                 on_message: Callable[[str, str], None] | None = None) -> None:
         """`start_at` begins part-way down the graph, with `known` already on the ticket.
 
         Reaching `booking` from the top costs eight nodes and twenty model calls, and
@@ -85,9 +112,18 @@ class Conversation:
         ticket, never the transcript, so a ticket carrying the right facts is
         indistinguishable from having walked there. If that ever stops being true, these
         stop being valid — which is itself worth knowing.
+
+        `progress` and `on_message` are how a live channel watches without this knowing
+        anything about it. `progress` is called with a tool's dotted name the moment it
+        has run, so a widget can say "checking the calendar" instead of showing a minute
+        of three dots; `on_message` with (speaker, text) for both sides, so the exchange
+        can be written down somewhere durable. Both unset in the harness — nobody is
+        waiting there, and the transcript is already being collected.
         """
         self.world = world
         self.llm = llm
+        self.progress = progress
+        self.on_message = on_message
         self.flow = flow or load(known_tools=sim_tools.names())
         self.node: Node = self.flow[start_at or self.flow.entry]
         # Opened here, not by a tool. It was a tool, and twice out of six the model
@@ -96,10 +132,12 @@ class Conversation:
         # ticket is bookkeeping, not a decision, and nothing is served by asking.
         self.ticket_id = world.open_ticket().id
         self.entry = self.node.name
-        if known:
-            self.world.tickets[self.ticket_id].tags.update(known)
-            if known.get("phone"):
-                self.world.tickets[self.ticket_id].phone = str(known["phone"])
+        # Kept, not just applied. When somebody comes back a week later the engine opens a
+        # fresh ticket, and without this it would be a ticket that knows nothing — so a
+        # customer we are talking to *on* their number would be asked for it.
+        self.known = dict(known or {})
+        if self.known:
+            self.world.remember(self.ticket_id, self.known)
         self.messages: list[dict[str, Any]] = []
         self.finished = False
 
@@ -119,17 +157,46 @@ class Conversation:
             self._start_again()
 
         turn = Turn(reply="")
+        self._said("customer", text)
         self.messages.append({"role": "user", "content": text})
 
         for _ in range(MAX_NODES_PER_TURN):
             reply = self._run_node(turn)
             if reply is not None:
                 turn.reply = reply
-                return turn
+                break
             if self.finished:
                 break
-        turn.reply = turn.reply or ""
+
+        # What the steps said on their way out, then what the step that answered said.
+        # One message, which is what the customer is promised and what they should see:
+        # "Thanks, noted." followed by two service options is one reply, not two turns.
+        turn.reply = " ".join([*turn.bridges, turn.reply or ""]).strip()
+        self._said("agent", turn.reply)
         return turn
+
+    def _doing(self, tool: str | None) -> None:
+        """Tell whoever is watching which tool just ran. Same rule as `_said`: their
+        bookkeeping must not be able to end somebody's conversation."""
+        if self.progress is None or not tool:
+            return
+        try:
+            self.progress(tool)
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+    def _said(self, speaker: str, text: str) -> None:
+        """Tell whoever is keeping the record. Never lets their bookkeeping end the turn.
+
+        A conversation that dies because the message log was unwritable is a conversation
+        lost to something the customer has no stake in.
+        """
+        if self.on_message is None or not text:
+            return
+        try:
+            self.on_message(speaker, text)
+        except Exception:  # noqa: BLE001, S110
+            pass
 
     # ------------------------------------------------------------------
     def _run_node(self, turn: Turn) -> str | None:
@@ -152,6 +219,7 @@ class Conversation:
                 tools=[c.function.name for c in calls],
                 offered=[t["function"]["name"] for t in (offered or [])],
                 said=bool((message.content or "").strip()),
+                text=(message.content or "").strip(),
             )
             turn.steps.append(step)
 
@@ -173,6 +241,10 @@ class Conversation:
                 result, keep = sim_tools.call(
                     self.world, call.function.name, call.function.arguments, node.tools
                 )
+                # After it has run, not before. The tools themselves finish instantly; the
+                # wait a customer is sitting through is the model call that comes next, so
+                # the tool that just ran is the honest thing to have on screen during it.
+                self._doing(sim_tools.dotted(call.function.name, node.tools))
                 self._absorb(result, keep)
                 if isinstance(result, dict):
                     if result.get("finished"):
@@ -183,9 +255,32 @@ class Conversation:
                                  "content": json.dumps(result, default=str)})
 
             if outcome is not None:
+                if (unrecorded := self._unrecorded(node)):  # noqa: SIM102
+                    # It says it is done and has not written down what it was here to
+                    # find out. Letting it go is how a customer gets asked, four steps
+                    # later, something they answered in their first sentence.
+                    messages.append({
+                        "role": "user",
+                        "content": f"[system] Not yet — nothing has been written down for: "
+                                   f"{', '.join(unrecorded)}. Call ticket.set_fields with "
+                                   f"what they told you, in their words, then finish.",
+                    })
+                    continue
                 said = (message.content or "").strip()
                 self._advance(str(outcome))
-                return said or None
+                if said:
+                    # Held, not returned. A reply ends the turn, and a step that is
+                    # handing on has by definition not done the thing it is talking
+                    # about — so returning its words stops the walk and leaves the
+                    # customer with a promise nobody is on their way to keep. "One moment
+                    # while I get that sorted" did exactly that: the step that would have
+                    # sorted it did not run until they typed "?" to ask if anyone was
+                    # there.
+                    #
+                    # The prompt already tells a step handing on that *the next step
+                    # replies in the same breath*. This is that breath.
+                    turn.bridges.append(said)
+                return None
 
             # A last step may do its work and say its piece in one message. Checked here
             # as well as above, because a reply that arrives alongside tool calls used to
@@ -200,11 +295,19 @@ class Conversation:
 
     # ------------------------------------------------------------------
     def _start_again(self) -> None:
-        """A fresh conversation, on a fresh ticket, from where this one began."""
+        """A fresh conversation, on a fresh ticket, from where this one began.
+
+        The new ticket starts knowing what the channel knew — their number, above all.
+        Nothing else carries over: a booked job and a new leak a week later share a
+        customer and nothing else, and copying the old ticket's conclusions onto the new
+        one would have the second conversation diagnosing the first one's fault.
+        """
         self.finished = False
         self.node = self.flow[self.entry]
         self.messages = []
         self.ticket_id = self.world.open_ticket().id
+        if self.known:
+            self.world.remember(self.ticket_id, self.known)
 
     # How many replies a step gets before it is asked what it is still waiting for.
     #
@@ -269,6 +372,17 @@ class Conversation:
         self.finished = True
         return True
 
+    def _unrecorded(self, node: Node) -> list[str]:
+        """The fields this node had to write and has not. See `Node.records`.
+
+        Read off the ticket rather than off which tools were called: what matters is that
+        the fact is there, and it does not matter whether this node wrote it, an earlier
+        one did, or a tool's `remembers` put it there without anybody being asked.
+        """
+        tags = self.tags
+        return [name for name in node.records
+                if tags.get(name) in (None, "", [], {})]
+
     def _undone(self, node: Node, turn: Turn) -> list[str]:
         """The node's own tools it has not used yet, in this node, this conversation."""
         used = {tool for step in turn.steps if step.node == node.name for tool in step.tools}
@@ -292,7 +406,7 @@ class Conversation:
             self.finished = True
 
         if keep and self.ticket_id:
-            self.world.tickets[self.ticket_id].tags.update(keep)
+            self.world.remember(self.ticket_id, keep)
 
     def _advance(self, outcome: str) -> None:
         """Move on, and forget how we got here.
@@ -322,7 +436,7 @@ class Conversation:
             return
 
         self.node = self.flow[target]
-        memory.remember_node(self.tags, self.node.name)
+        self.world.remember(self.ticket_id, {memory.NODE_TAG: self.node.name})
         self.messages = []
 
 

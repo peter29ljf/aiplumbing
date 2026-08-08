@@ -14,4 +14,7 @@ expect:
   escalations: 1
   followups: 1
   appointments: 0
-  must_say: ["sdf024846@gmail.com"]
+  # The photograph list goes out as an email, not as an address recited into a chat the
+  # customer is about to close. `must_say` was our own address here; what matters now is
+  # that something actually left, addressed to them.
+  emails: 1

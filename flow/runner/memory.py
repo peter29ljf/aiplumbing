@@ -15,6 +15,11 @@ from __future__ import annotations
 
 from typing import Any
 
+# Where the conversation is, kept on the ticket like everything else. Named rather than
+# spelled out at each use: it is written by the engine and skipped by `summarise` below,
+# which is two places that have to agree, and a typo in either would be invisible.
+NODE_TAG = "flow_node"
+
 # The ones worth carrying between nodes, in the order a person would want to read them.
 # Anything else on the ticket stays there and is read by whoever needs it — this is the
 # summary, not the record.
@@ -55,7 +60,7 @@ def summarise(tags: dict[str, Any], *, ticket_id: str = "") -> str:
     # the next step cannot see it, which is how a node came to offer appointment times and
     # the one that books them said it did not have any.
     for key, value in tags.items():
-        if key in ("flow_node", "outcome") or any(key == k for k, _ in CARRIED):
+        if key in (NODE_TAG, "outcome") or any(key == k for k, _ in CARRIED):
             continue
         if value not in (None, "", [], {}):
             lines.append(f"{key.replace('_', ' ').capitalize()}: {value}")
@@ -70,8 +75,4 @@ def summarise(tags: dict[str, Any], *, ticket_id: str = "") -> str:
 
 
 def node_of(tags: dict[str, Any], default: str) -> str:
-    return str(tags.get("flow_node") or default)
-
-
-def remember_node(tags: dict[str, Any], node: str) -> None:
-    tags["flow_node"] = node
+    return str(tags.get(NODE_TAG) or default)

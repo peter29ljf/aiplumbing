@@ -685,7 +685,7 @@ def test_the_widget_is_told_what_the_agent_is_doing(inbound: Inbound):
     started, release = threading.Event(), threading.Event()
 
     def slow(text: str) -> str:
-        conversation.ctx.progress("calendar.find_slots")
+        conversation.progress("calendar.find_slots")
         started.set()
         release.wait(5)
         return "echo: " + text
@@ -710,7 +710,7 @@ def test_a_tool_with_no_wording_does_not_leak_its_name_to_the_customer(inbound: 
     started, release = threading.Event(), threading.Event()
 
     def slow(text: str) -> str:
-        conversation.ctx.progress("ticket.set_fields")     # deliberately not in DOING
+        conversation.progress("ticket.set_fields")     # deliberately not in DOING
         started.set()
         release.wait(5)
         return "echo: " + text
@@ -727,22 +727,36 @@ def test_a_tool_with_no_wording_does_not_leak_its_name_to_the_customer(inbound: 
 
 
 def test_every_phrase_is_reachable_from_the_name_the_agent_reports():
-    """The agent loop reports the wire name — `crm_lookup_by_phone` — because that is what
-    the model was given. The wording is keyed on the dotted names people write. Keyed one
-    way and read the other, every tool missed and every customer saw the fallback: the
-    feature looked like it was working and was doing nothing."""
-    from plumbing.live.server import DOING, DOING_FALLBACK, _doing
-    from plumbing.tools import registry
+    """The model is given the wire name — `crm_lookup_by_phone` — because OpenAI function
+    names may not contain dots, and the wording is keyed on the dotted names people write.
+    Keyed one way and read the other, every tool missed and every customer saw the
+    fallback: the feature looked like it was working and was doing nothing."""
+    from flow.sim import tools
+    from plumbing.live.server import DOING, _doing
 
-    registry._ensure_loaded()
-    wire = {t.name: t.wire_name for t in registry.all_tools().values()}
-
+    known = tools.names()
     for tool in DOING:
-        assert tool in wire, f"{tool} is not a registered tool"
-        assert _doing(wire[tool]) == DOING[tool], f"{tool} unreachable as {wire[tool]}"
+        assert tool in known, f"{tool} is not one of the flow's tools"
+        wire = tool.replace(".", "_", 1)
+        assert _doing(wire) == DOING[tool], f"{tool} unreachable as {wire}"
         assert _doing(tool) == DOING[tool]
 
     assert _doing("ticket_set_fields") is None       # no line of its own
+    assert _doing("step_finished") is None
+
+
+def test_every_tool_the_customer_waits_on_has_something_to_say():
+    """A tool with no wording shows the generic line, which is a wait nobody explained.
+
+    Bookkeeping is exempt: nothing is happening on the customer's behalf while a field is
+    written down, and giving those a line means the last thing on screen is "Making a
+    note" — every batch ends on one.
+    """
+    from flow.sim import tools
+    from plumbing.live.server import DOING
+
+    silent = {"ticket.set_fields", "step.finished"}
+    assert sorted(tools.names() - silent - set(DOING)) == []
 
 
 def test_a_bookkeeping_call_does_not_wipe_out_the_line_before_it():

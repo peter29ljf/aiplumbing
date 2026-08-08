@@ -204,3 +204,76 @@ def test_the_two_outcomes_are_the_two_that_change_anything(loop, offers: Offers)
     buttons_sent = [b for call in loop.sent for b in [call]]
     assert buttons_sent            # it went out
     assert OUTCOME_DONE != OUTCOME_DECLINED
+
+
+# ---- closing the ticket the technician has just finished --------------
+#
+# Nothing in a conversation can do this. By the time the work is done the customer left
+# hours ago and the step that spoke to them is gone. Before `close_out` the answer was
+# filed and the ticket stayed open forever — a record nobody looks at again, on a job that
+# went perfectly well.
+
+
+def _ticket(store, phone: str = "+16045550101") -> None:
+    store.save_ticket({
+        "ticket_id": "TK-1", "customer_phone": phone, "status": "Appointment Booked",
+        "tags": {"phone": phone, "issue": "dripping tap"}, "history": [],
+    })
+
+
+def test_the_job_being_done_closes_the_ticket(offers: Offers):
+    from plumbing.live.reminders import close_out
+
+    _ticket(offers.store)
+    followup_id = _followup(offers.store)
+
+    settled = close_out(offers.store, followup_id, done=True)
+
+    assert settled["closed"]
+    assert offers.store.ticket("TK-1")["status"] == "Closed"
+    assert offers.store.ticket("TK-1")["history"] == ["Appointment Booked -> Closed"]
+
+
+def test_the_customer_is_thanked_in_the_same_breath(offers: Offers):
+    """The last thing they are owed, and nobody else is going to say it."""
+    from plumbing.live.reminders import close_out
+
+    _ticket(offers.store)
+    close_out(offers.store, _followup(offers.store), done=True)
+
+    said = offers.store.conversation(phone="+16045550101")
+    assert said and "work is complete" in said[-1]["text"]
+
+
+def test_a_customer_who_changed_their_mind_is_not_thanked_for_it(offers: Offers):
+    """The job is over either way, so the ticket closes. Thanking somebody for work that
+    did not happen reads as a system that has not noticed."""
+    from plumbing.live.reminders import close_out
+
+    _ticket(offers.store)
+    close_out(offers.store, _followup(offers.store), done=False)
+
+    assert offers.store.ticket("TK-1")["status"] == "Closed"
+    assert offers.store.conversation(phone="+16045550101") == []
+
+
+def test_a_ticket_with_no_number_still_closes(offers: Offers):
+    """Nobody to text is not a reason to leave the job open forever."""
+    from plumbing.live.reminders import close_out
+
+    offers.store.save_ticket({"ticket_id": "TK-1", "customer_phone": "",
+                              "status": "Appointment Booked", "tags": {}, "history": []})
+    settled = close_out(offers.store, _followup(offers.store), done=True)
+
+    assert settled["closed"] and not settled["thanked"]
+    assert offers.store.ticket("TK-1")["status"] == "Closed"
+
+
+def test_the_answer_is_recorded_so_it_is_never_asked_again(loop, offers: Offers):
+    from plumbing.live.reminders import close_out
+
+    _ticket(offers.store)
+    close_out(offers.store, _followup(offers.store), done=True)
+
+    assert loop.tick_followups() == []
+    assert "job_outcome_reported" in [e["kind"] for e in offers.store.events("TK-1")]

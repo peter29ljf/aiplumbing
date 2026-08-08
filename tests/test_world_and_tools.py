@@ -103,12 +103,13 @@ def test_emergency_fee_tiers(now, tier_id, amount):
     assert tier["amount"] == amount
 
 
-def test_emergency_fee_tool_includes_deposit_rule():
+def test_emergency_fee_tool_quotes_the_band_and_no_deposit():
+    """The business stopped taking a deposit. An agent still offering to collect one is
+    an agent asking a customer for money nobody is owed."""
     result, _ = call(make_world(WORKDAY_NIGHT), "rules.get_emergency_fee")
     assert result["ok"]
     assert result["amount"] == 400
-    assert result["deposit"]["amount"] == 100
-    assert result["deposit"]["refundable"] is True
+    assert result["deposit"] is None
 
 
 # ======================================================================
@@ -306,7 +307,10 @@ def test_emergency_booking_allowed_on_sunday_with_deposit():
 
 
 def test_dispatch_blocked_without_deposit():
-    world = make_world()
+    """Only where a deposit is actually charged. With none configured there is nothing to
+    clear, and holding a burst pipe behind a payment nobody asked for would be worse than
+    the gate it replaced."""
+    world = _charging_a_deposit(make_world())
     ticket = world.create_ticket("+16045550101")
     result, _ = call(
         world,
@@ -325,7 +329,7 @@ def test_dispatch_blocked_without_deposit():
 
 
 def test_payment_failure_scenario_keeps_dispatch_blocked():
-    world = make_world(overrides={"payment": {"default_outcome": "fail"}})
+    world = _charging_a_deposit(make_world(overrides={"payment": {"default_outcome": "fail"}}))
     ticket = world.create_ticket("+16045550101")
     call(world, "payment.send_deposit_link", ticket_id=ticket.ticket_id, phone="+16045550101")
     status, _ = call(world, "payment.check_status", ticket_id=ticket.ticket_id)
@@ -334,7 +338,7 @@ def test_payment_failure_scenario_keeps_dispatch_blocked():
 
 
 def test_payment_pending_scenario_never_pays():
-    world = make_world(overrides={"payment": {"default_outcome": "pending"}})
+    world = _charging_a_deposit(make_world(overrides={"payment": {"default_outcome": "pending"}}))
     ticket = world.create_ticket("+16045550101")
     call(world, "payment.send_deposit_link", ticket_id=ticket.ticket_id, phone="+16045550101")
     status, _ = call(world, "payment.check_status", ticket_id=ticket.ticket_id)
@@ -346,7 +350,27 @@ def test_payment_pending_scenario_never_pays():
 # ======================================================================
 
 
+def _charging_a_deposit(world: World) -> World:
+    """Put a deposit back into this one world's rules.
+
+    The business stopped taking one, so `config/business_rules.yaml` says
+    `emergency_deposit: null` and nothing a customer meets asks for money up front. The
+    refund gate underneath is still worth its coverage — when the cut-off is the
+    confirmation message rather than an internal flag is a genuinely subtle rule, and it
+    was written after a real argument about a van already on the road.
+
+    `world.rules` is a fresh copy per world, so this changes nothing outside this test.
+    """
+    world.rules["pricing"]["emergency_deposit"] = {
+        "amount": 100, "currency": "CAD", "refundable": True,
+        "offsets_inspection_fee": True, "note": "",
+    }
+    world.rules["emergency_dispatch"]["deposit_required_before_dispatch"] = True
+    return world
+
+
 def _emergency_with_paid_deposit(world: World) -> str:
+    _charging_a_deposit(world)
     ticket = world.create_ticket("+16045550101")
     call(world, "payment.send_deposit_link", ticket_id=ticket.ticket_id, phone="+16045550101")
     call(world, "payment.check_status", ticket_id=ticket.ticket_id)

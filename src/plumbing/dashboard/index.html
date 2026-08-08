@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Plumbing Agent Console</title>
+<title>Fangxin Plumbing — Flow Console</title>
 <style>
   :root {
     --bg: #f6f7f9; --panel: #fff; --border: #e2e5ea; --text: #1a1d21;
@@ -127,19 +127,117 @@
   code { font-family: ui-monospace, monospace; background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
   .filters { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
   .counts { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-left: auto; }
+
+  /* ---- the graph ----
+     Cards are ordered the way a conversation meets them, and each says where it goes
+     next. A picture of the whole graph would be prettier and would not answer the
+     question anybody actually has, which is what this one node holds. */
+  .card.entry { border-color: var(--accent); }
+  .card.terminal { border-left: 3px solid var(--ok); }
+  .step { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted);
+          background: var(--code); border-radius: 5px; padding: 1px 6px; flex: none; }
+  .goal { font-size: 13px; margin: 10px 0 2px; }
+  .exits { margin-top: 10px; font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
+  .exits .row { display: flex; gap: 8px; align-items: baseline; }
+  .exits .outcome { font-family: ui-monospace, monospace; color: var(--muted); min-width: 108px; }
+  .exits a { color: var(--accent); text-decoration: none; cursor: pointer; font-family: ui-monospace, monospace; }
+  .exits a:hover { text-decoration: underline; }
+  .bar { height: 4px; border-radius: 3px; background: var(--code); overflow: hidden; margin-top: 3px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); }
+  .switches { display: flex; gap: 6px; flex-wrap: wrap; }
+  .split { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+  @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
+  pre.dump { background: var(--code); border: 1px solid var(--border); border-radius: 9px;
+             padding: 14px; overflow: auto; max-height: 62vh;
+             font: 12px/1.6 ui-monospace, Menlo, monospace; white-space: pre-wrap; }
+
+  /* ---- status lights ----
+     Four states, and the one worth a colour of its own is `blocked`: switched on and
+     unable to reach anything. The agent will call it, be refused, and stop dead in the
+     middle of somebody's booking — which from outside looks like the model failing. */
+  .lamp { width: 9px; height: 9px; border-radius: 50%; flex: none; display: inline-block;
+          background: var(--idle); vertical-align: middle; }
+  .lamp.live    { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
+  .lamp.blocked { background: var(--danger); animation: pulse 1.2s infinite; }
+  .lamp.simulated { background: var(--warn); }
+  .lamp.local   { background: transparent; border: 1px solid var(--border); }
+  .lampcell { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+
+  /* ---- the switches ----
+     Deliberately not styled to look casual. Turning these on sends real texts to real
+     people, and the panel says so in the one place somebody is about to click. */
+  .switchbox { background: var(--panel); border: 1px solid var(--border);
+               border-radius: 11px; padding: 15px; margin-bottom: 14px; }
+  .switchbox.armed { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger); }
+  .switchhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .switchhead h3 { margin: 0; font-size: 15px; }
+  .services { display: grid; gap: 8px; margin-top: 13px;
+              grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
+  .service { display: flex; align-items: center; gap: 9px; font-size: 13px;
+             border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; }
+  .service .why { font-size: 11px; color: var(--danger); }
+  .service .tools { font-size: 11px; color: var(--muted); font-family: ui-monospace, monospace; }
+  .toggle { position: relative; width: 38px; height: 21px; flex: none; cursor: pointer;
+            background: var(--border); border-radius: 20px; transition: background .18s; }
+  .toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 15px;
+                   height: 15px; border-radius: 50%; background: #fff; transition: left .18s; }
+  .toggle.on { background: var(--danger); }
+  .toggle.on::after { left: 20px; }
+  .toggle.big { width: 52px; height: 28px; }
+  .toggle.big::after { width: 22px; height: 22px; top: 3px; left: 3px; }
+  .toggle.big.on::after { left: 27px; }
+
+  /* ---- the working indicator ----
+     It exists because a turn is twenty to forty seconds of real work and, without it,
+     that is indistinguishable from a system that has died. It shows what the agent is
+     actually doing and which step is doing it — and it is removed the moment the turn
+     ends, whether or not there was anything to say. An indicator still spinning when
+     nobody is working is worse than none: that is the fault this replaced. */
+  .working {
+    align-self: flex-start; max-width: 78%;
+    background: var(--code); border: 1px solid var(--border); border-radius: 14px;
+    padding: 11px 15px; display: flex; align-items: center; gap: 11px;
+    animation: breathe 2.4s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%, 100% { border-color: var(--border); }
+    50%      { border-color: var(--accent); }
+  }
+  .working .what { font-size: 14px; }
+  .working .where {
+    font-size: 11px; color: var(--muted); font-family: ui-monospace, monospace;
+    display: block; margin-top: 2px;
+  }
+  .working .clock {
+    font-size: 12px; color: var(--muted); font-family: ui-monospace, monospace;
+    margin-left: auto; padding-left: 12px; white-space: nowrap;
+  }
+  .working .clock.over { color: var(--danger); font-weight: 600; }
+  .dots { display: inline-flex; gap: 4px; flex: none; }
+  .dots i {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+    animation: bounce 1.25s ease-in-out infinite;
+  }
+  .dots i:nth-child(2) { animation-delay: .16s; }
+  .dots i:nth-child(3) { animation-delay: .32s; }
+  @keyframes bounce {
+    0%, 70%, 100% { transform: translateY(0);    opacity: .35; }
+    35%           { transform: translateY(-5px); opacity: 1; }
+  }
 </style>
 </head>
 <body>
 <header>
-  <h1>Plumbing Agent Console</h1>
+  <h1>Fangxin Plumbing — Flow Console</h1>
   <div class="runbar">
     <span class="beat" id="beat"></span>
     <span id="runinfo">Loading…</span>
   </div>
   <nav>
-    <button class="on" data-tab="agents">Agents</button>
+    <button class="on" data-tab="graph">Graph</button>
     <button data-tab="tools">Tools</button>
     <button data-tab="prompts">Prompts</button>
+    <button data-tab="runs">Runs</button>
     <button data-tab="changes">Doctor changes</button>
     <button data-tab="settings">Models</button>
     <button data-tab="chat">Chat</button>
@@ -147,50 +245,99 @@
 </header>
 
 <main>
-  <!-- ============================ AGENTS ============================ -->
-  <section id="tab-agents">
-    <div class="grid" id="agentgrid"></div>
-    <h2>This run</h2>
-    <div class="tablewrap"><table id="runtable"><tbody></tbody></table></div>
+  <!-- ============================ GRAPH ============================= -->
+  <section id="tab-graph">
+    <div class="note" id="graphnote"></div>
+    <div class="grid" id="nodegrid"></div>
   </section>
 
   <!-- ============================= CHAT ============================= -->
   <section id="tab-chat" class="hidden">
     <p class="muted" style="margin:0 0 14px">
-      The same conversation code production runs, with the same two agents. Every tool here
-      is the simulator — this process has no live switches set, so nothing leaves the
-      machine and nothing is booked in anybody's real diary.
-      <strong>Each reply shows how long it took and what the model asked for</strong>, which
-      is the only way to tell a slow model from a long tool chain.
+      The same <code>FlowConversation</code> production runs, over the same graph and the
+      same live world — so what is said here is what a customer would be told. It writes to
+      <code>data/console.db</code> on purpose: a conversation that persisted nothing would
+      not be exercising the half of production most likely to be wrong. What differs is only
+      the switches, shown in the bar above.
+      <strong>Each reply says which node answered and what it cost</strong>, which is how
+      you tell a slow model from a long walk through the graph.
     </p>
     <div id="chatlog" class="chatlog"></div>
     <div class="chatbar">
       <input id="chatinput" placeholder="the tap under my kitchen sink is dripping" autocomplete="off">
       <button id="chatsend" class="primary">Send</button>
       <input id="chatphone" placeholder="phone (optional)" autocomplete="off"
-             style="flex:none;width:170px" title="Production takes the number on the form, so the agent starts by looking the customer up. Leave this blank and it will ask for one instead — a much shorter first turn, and not what a customer experiences.">
+             style="flex:none;width:170px" title="Every live channel supplies a number, so identify looks the customer up instead of asking. Leave this blank and it will ask — a shorter first turn, and not what a customer experiences.">
       <button id="chatreset">Start over</button>
     </div>
   </section>
 
+  <!-- ============================= RUNS ============================== -->
+  <section id="tab-runs" class="hidden">
+    <div class="note">
+      The last time <code>python3 -m flow.runner.harness</code> ran, read straight off the
+      newest report in <code>flow/runs/</code>. <b>Passing sometimes is not passing</b> —
+      a scenario that goes four for four is a different thing from one that goes three, and
+      only the second is worth a morning.
+    </div>
+    <div id="runsummary" class="note"></div>
+    <div class="tablewrap"><table id="runtable"></table></div>
+  </section>
+
   <!-- ============================ TOOLS ============================= -->
   <section id="tab-tools" class="hidden">
+    <div class="switchbox" id="switchbox">
+      <div class="switchhead">
+        <div class="toggle big" id="masterswitch"></div>
+        <h3 id="masterlabel">Everything simulated</h3>
+        <span class="muted" id="mastersub" style="flex:1 1 260px"></span>
+      </div>
+      <div class="services" id="services"></div>
+      <div class="muted" style="margin-top:12px;font-size:12px">
+        <b>This process only, and nothing is written to disk.</b> What production reaches
+        lives in the systemd unit on the server — a switch here that wrote a tracked file
+        would put it back in git, which is the arrangement that once let a
+        <code>git pull</code> silently stop Telegram notifications with nothing reporting
+        an error. Restart the console and everything is simulated again.
+        <br>
+        A green light means everything a service needs is present, not that it is known
+        good — nothing is sent to find out. To really prove a leg, run
+        <code>python3 scripts/check_live.py --all</code>, which sends.
+      </div>
+    </div>
+
     <div class="filters">
       <input type="text" id="toolsearch" placeholder="Filter by name or description…" style="width:280px">
       <select id="statusfilter">
         <option value="">All statuses</option>
         <option value="live">Live only</option>
-        <option value="mocked">Mocked only</option>
-        <option value="planned">Planned only</option>
+        <option value="blocked">Blocked only</option>
+        <option value="simulated">Simulated only</option>
+        <option value="local">Local only</option>
       </select>
       <div class="counts" id="toolcounts"></div>
     </div>
     <div class="note">
-      <b>live</b> — wired to a real backend, actions have real effects.
-      <b>mocked</b> — a simulator; safe to test against, nothing leaves the process.
-      <b>planned</b> — specified but not built, not callable and not grantable.
-      Statuses come from <code>config/tool_catalog.yaml</code>; promote a tool to
-      <code>live</code> there once its real adapter exists.
+      One tool, written once, run against either world.
+      <span class="lamp live"></span> <b>live</b> — the switch is on and everything it
+      needs is here.
+      <span class="lamp blocked"></span> <b>blocked</b> — switched on and <i>cannot</i>
+      reach the service. The agent will call it, be refused, and stop dead in the middle of
+      somebody's booking, which from outside looks like the model failing.
+      <span class="lamp simulated"></span> <b>simulated</b> — it could reach a service and
+      the switch says no.
+      <span class="lamp local"></span> <b>local</b> — never leaves the process.
+      <br><br>
+      A tool answers to a <b>service</b>, not to its own name:
+      <code>technician.notify</code> and <code>escalate.raise</code> both reach a person
+      through Telegram, so both stop the moment Telegram does.
+      <b>Remembers</b> is what the engine copies onto the ticket by itself, without the
+      model being asked to write it down as well.
+      <br><br>
+      <b>Which nodes hold a tool is read-only here.</b> It lives in
+      <code>flow/flow.yaml</code> beside a paragraph naming the failing run that put it
+      there, and writing that file back from a form would delete every one of those
+      comments. What a node may do and why it may do it are the same fact.
     </div>
     <div class="tablewrap"><table id="tooltable"></table></div>
   </section>
@@ -204,9 +351,16 @@
       <button class="act" id="reload">Discard changes</button>
     </div>
     <div class="note">
-      Saving writes straight to the file under <code>agents/</code> and records a
-      timestamped snapshot in <code>prompt_history/</code>, so it can be rolled back.
-      The self-healing loop edits the same files — avoid editing here while a loop is running.
+      Saving writes straight to the file under <code>flow/</code> and records a timestamped
+      snapshot in <code>prompt_history/</code>, so it can be rolled back. It takes effect on
+      the very next message — there is no restart between editing a rule and a customer
+      reading it, so <b>run the scenario suite before trusting a change</b>:
+      <code>python3 -m flow.runner.harness --repeat 3</code>. The suite is noisy; compare
+      across repeats rather than believing one run.
+      <br><br>
+      <b>Where a rule sits inside its file matters.</b> A paragraph added above a routing
+      table pushed the distinction below it down far enough to start being missed, and one
+      scenario went from four out of four to one out of three on nothing but the ordering.
     </div>
     <textarea id="editor" spellcheck="false"></textarea>
   </section>
@@ -272,14 +426,18 @@
 
 <script>
 const ROLE_USE = {
-  agent: "Business agents (intake / small_job / …)",
-  customer: "Simulated customer (high temperature for variety)",
+  agent: "Every node of the flow — the model a customer actually talks to",
+  customer: "Simulated customer in the scenario suite (high temperature for variety)",
   technician: "Simulated technician",
   supervisor: "Simulated supervisor",
   judge: "LLM judge (verdicts must be stable, so temperature 0)",
+  auditor: "Static consistency scan over the whole prompt corpus",
   doctor: "Only used when the doctor backend is 'openai'",
 };
-const STATUS_TEXT = { working: "working", standby: "standby", done: "finished" };
+/* What the old five agents sent on every single call. The whole point of the graph is
+   that a node carries its own instructions and its own tools and nothing else, so this
+   is the number each card is measured against. */
+const OLD_PROMPT_CHARS = 42968;
 
 let state = null, tools = null, currentFile = null, original = "", dirty = false;
 
@@ -307,10 +465,11 @@ document.querySelectorAll("nav button").forEach((btn) => {
   btn.onclick = () => {
     document.querySelectorAll("nav button").forEach((b) => b.classList.remove("on"));
     btn.classList.add("on");
-    ["agents", "tools", "prompts", "changes", "settings", "chat"].forEach((t) =>
+    ["graph", "tools", "prompts", "runs", "changes", "settings", "chat"].forEach((t) =>
       $("tab-" + t).classList.toggle("hidden", t !== btn.dataset.tab));
     if (btn.dataset.tab === "tools") loadTools();
     if (btn.dataset.tab === "changes") loadChanges();
+    if (btn.dataset.tab === "runs") renderRuns();
   };
 });
 
@@ -318,112 +477,155 @@ document.querySelectorAll("nav button").forEach((btn) => {
 async function refresh() {
   try { state = await api("/api/state"); } catch (e) { return; }
   renderRunbar();
-  renderAgents();
+  renderGraph();
   if (!currentFile) initPrompts();
   if (!$("baseurl").value) renderSettings();
 }
 
+/* The bar says one thing: what is reaching real people from this process right now.
+   A console that claimed a tool was live while the process believed otherwise would be
+   worse than none — somebody reads it, believes the technician is being notified, and
+   stops checking. */
 function renderRunbar() {
-  const live = state.live || {};
-  $("beat").className = "beat" + (live.running ? " live" : "");
-  if (live.running) {
-    $("runinfo").textContent =
-      `Running ${live.scenario_id} · ${live.active_agent || "—"} working · turn ${live.turn || 0}` +
-      ` · last tool ${live.last_tool || "—"}`;
-  } else if (live.scenario_id) {
-    const r = live.result === "pass" ? "passed" : live.result === "fail" ? "failed" : "ended";
-    $("runinfo").textContent = `Idle · last run ${live.scenario_id} ${r}`;
-  } else {
-    $("runinfo").textContent = "Idle · no scenario has run yet";
-  }
+  const sw = state.switches || {};
+  const live = sw.effectively_live || [];
+  $("beat").className = "beat" + (live.length ? " live" : "");
+  const run = state.run || {};
+  const suite = run.total
+    ? ` · suite ${run.passed}/${run.total} (${run.when})`
+    : " · the suite has not run yet";
+  $("runinfo").innerHTML = live.length
+    ? `<b style="color:var(--danger)">REAL services reachable</b>: ${live.map(esc).join(", ")}` +
+      ` <span style="color:var(--muted)">(from ${esc(sw.tools_source)})</span>${esc(suite)}`
+    : `Everything simulated — nothing leaves this machine${esc(suite)}`;
 }
 
-function renderAgents() {
-  $("agentgrid").innerHTML = state.agents.map((a) => `
-    <div class="card ${a.status === "working" ? "working" : ""}">
+/* One card per node, in the order a conversation meets them. A drawing of the whole graph
+   would be prettier and would not answer the question anybody actually has, which is what
+   this one node carries and where it can go from here. */
+function renderGraph() {
+  const g = state.graph || {};
+  if (g.error) {
+    $("graphnote").innerHTML =
+      `<b style="color:var(--danger)">flow/flow.yaml does not load:</b> <code>${esc(g.error)}</code>`;
+    $("nodegrid").innerHTML = "";
+    return;
+  }
+
+  const nodes = g.nodes || [];
+  const biggest = Math.max(...nodes.map((n) => n.total_chars), 1);
+  const worst = nodes.reduce((a, b) => (b.total_chars > a.total_chars ? b : a), nodes[0] || {});
+  $("graphnote").innerHTML =
+    `<b>${nodes.length} nodes</b>, entered at <code>${esc(g.entry)}</code>. Each carries only ` +
+    `its own instructions and only the tools it needs, so a model call costs a couple of ` +
+    `thousand characters instead of ${OLD_PROMPT_CHARS.toLocaleString()} — which is what the ` +
+    `five agents sent on <i>every</i> call. The fattest node here is ` +
+    `<code>${esc(worst.name || "—")}</code> at ${(worst.total_chars || 0).toLocaleString()}. ` +
+    `<b>Tool lists are read-only</b>: they live in <code>flow/flow.yaml</code> next to the ` +
+    `note saying which failing run put each one there.`;
+
+  $("nodegrid").innerHTML = nodes.map((n, i) => `
+    <div class="card ${n.is_entry ? "entry" : ""} ${n.is_terminal ? "terminal" : ""}">
       <h3>
-        <span class="dot ${a.status}"></span>${esc(a.name)}
-        ${a.is_entry ? '<span class="tag entry">entry</span>' : ""}
-        ${a.is_stub ? '<span class="tag stub">scaffold</span>' : '<span class="tag">implemented</span>'}
-        <span style="margin-left:auto;font-size:12px;color:var(--muted);font-weight:400">
-          ${STATUS_TEXT[a.status]}</span>
+        <span class="step">${String(i + 1).padStart(2, "0")}</span>${esc(n.name)}
+        ${n.is_entry ? '<span class="tag entry">entry</span>' : ""}
+        ${n.is_terminal ? '<span class="tag live">last step</span>' : ""}
       </h3>
-      <div class="desc">${esc(a.description)}</div>
+      <div class="goal">${esc(n.goal)}</div>
+
+      <div class="label">Becomes</div>
+      <div class="chips"><span class="chip">${esc(n.sets_status)}</span></div>
+
+      <div class="label">Tools (${n.tools.length})</div>
+      <div class="chips">${n.tools.map((t) => `<span class="chip">${esc(t)}</span>`).join("")}</div>
+
+      <div class="label">Rules</div>
+      <div class="chips">${
+        n.rules.length
+          ? n.rules.map((r) => `<span class="chip" style="cursor:pointer"
+               onclick="openFile('rules/${esc(r)}.md')" title="Edit">${esc(r)}.md</span>`).join("")
+          : '<span class="chip">none beyond always.md</span>'}</div>
+
+      <div class="label">Ways out</div>
+      <div class="exits">${exitRows(n)}</div>
+
+      <div class="label">What one call costs</div>
       <div class="meta">
-        <span>prompt <b>${a.prompt_chars}</b> chars</span>
-        <span>assembled <b>${a.assembled_chars}</b></span>
-        <span>tools <b>${a.tools.length}</b></span>
-        <span>this run <b>${a.turns}</b> turns / <b>${a.tool_calls}</b> calls</span>
+        <span>prompt <b>${n.prompt_chars.toLocaleString()}</b></span>
+        <span>schemas <b>${n.schema_chars.toLocaleString()}</b></span>
+        <span>total <b>${n.total_chars.toLocaleString()}</b></span>
       </div>
-      ${a.tool_error ? `<div class="desc" style="color:var(--danger)">Allow-list error: ${esc(a.tool_error)}</div>` : ""}
-
-      <div class="label">Granted tools (${a.patterns.length} rules → ${a.tools.length} tools)</div>
-      <div class="chips" id="grants-${esc(a.name)}">
-        ${a.patterns.map((p) => `<span class="chip ${p.includes("*") ? "glob" : ""}">${esc(p)}<span class="x"
-             onclick="removeTool('${esc(a.name)}','${esc(p)}')" title="Revoke">&times;</span></span>`).join("")}
-      </div>
-      <div class="chips">
-        <select id="addsel-${esc(a.name)}" style="font-size:12px;max-width:230px"></select>
-        <button class="act" onclick="addTool('${esc(a.name)}')">Grant</button>
-      </div>
-
-      ${a.handoff_to.length
-        ? `<div class="label">Can hand off to</div><div class="chips">${a.handoff_to
-            .map((t) => `<span class="chip">${esc(t)}</span>`).join("")}</div>`
-        : `<div class="label">Handoff</div><div class="chips"><span class="chip">none — must finish the job itself</span></div>`}
+      <div class="bar"><i style="width:${Math.round((n.total_chars / biggest) * 100)}%"></i></div>
 
       <div class="actions">
-        <button class="act" onclick="openFile('${esc(a.prompt_file)}')">Edit prompt</button>
-        <button class="act" onclick="showAssembled('${esc(a.name)}')">View assembled</button>
+        <button class="act" onclick="showAssembled('${esc(n.name)}')">View what it sends</button>
       </div>
     </div>`).join("");
-  populateAddSelects();
 }
 
-// ---------------- tool grants ----------------
+function exitRows(n) {
+  if (n.is_terminal) {
+    return `<div class="row"><span class="outcome">—</span>
+            <span style="color:var(--muted)">the conversation ends here</span></div>`;
+  }
+  if (n.next) {
+    return `<div class="row"><span class="outcome">done</span>
+            <a onclick="jumpTo('${esc(n.next)}')">${esc(n.next)}</a></div>`;
+  }
+  return Object.entries(n.branch).map(([outcome, target]) =>
+    `<div class="row"><span class="outcome">${esc(outcome)}</span>
+     <a onclick="jumpTo('${esc(target)}')">${esc(target)}</a></div>`).join("");
+}
+
+window.jumpTo = (name) => {
+  const cards = [...document.querySelectorAll("#nodegrid .card")];
+  const target = cards.find((c) => c.querySelector("h3").textContent.trim().endsWith(name));
+  if (!target) return;
+  target.scrollIntoView({ behavior: "smooth", block: "center" });
+  target.style.transition = "box-shadow .2s";
+  target.style.boxShadow = "0 0 0 2px var(--accent)";
+  setTimeout(() => (target.style.boxShadow = ""), 1200);
+};
+
 async function ensureTools() {
   if (!tools) tools = await api("/api/tools");
   return tools;
 }
 
-async function populateAddSelects() {
-  const data = await ensureTools();
-  const grantable = data.tools.filter((t) => t.grantable).map((t) => t.name);
-  const namespaces = [...new Set(grantable.map((n) => n.split(".")[0]))];
-  for (const agent of state.agents) {
-    const sel = $("addsel-" + agent.name);
-    if (!sel) continue;
-    const held = new Set(agent.tools);
-    const options = [
-      ...namespaces.map((ns) => `${ns}.*`),
-      ...grantable.filter((n) => !held.has(n)),
-    ].filter((v) => !agent.patterns.includes(v));
-    sel.innerHTML = `<option value="">Add a tool or namespace…</option>` +
-      options.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("");
+// ---------------- runs ----------------
+function renderRuns() {
+  const run = state.run || {};
+  if (!run.total) {
+    $("runsummary").textContent =
+      "No report in flow/runs/ yet. Run: python3 -m flow.runner.harness --repeat 3";
+    $("runtable").innerHTML = "";
+    return;
   }
-}
+  const flaky = run.scenarios.filter((s) => s.won && s.won < s.runs).length;
+  const failed = run.scenarios.filter((s) => !s.won).length;
+  $("runsummary").innerHTML =
+    `<b>${run.passed}/${run.total}</b> runs passed · ${esc(run.file)} · ` +
+    `${failed} scenario(s) never passed, ${flaky} passed only sometimes.`;
 
-window.addTool = async (agent) => {
-  const sel = $("addsel-" + agent);
-  const value = sel && sel.value;
-  if (!value) return toast("Pick a tool first", true);
-  const row = state.agents.find((a) => a.name === agent);
-  await writeGrants(agent, [...row.patterns, value]);
-};
-
-window.removeTool = async (agent, pattern) => {
-  const row = state.agents.find((a) => a.name === agent);
-  const next = row.patterns.filter((p) => p !== pattern);
-  if (!next.length) return toast("An agent needs at least one tool", true);
-  await writeGrants(agent, next);
-};
-
-async function writeGrants(agent, patterns) {
-  const res = await api("/api/agent-tools", { agent, tools: patterns });
-  if (res.error) return toast(res.error, true);
-  toast(`${agent}: ${res.patterns.length} rules → ${res.resolved} tools`);
-  tools = null;
-  await refresh();
+  $("runtable").innerHTML =
+    `<thead><tr><th style="width:230px">Scenario</th><th style="width:80px">Passed</th>
+     <th style="width:70px">Slowest</th><th>Path, and what went wrong</th></tr></thead><tbody>` +
+    run.scenarios.map((s) => {
+      const verdict = !s.won ? "FAIL" : s.won < s.runs ? "FLAKY" : "PASS";
+      const colour = verdict === "PASS" ? "var(--ok)"
+                   : verdict === "FLAKY" ? "var(--warn)" : "var(--danger)";
+      return `<tr>
+        <td><code>${esc(s.id)}</code></td>
+        <td><b style="color:${colour}">${s.won}/${s.runs}</b></td>
+        <td style="color:var(--muted)">${s.seconds}s</td>
+        <td style="color:var(--muted);font-size:12px">
+          ${esc((s.nodes || []).join(" → ")) || "—"}
+          ${s.problems.length
+            ? `<div style="color:var(--danger);margin-top:5px">` +
+              s.problems.map((p) => `• ${esc(p)}`).join("<br>") + `</div>`
+            : ""}
+        </td></tr>`;
+    }).join("") + "</tbody>";
 }
 
 // ---------------- tools tab ----------------
@@ -478,12 +680,83 @@ document.addEventListener("click", (e) => {
 
 async function loadTools() {
   const data = await ensureTools();
-  const counts = data.counts || {};
+  renderCounts(data.counts || {});
+  renderSwitches(data.services || []);
+  renderToolTable();
+}
+
+function renderCounts(counts) {
   $("toolcounts").innerHTML =
     `<span><b style="color:var(--ok)">${counts.live || 0}</b> live</span>` +
-    `<span><b style="color:var(--warn)">${counts.mocked || 0}</b> mocked</span>` +
-    `<span><b style="color:var(--planned)">${counts.planned || 0}</b> planned</span>`;
+    `<span><b style="color:var(--danger)">${counts.blocked || 0}</b> blocked</span>` +
+    `<span><b style="color:var(--warn)">${counts.simulated || 0}</b> simulated</span>` +
+    `<span><b>${counts.local || 0}</b> local</span>`;
+}
+
+/* One toggle per service, plus one that does the lot. They act on this process's
+   environment and nothing else — see the panel's own note. */
+function renderSwitches(services) {
+  const on = services.filter((s) => s.on);
+  const blocked = on.filter((s) => s.blocker);
+  const armed = on.length > 0;
+
+  $("switchbox").className = "switchbox" + (armed ? " armed" : "");
+  $("masterswitch").className = "toggle big" + (armed ? " on" : "");
+  $("masterlabel").textContent = armed
+    ? `REAL services reachable — ${on.length} of ${services.length} on`
+    : "Everything simulated";
+  $("mastersub").innerHTML = armed
+    ? `Texts, emails and calendar entries from this console now reach real people.` +
+      (blocked.length
+        ? ` <b style="color:var(--danger)">${blocked.length} cannot connect</b> and will
+           refuse mid-conversation.`
+        : "")
+    : "Nothing leaves this machine. Click to turn every service on.";
+
+  $("services").innerHTML = services.map((s) => `
+    <div class="service">
+      <div class="toggle ${s.on ? "on" : ""}" onclick="flipService('${esc(s.gate)}')"></div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:7px">
+          <span class="lamp ${s.on ? (s.blocker ? "blocked" : "live") : "simulated"}"></span>
+          <code>${esc(s.gate)}</code>
+        </div>
+        <div class="tools">${s.tools.map(esc).join(", ")}</div>
+        ${s.blocker ? `<div class="why">${esc(s.blocker)}</div>` : ""}
+      </div>
+    </div>`).join("");
+}
+
+window.flipService = async (gate) => {
+  const current = (tools.services || []).filter((s) => s.on).map((s) => s.gate);
+  const next = current.includes(gate)
+    ? current.filter((g) => g !== gate)
+    : [...current, gate];
+  await writeSwitches({ tools: next });
+};
+
+$("masterswitch").onclick = async () => {
+  const anyOn = (tools.services || []).some((s) => s.on);
+  await writeSwitches({ all: !anyOn });
+};
+
+async function writeSwitches(payload) {
+  const res = await api("/api/live", payload);
+  if (res.error) return toast(res.error, true);
+  tools = { tools: res.tools, counts: res.counts, services: res.services };
+  state.switches = res.switches;
+  renderRunbar();
+  renderCounts(res.counts);
+  renderSwitches(res.services);
   renderToolTable();
+  const live = (res.services || []).filter((s) => s.on);
+  const bad = live.filter((s) => s.blocker);
+  toast(
+    live.length
+      ? `${live.length} service(s) live` + (bad.length ? ` · ${bad.length} cannot connect` : "")
+      : "Everything back to simulated",
+    bad.length > 0,
+  );
 }
 
 function renderToolTable() {
@@ -497,35 +770,52 @@ function renderToolTable() {
   rows.forEach((t) => (byNs[t.namespace] = byNs[t.namespace] || []).push(t));
 
   $("tooltable").innerHTML =
-    `<thead><tr><th style="width:230px">Tool</th><th style="width:90px">Status</th>
-       <th>Description</th><th style="width:170px">Parameters</th>
-       <th style="width:190px">Granted to</th></tr></thead>` +
+    `<thead><tr><th style="width:210px">Tool</th><th style="width:200px">Right now</th>
+       <th>Description</th><th style="width:150px">Parameters</th>
+       <th style="width:140px">Remembers</th>
+       <th style="width:170px">Held by</th></tr></thead>` +
     Object.keys(byNs).sort().map((ns) => `
       <tbody>
-        <tr><td colspan="5" style="background:var(--code);font-weight:600;font-size:12px">
+        <tr><td colspan="6" style="background:var(--code);font-weight:600;font-size:12px">
           ${esc(ns)}</td></tr>
         ${byNs[ns].map((t) => `
           <tr>
             <td><code>${esc(t.name)}</code></td>
-            <td><span class="tag ${t.status}">${t.status}</span></td>
-            <td style="color:var(--muted)">${esc(t.description)}
-              ${t.note ? `<div style="margin-top:4px;font-size:12px;color:var(--planned)">${esc(t.note)}</div>` : ""}</td>
+            <td>
+              <div class="lampcell">
+                <span class="lamp ${esc(t.status)}"></span>
+                <span>${esc(t.status)}</span>
+              </div>
+              ${t.gate && t.gate !== t.name
+                ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">
+                     via <code>${esc(t.gate)}</code></div>` : ""}
+              ${t.blocker
+                ? `<div style="font-size:11px;color:var(--danger);margin-top:2px">
+                     ${esc(t.blocker)}</div>` : ""}
+            </td>
+            <td style="color:var(--muted)">${esc(t.description)}</td>
             <td style="font-size:12px;color:var(--muted)">${
               t.parameters.length
                 ? t.parameters.map((p) => (t.required.includes(p) ? `<b>${esc(p)}</b>` : esc(p))).join(", ")
                 : "—"}</td>
-            <td>${t.granted_to && t.granted_to.length
-                ? t.granted_to.map((a) => `<span class="chip">${esc(a)}</span>`).join(" ")
-                : '<span style="color:var(--muted);font-size:12px">not granted</span>'}</td>
+            <td style="font-size:12px;color:var(--muted)">${
+              t.remembers.length ? t.remembers.map(esc).join(", ") : "—"}</td>
+            <td>${t.held_by && t.held_by.length
+                ? t.held_by.map((n) => `<span class="chip" style="cursor:pointer"
+                    onclick="showNode('${esc(n)}')">${esc(n)}</span>`).join(" ")
+                : '<span style="color:var(--danger);font-size:12px">no node holds this</span>'}</td>
           </tr>`).join("")}
       </tbody>`).join("");
 }
 
+/* From a tool back to the node that holds it — the question this table raises every time. */
+window.showNode = (name) => {
+  document.querySelector('nav button[data-tab="graph"]').click();
+  setTimeout(() => jumpTo(name), 60);
+};
+
 $("toolsearch").oninput = () => tools && renderToolTable();
 $("statusfilter").onchange = () => tools && renderToolTable();
-
-// ---------------- run table ----------------
-function renderRunTable() {}
 
 // ---------------- prompts ----------------
 function initPrompts() {
@@ -552,15 +842,24 @@ window.openFile = (file) => {
   loadFile(file);
 };
 
-window.showAssembled = async (agent) => {
-  const data = await api("/api/assembled?agent=" + encodeURIComponent(agent));
+/* Exactly what goes up the wire for one node: the assembled prompt, then the tool schemas
+   that ride beside it. Both, because the prompt alone is half the bill — a node with short
+   wording and five tools carrying two thousand characters of schema costs what a long
+   prompt costs, and only seeing them together shows that. */
+window.showAssembled = async (node) => {
+  const data = await api("/api/assembled?node=" + encodeURIComponent(node));
   if (data.error) return toast(data.error, true);
   document.querySelector('nav button[data-tab="prompts"]').click();
   currentFile = null;
-  $("editor").value = data.content;
+  $("editor").value =
+    data.content +
+    "\n\n" + "=".repeat(70) + "\n" +
+    "TOOL SCHEMAS SENT WITH IT — " + data.schemas.length.toLocaleString() + " characters\n" +
+    "=".repeat(70) + "\n\n" + data.schemas;
   $("editor").readOnly = true;
   $("filemeta").textContent =
-    `${agent} — full assembled system prompt (shared fragments + own prompt + runtime context) · read only`;
+    `${node} — everything one model call sends: always.md + the node's goal + its rules ` +
+    `+ what the ticket already knows + its tool schemas · read only`;
   $("save").disabled = true;
 };
 
@@ -667,6 +966,9 @@ function chatBubble(who, text) {
   return el;
 }
 
+/* Under every reply: which node is holding the conversation, what the ticket now knows,
+   and where the time went. When an answer is wrong, the first question is always which
+   node's prompt to go and read, and this is the only thing that answers it. */
 function chatTiming(data) {
   const el = document.createElement("div");
   el.className = "timing";
@@ -675,15 +977,54 @@ function chatTiming(data) {
     const what = c.tools.length ? c.tools.join(", ") : "wrote the reply";
     return `  ${String(i + 1).padStart(2)}. ${String(c.seconds).padStart(5)}s  ${what}`;
   });
+  const tags = Object.entries(data.tags || {})
+    .filter(([k]) => k !== "flow_node")
+    .map(([k, v]) => `${k}=${String(v).slice(0, 40)}`);
+
   el.innerHTML =
     `<b>${data.seconds}s</b> · ${(data.calls || []).length} model call(s)` + over +
-    (data.agent ? ` · ${data.agent}` : "") + (data.ticket ? ` · ${data.ticket}` : "") +
-    (lines.length ? "<br>" + lines.join("<br>").replace(/ /g, "&nbsp;") : "");
+    (data.agent
+      ? ` · now at <a style="color:var(--accent);cursor:pointer"
+           onclick="showNode('${esc(data.agent)}')">${esc(data.agent)}</a>`
+      : "") +
+    (data.ticket ? ` · ${esc(data.ticket)}` : "") +
+    (lines.length ? "<br>" + esc(lines.join("\n")).replace(/\n/g, "<br>").replace(/ /g, "&nbsp;") : "") +
+    (tags.length
+      ? `<br><span style="opacity:.75">ticket: ${esc(tags.join("  ·  "))}</span>`
+      : "");
   $("chatlog").appendChild(el);
   $("chatlog").scrollTop = $("chatlog").scrollHeight;
 }
 
 let chatBusy = false;
+
+/* The panel that says somebody is working, and on what. Built once and updated in place
+   so the dots keep bouncing rather than restarting on every poll. */
+function workingPanel() {
+  const el = document.createElement("div");
+  el.className = "working";
+  el.innerHTML =
+    `<span class="dots"><i></i><i></i><i></i></span>
+     <span><span class="what">Thinking</span><span class="where"></span></span>
+     <span class="clock">0s</span>`;
+  $("chatlog").appendChild(el);
+  $("chatlog").scrollTop = $("chatlog").scrollHeight;
+  return {
+    update(data) {
+      if (data.doing) el.querySelector(".what").textContent = data.doing;
+      el.querySelector(".where").textContent =
+        (data.agent ? data.agent : "") +
+        (data.calls && data.calls.length ? `  ·  ${data.calls.length} model call(s)` : "");
+      const clock = el.querySelector(".clock");
+      clock.textContent = `${Math.round(data.seconds || 0)}s`;
+      clock.className = "clock" + ((data.seconds || 0) > BUDGET ? " over" : "");
+    },
+    remove: () => el.remove(),
+  };
+}
+
+const CHAT_POLL_MS = 700;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function chatSend() {
   const input = $("chatinput");
@@ -694,32 +1035,36 @@ async function chatSend() {
 
   chatBusy = true;
   $("chatsend").disabled = true;
-  const waiting = chatBubble("bot", "· · ·");
-  waiting.style.opacity = ".6";
-  const started = Date.now();
-  const tick = setInterval(() => {
-    waiting.textContent = "· · ·  " + Math.round((Date.now() - started) / 1000) + "s";
-  }, 1000);
+  const panel = workingPanel();
 
   try {
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    });
-    const data = await response.json();
-    clearInterval(tick);
-    waiting.remove();
-    if (data.error) {
-      chatBubble("sys", data.error);
-    } else {
-      chatBubble("bot", data.reply || "(the agent said nothing)");
-      chatTiming(data);
-      if (data.closed) chatBubble("sys", "the agent closed this conversation");
+    const started = await api("/api/chat", { text });
+    if (started.error) {
+      panel.remove();
+      chatBubble("sys", started.error);
+      return;
+    }
+
+    // Poll until it is done. The panel only lives while a turn really is in flight —
+    // it comes down below whatever happens, including when there was nothing to say.
+    for (;;) {
+      await sleep(CHAT_POLL_MS);
+      const data = await api("/api/chat/poll", {});   // {} so `api` sends a POST
+      if (data.status === "working") { panel.update(data); continue; }
+      panel.remove();
+      if (data.status === "ready") {
+        chatBubble("bot", data.reply || "(the agent said nothing)");
+        chatTiming(data);
+        if (data.closed) chatBubble("sys", "the agent closed this conversation");
+      } else if (data.status === "error") {
+        chatBubble("sys", data.error || "something went wrong");
+      } else {
+        chatBubble("sys", "the console lost track of that turn — it may have restarted");
+      }
+      return;
     }
   } catch (e) {
-    clearInterval(tick);
-    waiting.remove();
+    panel.remove();
     chatBubble("sys", "The console could not reach the agent: " + e);
   } finally {
     chatBusy = false;

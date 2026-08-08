@@ -46,6 +46,14 @@ OUTCOME_PROMPT = "How did this one go?"
 OUTCOME_DONE = "od"
 OUTCOME_DECLINED = "oc"
 
+# What the customer is told once the technician says the work is finished. The technician
+# is not named: he confirmed it in a Telegram tap, not in a sentence to be quoted, and a
+# name attached to a claim he did not phrase is a name he has to defend.
+THANKS = (
+    "Thanks for choosing {company}. The technician has confirmed the work is complete. "
+    "If anything isn't right, reply to this message and we'll come back out."
+)
+
 
 class ReminderLoop:
     """Checks every half minute for offers nobody has answered."""
@@ -176,6 +184,86 @@ class ReminderLoop:
                 detail=f"{count} reminders sent, no answer",
                 offer_id=offer_id,
             )
+
+
+def close_out(store: Any, followup_id: str, *, done: bool, note: str = "") -> dict[str, Any]:
+    """The technician has answered. Record it, and if the job happened, finish the ticket.
+
+    This is the only place a ticket reaches `Closed`. Nothing in the conversation can do
+    it: by the time the work is done the customer left hours ago and the agent that spoke
+    to them is gone. Before this existed the answer was filed and the ticket stayed open
+    forever — a record nobody looks at again, on a job that went perfectly well.
+
+    The customer is thanked in the same breath, because being told the job is finished is
+    the last thing they are owed and nobody else is going to say it. Never raises: a text
+    that will not send must not stop the ticket closing.
+    """
+    row = _followup(store, followup_id)
+    if row is None:
+        return {"ok": False, "error": f"No follow-up '{followup_id}'"}
+
+    store.update_followup(followup_id, status="answered",
+                          answer=note or ("done" if done else "customer_declined"))
+    store.add_event("job_outcome_reported", ticket_id=row["ticket_id"],
+                    detail=note or ("done" if done else "customer_declined"),
+                    followup_id=followup_id)
+    if not done:
+        # The customer decided against the work. The job is over either way, so the ticket
+        # closes — but nobody is thanked for work that did not happen.
+        _close(store, row["ticket_id"])
+        return {"ok": True, "closed": True, "thanked": False}
+
+    _close(store, row["ticket_id"])
+    return {"ok": True, "closed": True, "thanked": _thank(store, row["ticket_id"])}
+
+
+def _followup(store: Any, followup_id: str) -> dict[str, Any] | None:
+    with store.connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM followups WHERE followup_id = ?", (followup_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def _close(store: Any, ticket_id: str) -> None:
+    ticket = store.ticket(ticket_id) if ticket_id else None
+    if ticket is None or ticket["status"] == "Closed":
+        return
+    history = list(ticket["history"]) + [f"{ticket['status']} -> Closed"]
+    store.save_ticket({**ticket, "customer_phone": ticket["phone"],
+                       "status": "Closed", "history": history})
+    store.add_event("ticket_status_changed", ticket_id=ticket_id, detail="Closed")
+
+
+def _thank(store: Any, ticket_id: str) -> bool:
+    """The last message of the job. Returns whether it went."""
+    from plumbing import config  # noqa: PLC0415
+
+    ticket = store.ticket(ticket_id) if ticket_id else None
+    if ticket is None:
+        return False
+    # The tag, then the column. `ticket.phone` is only set when a tool happened to pass
+    # "phone"; the one reliably there is what the engine copied off the lookup.
+    number = str(ticket["tags"].get("phone") or ticket["phone"] or "")
+    if not number:
+        return False
+
+    body = THANKS.format(company=config.business_rules()["company"]["name"])
+    store.add_message(channel="sms", speaker="agent", text=body,
+                      phone=number, ticket_id=ticket_id)
+
+    from plumbing.integrations import is_live  # noqa: PLC0415
+
+    if not is_live("sms.send"):
+        return False
+    from plumbing.integrations import twilio_sms  # noqa: PLC0415
+    from plumbing.integrations.gate import LiveToolUnavailable  # noqa: PLC0415
+
+    try:
+        twilio_sms.send_sms(number, body)
+    except LiveToolUnavailable:
+        return False
+    return True
 
 
 def _send_telegram(chat_id: str, text: str, buttons: Any = None) -> None:

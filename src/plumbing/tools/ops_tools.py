@@ -298,6 +298,15 @@ def payment_send_link(ctx: ToolContext, ticket_id: str, phone: str) -> dict[str,
         )
 
     deposit_rule = world.rules["pricing"]["emergency_deposit"]
+    if not deposit_rule:
+        # The business stopped taking one. Refused here rather than left to fail on a
+        # missing amount further down, because the model needs to know the money step is
+        # gone, not that something broke — otherwise it retries, and a customer waiting on
+        # a burst pipe waits through it.
+        raise ToolRejection(
+            "We no longer take a deposit before sending a technician, so there is no link "
+            "to send. Go straight to arranging the visit."
+        )
 
     existing = world.find_deposit(ticket_id)
     if existing and existing.status == "paid":

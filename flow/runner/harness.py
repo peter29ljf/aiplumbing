@@ -153,11 +153,14 @@ def run_one(path: Path, llm_factory) -> Result:
 
 
 def _lines_from(result: Result, node_name: str) -> list[str]:
-    """What one node said. The agent's replies line up, in order, with the steps that
-    spoke — the same pairing `diagnose._spoke_out_of_turn` relies on."""
-    spoke = [step.node for step in result.steps if step.said]
-    lines = [text for who, text in result.transcript if who == "agent" and text]
-    return [line for node, line in zip(spoke, lines) if node == node_name]
+    """What one node said, off the step that said it.
+
+    It used to zip the steps that spoke against the agent's transcript lines and trust
+    the two to stay in step. They did until a turn began joining a step's parting words
+    to the next step's answer — one transcript line for two speaking steps, and every
+    pairing after it silently wrong. The words live on the step now.
+    """
+    return [step.text for step in result.steps if step.node == node_name and step.text]
 
 
 def _afterwards(spec: dict, world: World) -> None:
@@ -210,6 +213,7 @@ def _judge(result: Result, expect: dict, talk: Conversation, world: World) -> No
             result.wrong(f"the technician was chased {got} time(s), expected {wanted}")
 
     for key, label in (("appointments", "appointment"), ("texts", "text"),
+                       ("emails", "email"),
                        ("technician_messages", "message to the technician"),
                        ("escalations", "escalation"), ("followups", "follow-up")):
         if key in expect:

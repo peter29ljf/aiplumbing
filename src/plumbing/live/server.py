@@ -74,28 +74,28 @@ _VOICE_ROUTES = {"/voice", "/twilio/voice"}
 
 # What to show a customer while the agent is working. A minute of three dots looks the
 # same as a system that has died; this is the difference between waiting and wondering.
-# Anything not named here falls back to the generic line — a missing entry should never
-# leak a tool name onto a customer's screen.
+#
+# One line per tool in `flow/sim/tools.py`, and the two that are missing are missing on
+# purpose. `ticket.set_fields` and `step.finished` are bookkeeping — nothing is happening
+# on the customer's behalf while they run, and naming them would put "Making a note" on
+# screen at the end of every batch, wiping out the lookup that came before it. See
+# `_doing`.
 DOING = {
     "crm.lookup_by_phone": "Looking up your details",
     "crm.create_customer": "Setting up your record",
-    "crm.update_customer": "Saving your details",
     "crm.get_warranty_candidates": "Checking what we've done for you before",
-    "calendar.find_slots": "Checking the calendar",
-    "calendar.create_appointment": "Booking that in",
-    "calendar.reschedule": "Moving your appointment",
-    "calendar.cancel": "Cancelling that appointment",
-    "rules.get_standard_service_fee": "Checking what the visit costs",
-    "rules.get_emergency_fee": "Checking the emergency rate",
+    "clock.now": "Checking the time",
+    "rules.get_service_options": "Checking what a visit costs",
     "rules.get_job_sizing": "Working out what's involved",
     "rules.get_safety_advisory": "Checking the safety guidance",
-    "rules.check_service_eligibility": "Checking we can take this on",
-    "rules.get_schedule_policy": "Checking our working hours",
+    "calendar.find_slots": "Checking the calendar",
+    "calendar.find_booking": "Finding your appointment",
+    "calendar.create_appointment": "Booking that in",
     "sms.send": "Sending your confirmation",
     "email.send": "Sending that email",
-    "email.request_materials": "Sending you a note about the photos",
+    "technician.notify": "Letting the technician know",
     "escalate.raise": "Passing this to the technician",
-    "handoff.transfer": "Bringing in a colleague",
+    "schedule.create_followup": "Arranging someone to check back",
 }
 DOING_FALLBACK = "Just a moment"
 
@@ -103,16 +103,16 @@ DOING_FALLBACK = "Just a moment"
 def _doing(tool: str) -> str | None:
     """The line to show for a tool, whichever spelling of its name arrived, or None.
 
-    The agent loop reports the wire name — `crm_lookup_by_phone` — because that is what
-    the model was given, while everything a person writes uses the dotted form. Keyed on
-    the dotted names above and looked up on both here: the first version keyed one way and
-    read the other, so every tool missed and every customer saw the fallback.
+    The engine reports the dotted name; the model was given the wire form
+    (`crm_lookup_by_phone`) because OpenAI function names may not contain dots. Both are
+    accepted here — an earlier version keyed one way and read the other, so every tool
+    missed and every customer saw the fallback.
 
-    **None rather than the fallback**, because the agent asks for several tools at once
-    and this is called for each. Returning the fallback for the unnamed ones meant a batch
-    that ended on `ticket_create` wiped out the `crm_lookup_by_phone` before it — and
-    almost every batch ends on a bookkeeping call, so the fallback was all anyone ever
-    saw. The caller keeps the last line that meant something.
+    **None rather than the fallback**, because a step asks for several tools at once and
+    this is called for each. Returning the fallback for the unnamed ones meant a batch
+    ending on `step.finished` wiped out the `crm.lookup_by_phone` before it — and almost
+    every batch ends on a bookkeeping call, so the fallback was all anyone ever saw. The
+    caller keeps the last line that meant something.
     """
     return DOING.get(tool) or DOING.get(tool.replace("_", ".", 1))
 
@@ -259,7 +259,7 @@ class Inbound:
         with self._lock:
             running = self._pending.get(session_id)
             if running is not None and not running.done:
-                # One turn at a time per session. LiveConversation holds the message list,
+                # One turn at a time per session. The conversation holds the message list,
                 # and two workers appending to it would interleave one customer's sentence
                 # into the middle of another's.
                 return 409, {
@@ -278,7 +278,7 @@ class Inbound:
     def _run_turn(self, session_id: str, phone: str, text: str, work: _Pending) -> None:
         try:
             conversation = self.sessions.get(channel="chat", phone=phone, session_id=session_id)
-            conversation.ctx.progress = work.note_tool
+            conversation.progress = work.note_tool
             work.reply = conversation.say(text)
         except Exception as exc:  # noqa: BLE001
             # The customer gets an apology, not a stack trace, and the type is kept so the
@@ -474,6 +474,9 @@ class Inbound:
         # A follow-up they were asked and have typed an answer to rather than tapping.
         outstanding = self.sessions.store.open_followup(chat_id)
         if outstanding is not None:
+            # Typed, so what it means is anybody's guess — "waiting on a part" is not the
+            # job being finished. The answer is recorded and the ticket stays open; only
+            # the two buttons say plainly that it is over.
             self.sessions.store.update_followup(
                 outstanding["followup_id"], status="answered", answer=text
             )
@@ -547,7 +550,7 @@ class Inbound:
         Those are the only two outcomes that change what the office does. Anything more
         detailed is a conversation, and the technician can type it.
         """
-        from plumbing.live.reminders import OUTCOME_DECLINED, OUTCOME_DONE  # noqa: PLC0415
+        from plumbing.live import reminders  # noqa: PLC0415
 
         callback_id = str(callback.get("id") or "")
         chat_id = str(((callback.get("message") or {}).get("chat") or {}).get("id") or "")
@@ -557,20 +560,19 @@ class Inbound:
             return 200, {"ok": True}
 
         _, followup_id, outcome = parts
-        answer = {OUTCOME_DONE: "done", OUTCOME_DECLINED: "customer_declined"}.get(outcome)
-        if answer is None:
+        if outcome not in (reminders.OUTCOME_DONE, reminders.OUTCOME_DECLINED):
             self._answer(callback_id, "")
             return 200, {"ok": True}
 
-        store = self.sessions.store
-        store.update_followup(followup_id, status="answered", answer=answer)
-        with store.connect() as conn:
-            row = conn.execute(
-                "SELECT ticket_id FROM followups WHERE followup_id = ?", (followup_id,)
-            ).fetchone()
-        store.add_event("job_outcome_reported", ticket_id=row["ticket_id"] if row else "",
-                        detail=answer, followup_id=followup_id)
-        self._answer(callback_id, "Thanks — noted.")
+        # The tap is what closes the ticket, and the only thing that does. The job is over
+        # either way; the customer is thanked only when the work actually happened.
+        done = outcome == reminders.OUTCOME_DONE
+        settled = reminders.close_out(self.sessions.store, followup_id, done=done)
+        self._answer(
+            callback_id,
+            "Thanks — noted, and the customer has been told."
+            if settled.get("thanked") else "Thanks — noted.",
+        )
         return 200, {"ok": True}
 
     def _settle(self, offer: Any) -> None:

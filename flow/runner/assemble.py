@@ -23,6 +23,23 @@ from flow.runner.memory import summarise
 
 FLOW_DIR = Path(__file__).resolve().parent.parent
 
+# Saying nothing and saying "one moment" are not the same thing, and the difference costs
+# the customer a whole exchange.
+#
+# Anything a step says is what the turn returns — the walk stops there and the reply goes
+# out. So a step that finishes with "give me one moment" hands the customer a promise, and
+# then the step that would have kept it does not run until they say something back. They
+# sat looking at "Bear with me one moment" until they typed "?" to see if anyone was
+# there. Silence is free; a stall costs a round trip and reads as a system that has
+# forgotten them.
+_NO_STALLING = (
+    "**A holding line is not saying nothing.** \"One moment\", \"bear with me\", "
+    "\"let me get that sorted\" — each of those is a reply, and a reply ends your turn. "
+    "The step that would have done the thing you just promised does not run until they "
+    "answer, and they have nothing to answer. Either say something they can act on, or "
+    "say nothing at all and finish."
+)
+
 
 @lru_cache(maxsize=64)
 def _read(relative: str) -> str:
@@ -78,7 +95,8 @@ def build(node: Node, *, tags: dict | None = None, ticket_id: str = "") -> str:
                 "photographs — is the next step's, and it has the tools and the words.\n\n"
                 "**When you have nothing to add beyond what comes next, say nothing at "
                 "all** and call `step.finished` on its own. The next step replies in the "
-                "same breath and the customer sees one continuous answer."
+                "same breath and the customer sees one continuous answer.\n\n"
+                + _NO_STALLING
             )
         else:
             parts.append(
@@ -87,7 +105,8 @@ def build(node: Node, *, tags: dict | None = None, ticket_id: str = "") -> str:
                 "**As soon as this step's goal is met, and in the same turn.** Not when "
                 "the customer's problem is solved — that takes several more steps and they "
                 "are not yours. Anything you are curious about that is not named above "
-                "belongs to somebody else, and they will ask."
+                "belongs to somebody else, and they will ask.\n\n"
+                + _NO_STALLING
             )
 
     parts.append("# What is already known\n\n" + summarise(tags or {}, ticket_id=ticket_id))

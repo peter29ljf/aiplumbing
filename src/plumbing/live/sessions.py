@@ -1,18 +1,17 @@
-"""Which agents are switched on, and finding the conversation a message belongs to.
+"""Finding the conversation a message belongs to.
 
-**Only intake and small_job go live first.** Everything else — a warranty claim, a large
-project, anything urgent — is taken down as a message and handed to a person. Those flows
-work in the simulator and have not earned real customers yet, and the money-losing paths
-(deposits, refunds, dispatch) all live in the ones that stay off. Turning them on later is
-a line in `config/live.yaml`, not a code change.
+There used to be a second decision here — which of five agents this deployment switched on
+— and there is no longer anything to switch. The flow is one graph with one way in, and a
+node that has not earned real customers is not turned off, it is a node the conversation
+does not reach. `config/live.yaml` keeps only the browser origins that may call the chat.
 
-Identity is the other thing decided here, and it differs by channel:
+Identity still differs by channel, and it still matters:
 
 - **sms** and **voice** arrive with a number the carrier vouches for.
 - **chat** arrives from the anonymous internet with nothing. The number is typed into a
-  form and is a *claim*, not proof — the same digits could be anybody's. So a chat session
-  is tracked by its session id, and the phone number it asserts is carried alongside
-  rather than trusted as identity.
+  form and is a *claim*: the same digits could be anybody's. So a chat session is tracked
+  by its session id, and the number it asserts is carried alongside rather than trusted as
+  identity.
 """
 
 from __future__ import annotations
@@ -21,18 +20,10 @@ import threading
 import uuid
 from typing import Any
 
-from plumbing import agent_registry, config
-from plumbing.live.conversation import LiveConversation
+from plumbing.live.flow_conversation import FlowConversation
 from plumbing.llm import LLM
 from plumbing.store import SqliteStore, phone_key
-from plumbing.tools.registry import ToolContext
-from plumbing.world import World
-
-# Which agents this deployment runs, from config/live.yaml. Read once here so the tuple
-# and the config cannot drift apart — they did, and the docstring promised a file that did
-# not exist yet.
-ENABLED_AGENTS = tuple(config.enabled_agents())
-ENTRY_AGENT = config.live_config().get("entry_agent") or "intake"
+from plumbing import config
 
 
 class SessionStore:
@@ -49,8 +40,12 @@ class SessionStore:
 
         self.offers = Offers(self.store)
         self.llm = llm or LLM()
-        self._sessions: dict[str, LiveConversation] = {}
+        self._sessions: dict[str, FlowConversation] = {}
         self._lock = threading.Lock()
+        # Loaded once and shared. The graph is read-only after `load()` and validating it
+        # per conversation would read eighteen files to reach the same answer — and would
+        # let a broken edit take down the next customer rather than the next restart.
+        self._flow = _graph()
 
     # ------------------------------------------------------------------
     def key_for(self, *, channel: str, phone: str = "", session_id: str = "") -> str:
@@ -65,7 +60,7 @@ class SessionStore:
             return f"session:{session_id}"
         return f"anon:{uuid.uuid4()}"
 
-    def get(self, *, channel: str, phone: str = "", session_id: str = "") -> LiveConversation:
+    def get(self, *, channel: str, phone: str = "", session_id: str = "") -> FlowConversation:
         key = self.key_for(channel=channel, phone=phone, session_id=session_id)
         with self._lock:
             existing = self._sessions.get(key)
@@ -76,7 +71,10 @@ class SessionStore:
                 if phone and not existing.phone:
                     existing.phone = phone
                 return existing
-            conversation = self._build(channel=channel, phone=phone, session_id=session_id)
+            conversation = FlowConversation(
+                store=self.store, llm=self.llm, channel=channel,
+                phone=phone, session_id=session_id, flow=self._flow,
+            )
             self._sessions[key] = conversation
             return conversation
 
@@ -97,23 +95,15 @@ class SessionStore:
         with self._lock:
             self._sessions.pop(self.key_for(channel="", phone=phone, session_id=session_id), None)
 
-    # ------------------------------------------------------------------
-    def _build(self, *, channel: str, phone: str, session_id: str) -> LiveConversation:
-        from datetime import datetime  # noqa: PLC0415
 
-        world = World(datetime.now().astimezone().isoformat(), store=self.store)
-        agents = _enabled_agents(self.llm)
-        # Each Agent resolves its own allow-list; the context only carries the world.
-        ctx = ToolContext(world=world, enabled_agents=ENABLED_AGENTS)
-        return LiveConversation(
-            agents=agents, entry_agent=ENTRY_AGENT, llm=self.llm, ctx=ctx,
-            channel=channel, phone=phone, session_id=session_id,
-        )
+def _graph() -> Any:
+    """The flow, validated against the tools that actually exist.
 
+    `load` refuses a graph that does not hang together — a branch naming a node nobody
+    wrote, a rules file renamed in one place only, a tool that is gone. Doing it here means
+    a broken edit fails when the server starts, not in front of whoever messages next.
+    """
+    from flow.runner.graph import load  # noqa: PLC0415
+    from flow.sim import tools  # noqa: PLC0415
 
-def _enabled_agents(llm: LLM) -> dict[str, Any]:
-    everything = agent_registry.build_all(llm, enabled=set(ENABLED_AGENTS))
-    missing = [name for name in ENABLED_AGENTS if name not in everything]
-    if missing:
-        raise RuntimeError(f"config/agents.yaml has no agent named {missing}")
-    return {name: everything[name] for name in ENABLED_AGENTS}
+    return load(known_tools=tools.names())

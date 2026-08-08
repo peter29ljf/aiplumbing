@@ -12,24 +12,16 @@
 # rewrite starts with no gates at all and adds them one at a time, each in answer to a
 # failure that actually happened. See flow/sim/gates.py.
 
-entry: greeting
+entry: identify
 
 nodes:
 
-  greeting:
-    goal: >-
-      Greet them, and get one plain sentence about what they came for. That is all — no
-      details, no diagnosis, no name, no number.
-    # It had no rules file at all, on the grounds that greeting somebody needs no
-    # instruction. Then a customer opened with "I need to move Friday's appointment",
-    # which is not a thing that has gone wrong, and this step spent seventeen model calls
-    # promising to go and check the diary it has no tool to see. Run 20260806-053354.
-    rules: [greeting]
-    # No ticket.create — the engine opens one before the first word is said.
-    tools: [ticket.set_fields, step.finished]
-    sets_status: New Inquiry
-    next: identify
-
+  # Greeting used to be its own node and is folded in here. As two, the opening cost three
+  # exchanges before anybody had asked for a phone number: "What can we help you with?" —
+  # "install a faucet" — "Got it, a faucet installation." — "can you do that?" — and only
+  # then the number. Two of those turns collected nothing. Saying hello and asking for the
+  # number is one breath, and the customer's first sentence answers both.
+  #
   # Four ways out of one node, and not split into asking and routing the way property and
   # scheduling were. It was split, for one run: `identify_route` read the ticket for
   # whether we know them and what they came for, `identify` never wrote either, and three
@@ -38,9 +30,17 @@ nodes:
   # exactly one field to record, and this had three. Here the decision stays with the node
   # that has the conversation in front of it. Run 20260806-051336.
   identify:
-    goal: Get their phone number, find out whether we know them, and what they came for.
-    rules: [crm_lookup]
+    goal: >-
+      Greet them, get their phone number, find out whether we know them, and what they
+      came for.
+    rules: [greeting, crm_lookup]
+    # No ticket.create — the engine opens one before the first word is said.
     tools: [crm.lookup_by_phone, ticket.set_fields, step.finished]
+    # It cannot hand on until it has written down why they came. The old `greeting` node
+    # was told to and did not: a customer said "install a faucet", the step ended, the
+    # messages went with it, and `problem` — four nodes later, reading a ticket with no
+    # `issue` on it — asked what had gone wrong. They had said so three times by then.
+    records: [issue]
     sets_status: Phone Verified
     branch:
       new: new_customer
@@ -135,9 +135,14 @@ nodes:
       small: offer_options
 
   large_project:
-    goal: Ask for photographs by email and put it in front of the technician.
+    goal: Email them the list of photographs, and put it in front of the technician.
     rules: [large_project, handover]
-    tools: [ticket.set_fields, escalate.raise, schedule.create_followup]
+    # `email.send` because the chat is about to end and the photographs are not going to
+    # arrive in it. It used to recite our address and hope: the customer closed the tab
+    # with an address they had read once, and the technician waited on pictures nobody had
+    # asked for anywhere he could see. An email sits in their inbox and replying to it
+    # lands somewhere a person reads.
+    tools: [ticket.set_fields, email.send, escalate.raise, schedule.create_followup]
     sets_status: Escalated to Supervisor
 
   warranty_handover:

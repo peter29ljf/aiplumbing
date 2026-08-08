@@ -89,6 +89,17 @@ def _talk(llm, flow, **seed) -> Conversation:
     return Conversation(World(now=NOW, seed=seed or None), llm, flow)
 
 
+# `identify` is the entry and cannot hand on until `issue` is on the ticket, so every
+# script that walks past it has to write one. Bundled here rather than spelled out in ten
+# tests, because what those tests are about is what happens *after* the first step.
+def leaves_identify(outcome: str = "new", text: str = "") -> FakeMessage:
+    return calls(
+        ("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"issue": "a leak"}}),
+        ("step.finished", {"outcome": outcome}),
+        text=text,
+    )
+
+
 # ---- what a node is given ---------------------------------------------
 
 
@@ -96,7 +107,7 @@ def test_a_node_is_given_only_its_own_tools(flow):
     llm = ScriptedLLM(says("Hello — what has gone wrong?"))
     _talk(llm, flow).say("hi")
 
-    assert llm.tool_sets[0] == ["ticket_set_fields", "step_finished"]
+    assert llm.tool_sets[0] == ["crm_lookup_by_phone", "ticket_set_fields", "step_finished"]
 
 
 def test_a_node_prompt_does_not_mention_the_rest_of_the_graph(flow):
@@ -104,7 +115,7 @@ def test_a_node_prompt_does_not_mention_the_rest_of_the_graph(flow):
     _talk(llm, flow).say("hi")
 
     prompt = llm.prompts[0]
-    for other in ("scheduling", "large_project", "warranty_check", "booking"):
+    for other in ("scheduling", "large_project", "property_route", "offer_options"):
         assert other not in prompt
 
 
@@ -129,22 +140,22 @@ def test_every_node_prompt_stays_small(flow):
 
 def test_a_node_ends_when_the_outcome_is_set(flow):
     llm = ScriptedLLM(
-        calls(("step.finished", {"outcome": "done"}), text="Right."),
-        says("May I have your phone number?"),
+        leaves_identify(text="Right."),
+        says("And your name and address?"),
     )
     conversation = _talk(llm, flow)
 
     conversation.say("hi")
 
-    assert conversation.node.name == "identify"
+    assert conversation.node.name == "new_customer"
 
 
 def test_the_previous_node_s_conversation_is_dropped(flow):
     """Where the context saving actually comes from. Without this the fourth node would
     be carrying the first three nodes' exchanges and the small prompts stop being small."""
     llm = ScriptedLLM(
-        calls(("step.finished", {"outcome": "done"})),
-        says("May I have your phone number?"),
+        leaves_identify(),
+        says("And your name and address?"),
     )
     conversation = _talk(llm, flow)
 
@@ -155,8 +166,9 @@ def test_the_previous_node_s_conversation_is_dropped(flow):
 
 def test_what_survives_is_the_summary_not_the_words(flow):
     llm = ScriptedLLM(
-        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"customer_name": "Lin"}}),
-              ("step.finished", {"outcome": "done"})),
+        calls(("ticket.set_fields",
+               {"ticket_id": "TK-0001", "fields": {"customer_name": "Lin", "issue": "a leak"}}),
+              ("step.finished", {"outcome": "new"})),
         says("Thanks Lin."),
     )
     conversation = _talk(llm, flow)
@@ -168,8 +180,7 @@ def test_what_survives_is_the_summary_not_the_words(flow):
 
 def test_a_branch_is_taken_by_name(flow):
     llm = ScriptedLLM(
-        calls(("step.finished", {"outcome": "done"})),           # greeting
-        calls(("step.finished", {"outcome": "existing"})),       # identify
+        leaves_identify("existing"),
         says("Welcome back."),
     )
     conversation = _talk(llm, flow)
@@ -183,8 +194,7 @@ def test_an_outcome_nobody_named_is_handed_back(flow):
     """Rather than picking a branch on the model's behalf, which is a decision made by
     accident and impossible to find afterwards."""
     llm = ScriptedLLM(
-        calls(("step.finished", {"outcome": "done"})),
-        calls(("step.finished", {"outcome": "maybe"})),
+        leaves_identify("maybe"),
         says("Sorry — have we worked for you before?"),
     )
     conversation = _talk(llm, flow)
@@ -250,7 +260,7 @@ def test_a_reply_comes_back_with_what_it_cost(flow):
     turn = _talk(llm, flow).say("hi")
 
     assert turn.reply == "Hello there."
-    assert turn.nodes == ["greeting"]
+    assert turn.nodes == ["identify"]
     assert len(turn.steps) == 1
 
 
@@ -277,7 +287,7 @@ def test_a_fact_a_tool_handled_is_kept_without_being_asked(flow):
     same thing is the clearest sign nobody is listening, and it should not depend on the
     model remembering to write things down."""
     llm = ScriptedLLM(
-        calls(("step.finished", {"outcome": "done"}), text="Noted — one moment."),
+        says("Hello — may I have your number?"),
         calls(("crm.lookup_by_phone", {"phone": "604 555 0166"})),
         says("You're not on file yet."),
     )
@@ -291,7 +301,7 @@ def test_a_fact_a_tool_handled_is_kept_without_being_asked(flow):
 
 def test_what_a_lookup_found_is_kept_too(flow):
     llm = ScriptedLLM(
-        calls(("step.finished", {"outcome": "done"}), text="Noted — one moment."),
+        says("Hello — may I have your number?"),
         calls(("crm.lookup_by_phone", {"phone": "604-555-7788"})),
         says("Welcome back, Emily."),
     )
@@ -304,6 +314,77 @@ def test_what_a_lookup_found_is_kept_too(flow):
 
     assert conversation.tags["name"] == "Emily Carter"
     assert conversation.tags["address"] == "4321 Hastings St"
+
+
+# ---- what an emergency costs ------------------------------------------
+#
+# The fee was never reaching a customer. `rules.get_service_options` looked for
+# `pricing.emergency_callout_fee`, a key the rules file has never had — the real one is
+# `emergency_inspection_fee` and it is banded by the hour. So the fee came back null,
+# `always.md` correctly forbids quoting a figure nobody looked up, and the agent offered a
+# deposit and no price. Half the choice was missing and nothing reported a fault.
+
+
+@pytest.mark.parametrize(
+    "now,amount,because",
+    [
+        ("2026-08-05T10:00:00-07:00", 200, "business hours"),   # Wednesday, open
+        ("2026-08-05T06:00:00-07:00", 300, "before 18:00"),     # Wednesday, before opening
+        ("2026-08-05T19:30:00-07:00", 400, "after 18:00"),      # Wednesday evening
+        ("2026-08-09T11:00:00-07:00", 400, "Sundays"),          # Sunday
+        ("2026-08-03T10:00:00-07:00", 400, "Sundays"),          # BC Day, a Monday
+    ],
+)
+def test_the_emergency_rate_follows_the_clock(flow, now, amount, because):
+    from flow.sim import tools as st
+
+    world = World(now=now)
+    result, _ = st.call(world, "rules_get_service_options", "{}",
+                        ("rules.get_service_options",))
+
+    assert result["emergency"]["fee"] == amount
+    # And why, because a figure with no reason behind it is one the customer has to take
+    # on trust, and this one changes by two hundred dollars depending on the hour.
+    assert because in result["emergency"]["rate_applies_because"]
+    assert result["emergency"]["it_is_now"]
+
+
+def test_a_holiday_on_a_weekday_is_charged_as_a_holiday(flow):
+    """BC Day is a Monday inside business hours, so it matches two bands. Which one wins
+    is two hundred dollars, and it is settled by `tier_precedence` in the rules file
+    rather than by the order somebody happened to write the checks in."""
+    from flow.sim import tools as st
+
+    holiday, _ = st.call(World(now="2026-08-03T10:00:00-07:00"), "rules_get_service_options",
+                         "{}", ("rules.get_service_options",))
+    ordinary, _ = st.call(World(now="2026-08-05T10:00:00-07:00"), "rules_get_service_options",
+                          "{}", ("rules.get_service_options",))
+
+    assert holiday["emergency"]["fee"] == 400
+    assert ordinary["emergency"]["fee"] == 200
+
+
+def test_nothing_is_taken_up_front(flow):
+    """The business stopped charging a deposit. An agent still offering to collect one is
+    asking a customer for money nobody is owed, and holding a burst pipe behind it."""
+    from flow.sim import tools as st
+
+    result, _ = st.call(World(now=NOW), "rules_get_service_options", "{}",
+                        ("rules.get_service_options",))
+
+    assert result["emergency"]["deposit"] is None
+    assert "deposit" not in result["scheduled"]
+
+
+def test_no_step_is_told_to_ask_for_a_deposit(flow):
+    """The rules files are what the model reads. A price removed from the config and left
+    in the prose is a price customers still get quoted."""
+    from flow.runner.assemble import build
+
+    for node in flow.nodes.values():
+        prompt = build(node).lower()
+        if "deposit" in prompt:
+            assert "there is no deposit" in prompt, node.name
 
 
 def test_a_tool_that_handles_nothing_lasting_keeps_nothing(flow):
@@ -320,8 +401,7 @@ def test_a_terminal_node_ends_the_conversation_by_replying(flow):
     confirmation — and left the conversation open because one tool call was missing. The
     graph already knows which nodes are the end; the model does not need to say so."""
     llm = ScriptedLLM(
-        calls(("step.finished", {"outcome": "done"})),                      # greeting
-        calls(("step.finished", {"outcome": "existing"})),                  # identify
+        leaves_identify("existing"),
         calls(("step.finished", {"outcome": "claim"})),                     # warranty_check
         calls(("escalate.raise", {"ticket_id": "TK-0001", "reason": "warranty",
                                   "details": "the tap they fixed drips again"}),
@@ -342,8 +422,7 @@ def test_a_last_step_cannot_sign_off_with_its_work_undone(flow):
     text and told no technician — and because a reply ends the conversation, that was the
     end of it. The tools a last step holds are its job."""
     llm = ScriptedLLM(
-        calls(("step.finished", {"outcome": "done"})),
-        calls(("step.finished", {"outcome": "existing"})),
+        leaves_identify("existing"),
         calls(("step.finished", {"outcome": "claim"})),
         says("All done, somebody will be in touch."),        # nothing actually done
         calls(("escalate.raise", {"ticket_id": "TK-0001", "reason": "warranty",
@@ -358,6 +437,100 @@ def test_a_last_step_cannot_sign_off_with_its_work_undone(flow):
     assert conversation.world.escalations                  # it was made to do the work
     assert turn.reply.startswith("Passed to the technician")
     assert conversation.finished
+
+
+def test_words_said_on_the_way_out_do_not_end_the_turn(flow):
+    """A step that is handing on has not done the thing it is talking about.
+
+    `sizing` said "Thanks, noted. Give me one moment." and finished, and because a reply
+    ends a turn, that was the whole turn — `offer_options` was next and would have laid
+    out the two ways of being seen. The customer sat looking at "one moment" until they
+    typed "?" to see if anybody was there.
+
+    The prompt already promises them the next step replies in the same breath. This is it.
+    """
+    llm = ScriptedLLM(
+        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"issue": "a leak"}}),
+              ("step.finished", {"outcome": "new"}),
+              text="Thanks, noted. One moment."),
+        says("And your name, address and email?"),
+    )
+    conversation = _talk(llm, flow)
+
+    turn = conversation.say("my toilet is leaking")
+
+    assert turn.reply == "Thanks, noted. One moment. And your name, address and email?"
+    assert conversation.node.name == "new_customer"
+
+
+def test_the_node_that_spoke_is_known_even_when_two_share_a_reply(flow):
+    """Which node said a thing decides whether a claim was backed by a tool. It used to be
+    worked out by zipping speaking steps against transcript lines, which quietly stopped
+    being true the moment one reply came from two steps."""
+    llm = ScriptedLLM(
+        calls(("ticket.set_fields", {"ticket_id": "TK-0001", "fields": {"issue": "a leak"}}),
+              ("step.finished", {"outcome": "new"}),
+              text="Thanks, noted."),
+        says("And your name?"),
+    )
+    conversation = _talk(llm, flow)
+    turn = conversation.say("my toilet is leaking")
+
+    spoke = {step.node: step.text for step in turn.steps if step.text}
+    assert spoke["identify"] == "Thanks, noted."
+    assert spoke["new_customer"] == "And your name?"
+
+
+def test_a_step_cannot_hand_on_with_its_findings_unwritten(flow):
+    """The mirror of the terminal-step guard, and it answers a real conversation.
+
+    A customer opened with "install a faucet". `greeting` replied, called step.finished,
+    and never wrote `issue` — its own rules file told it to. The messages went with the
+    step, and four nodes later `problem` read a ticket with nothing on it and asked what
+    had gone wrong. By then they had said "install a faucet" three times.
+    """
+    llm = ScriptedLLM(
+        calls(("step.finished", {"outcome": "new"})),            # nothing recorded
+        calls(("ticket.set_fields",
+               {"ticket_id": "TK-0001", "fields": {"issue": "install a faucet"}}),
+              ("step.finished", {"outcome": "new"})),
+        says("And your name and address?"),
+    )
+    conversation = _talk(llm, flow)
+
+    conversation.say("install a faucet")
+
+    assert conversation.node.name == "new_customer"           # it did get there
+    assert conversation.tags["issue"] == "install a faucet"   # having written it down
+
+
+def test_the_step_is_told_which_field_is_missing(flow):
+    """"Not yet" with no noun is a step going round again guessing."""
+    llm = ScriptedLLM(
+        calls(("step.finished", {"outcome": "new"})),
+        says("What brings you to us today?"),
+    )
+    conversation = _talk(llm, flow)
+    conversation.say("hello")
+
+    assert "issue" in json.dumps(conversation.messages)
+
+
+def test_a_field_somebody_else_already_wrote_counts(flow):
+    """The gate is about the fact being there, not about who put it there — a tool's
+    `remembers` fills some of these in without the model being asked at all."""
+    conversation = _talk(ScriptedLLM(), flow)
+    conversation.world.remember(conversation.ticket_id, {"issue": "a dripping tap"})
+
+    assert conversation._unrecorded(flow["identify"]) == []
+
+
+def test_a_node_told_to_record_can_always_write(flow):
+    """Held at a gate it has no tool to open, a step would never finish — which from
+    outside is indistinguishable from the model refusing to move on."""
+    for node in flow.nodes.values():
+        if node.records:
+            assert "ticket.set_fields" in node.tools, node.name
 
 
 def test_bookkeeping_is_not_work(flow):
@@ -390,8 +563,7 @@ def test_coming_back_after_it_ended_starts_a_new_one(flow):
     the closed one would put the second on a ticket already settled, which is a record
     nobody looks at again."""
     llm = ScriptedLLM(
-        calls(("step.finished", {"outcome": "done"})),
-        calls(("step.finished", {"outcome": "existing"})),
+        leaves_identify("existing"),
         calls(("step.finished", {"outcome": "claim"})),
         calls(("escalate.raise", {"ticket_id": "TK-0001", "reason": "warranty",
                                   "details": "tap drips"}),

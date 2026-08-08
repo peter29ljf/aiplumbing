@@ -11,7 +11,7 @@ start:
     property_type: townhouse
     issue: the kitchen tap drips
     size: small
-    offered: "today 11:00 AM, 12:00 PM or 1:00 PM with Mike Wang; scheduled CAD 100 starting at, emergency higher with a deposit"
+    offered: "today 11:00 AM, 12:00 PM or 1:00 PM with Mike Wang; scheduled CAD 100 starting at, emergency CAD 200 starting at (Monday-Saturday business hours)"
 customer:
   persona: |
     You are Lin. Your kitchen tap drips, it is not urgent, and you have just been shown a
