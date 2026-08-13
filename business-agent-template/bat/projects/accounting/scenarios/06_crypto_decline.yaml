@@ -1,0 +1,13 @@
+id: crypto_decline
+now: "2026-03-22T11:00:00-07:00"
+customer:
+  persona: |
+    You are Alex, a new client. You had crypto trading gains last year and need them
+    reported on your return. Your phone number is 604-555-0226. Answer briefly.
+  phone: "604-555-0226"
+  max_turns: 25
+expect:
+  reaches: decline_crypto
+  ticket_status: Declined
+  appointments: 0
+  must_say: ["crypto"]

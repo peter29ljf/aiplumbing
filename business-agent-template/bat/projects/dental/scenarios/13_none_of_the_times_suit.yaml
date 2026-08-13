@@ -1,0 +1,28 @@
+id: none_of_the_times_suit
+description: >-
+  The diary has times and none of them work for him. Handed to Wendy to find one by hand,
+  with the days he can actually come.
+now: "2026-08-05T10:00:00-07:00"
+customer:
+  persona: |
+    You are Desmond Achebe. You want a check-up — nothing urgent, nothing hurts.
+
+    You work shifts and you can only come in on a Monday morning, and not this coming
+    Monday because you are away. Say that plainly when they offer you times, and turn down
+    anything that is not a Monday morning, however they put it. Do not accept a time that
+    does not work just to be agreeable.
+
+    You are new to this practice. Your date of birth is 1986-07-22, your email is
+    d.achebe@example.com, and you have insurance through Canada Life. Answer briefly.
+  phone: "604-555-0799"
+  max_turns: 38
+expect:
+  reaches: hand_scheduling
+  ticket_status: With Wendy — Scheduling
+  # Nothing in the diary. Booking him into a time he told us he cannot make is worse than
+  # handing it to a person.
+  appointments: 0
+  escalations: 1
+  followups: 1
+  # Nobody invents a Monday, and nobody says it is arranged when it is not.
+  must_not_say: ["you're booked", "that's booked", "i've booked", "see you on monday"]

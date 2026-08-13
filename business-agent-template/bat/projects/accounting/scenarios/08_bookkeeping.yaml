@@ -1,0 +1,15 @@
+id: bookkeeping
+now: "2026-03-26T10:00:00-07:00"
+customer:
+  persona: |
+    You are Chris, a new client. Your small company needs monthly bookkeeping and you want
+    to come into the office to talk about it. Your phone number is 604-555-0248, your name
+    Chris Patil, email chris@example.com. Answer briefly.
+  phone: "604-555-0248"
+  max_turns: 34
+expect:
+  reaches: book
+  ticket_status: Appointment Booked
+  appointments: 1
+  must_say: ["90"]
+  must_not_say: ["bookkeeper"]

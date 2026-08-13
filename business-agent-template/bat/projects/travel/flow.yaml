@@ -1,0 +1,109 @@
+entry: greeting
+
+nodes:
+  greeting:
+    goal: Greet the client and get one plain sentence about what they are after. Nothing else.
+    rules: [greeting]
+    tools: [rules.get_money_policy, ticket.set_fields, step.finished]
+    sets_status: New Enquiry
+    next: enquiry_route
+
+  enquiry_route:
+    goal: Read what they came for off the ticket and take the matching way out.
+    rules: [enquiry_route]
+    tools: [step.finished]
+    sets_status: New Enquiry
+    branch:
+      trip: identify
+      visa_only: decline_visa
+      insurance_only: decline_insurance
+      chasing: chase_enquiry
+
+  identify:
+    goal: Get their name and how the consultant reaches them. Look them up.
+    rules: [identify]
+    tools: [client.lookup, client.save, ticket.set_fields, step.finished]
+    sets_status: Client Known
+    branch:
+      ok: destination
+      no_contact: no_contact
+
+  no_contact:
+    goal: Answer what can be answered and say plainly that nobody can come back without a way to reach them.
+    rules: [no_contact]
+    tools: [rules.get_money_policy, ticket.set_fields]
+    sets_status: Closed — No Contact
+
+  destination:
+    goal: Where to, where from — and whether we go there.
+    rules: [destination]
+    tools: [rules.check_destination, ticket.set_fields, step.finished]
+    sets_status: Destination Set
+    branch:
+      ok: travellers
+      refused: decline_destination
+
+  decline_destination:
+    goal: Say it in the agency's words and leave the door open.
+    rules: [decline_destination]
+    tools: [rules.get_decline, ticket.set_fields]
+    sets_status: Declined — Destination
+
+  travellers:
+    goal: How many adults, how many children, and each child's age.
+    rules: [travellers]
+    tools: [ticket.set_fields, step.finished]
+    sets_status: Party Known
+    next: dates
+
+  dates:
+    goal: When, how long, and whether that is fixed or flexible.
+    rules: [dates]
+    tools: [clock.now, ticket.set_fields, step.finished]
+    sets_status: Dates Known
+    next: trip_shape
+
+  trip_shape:
+    goal: Flights only, flights plus hotel, or a full package with tours.
+    rules: [trip_shape]
+    tools: [ticket.set_fields, step.finished]
+    sets_status: Scope Known
+    next: budget
+
+  budget:
+    goal: Roughly what they want to spend, and whether per person or in total. Never judge it.
+    rules: [budget]
+    tools: [rules.get_money_policy, ticket.set_fields, step.finished]
+    sets_status: Budget Recorded
+    next: passports
+
+  passports:
+    goal: Which country issued the passports, for everyone travelling. Say the visa line if asked; name no requirement.
+    rules: [passports]
+    tools: [rules.get_decline, ticket.set_fields, step.finished]
+    sets_status: Ready To Quote
+    next: handover
+
+  handover:
+    goal: Send it to the right consultant, tell the client what happens next, mention insurance, arm the 24-hour check.
+    rules: [handover]
+    tools: [consultant.send_enquiry, schedule.create_followup, ticket.set_fields]
+    sets_status: With Consultant
+
+  decline_visa:
+    goal: The visa refusal, ending on an invitation.
+    rules: [decline_visa]
+    tools: [rules.get_decline, ticket.set_fields]
+    sets_status: Declined — Visa Only
+
+  decline_insurance:
+    goal: The insurance-only refusal, ending on an invitation.
+    rules: [decline_insurance]
+    tools: [rules.get_decline, rules.get_money_policy, ticket.set_fields]
+    sets_status: Declined — Insurance Only
+
+  chase_enquiry:
+    goal: Somebody chasing options they were promised. Put it in front of the consultant now.
+    rules: [chase_enquiry]
+    tools: [escalate.raise, schedule.create_followup, ticket.set_fields]
+    sets_status: Chasing Consultant

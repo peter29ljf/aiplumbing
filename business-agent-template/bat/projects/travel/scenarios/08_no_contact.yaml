@@ -1,0 +1,13 @@
+id: no_contact_given
+now: "2026-08-06T10:00:00-07:00"
+customer:
+  persona: |
+    You want a trip to Japan, but you refuse to give a phone number or an email — you
+    don't want to be contacted about it. You won't give any way to reach you, no matter
+    how often you're asked. You'll still answer questions about the trip itself. Answer
+    briefly but stay firm on the contact.
+  max_turns: 20
+expect:
+  reaches: no_contact
+  ticket_status: Closed — No Contact
+  enquiries: 0

@@ -1,0 +1,13 @@
+id: visa_application_only
+now: "2026-07-01T10:00:00-07:00"
+customer:
+  persona: |
+    You are Jonas. You only want help with a visa application — you've already booked your
+    trip yourself and just need a visa processed. You don't need any travel planning.
+    Phone 437-555-0125. You live in Toronto. Answer briefly.
+  phone: "437-555-0125"
+  max_turns: 20
+expect:
+  reaches: decline_visa
+  ticket_status: Declined — Visa Only
+  enquiries: 0

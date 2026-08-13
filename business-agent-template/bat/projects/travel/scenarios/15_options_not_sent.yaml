@@ -1,0 +1,25 @@
+id: options_not_sent_24h
+now: "2026-08-13T10:00:00-07:00"
+customer:
+  persona: |
+    You are Nia. You completed a full enquiry for a trip to Portugal last week and you're
+    waiting for options. This is a scheduled follow-up, not a fresh chat — answer briefly.
+  phone: "604-555-0166"
+  max_turns: 10
+start:
+  node: handover
+  known:
+    name: "Nia"
+    phone: "604-555-0166"
+    destination: "Portugal"
+    region: "Europe"
+    consultant: "Priya"
+    party: "2 adults"
+    route: "Vancouver to Lisbon, fixed dates"
+    budget: "5000 total"
+    passports: "Canada"
+    scope: "flights and hotel"
+after: "24h"
+expect:
+  ticket_status: With Consultant
+  enquiries: 1

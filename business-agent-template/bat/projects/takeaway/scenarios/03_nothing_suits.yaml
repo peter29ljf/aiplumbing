@@ -1,0 +1,14 @@
+id: nothing_suits
+now: "2026-08-01T10:00:00-07:00"
+customer:
+  persona: |
+    You are Dana. You want to book a table for two this Saturday at 19:00. Give your
+    phone number when asked. When offered sittings, say none of them work for you. Answer
+    briefly.
+  phone: "604-555-0133"
+  max_turns: 30
+expect:
+  reaches: table_handover
+  ticket_status: With Kevin - Table
+  escalations: 1
+  bookings: 0

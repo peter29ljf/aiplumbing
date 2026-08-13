@@ -1,0 +1,11 @@
+id: zz_probe
+now: "2026-08-01T10:00:00-07:00"
+customer:
+  persona: |
+    You are Mei. You want to book a table for four this Saturday evening. Give your phone
+    number when asked. Answer briefly.
+  phone: "604-555-0111"
+  max_turns: 30
+expect:
+  reaches: book_table
+  ticket_status: Table Booked

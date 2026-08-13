@@ -1,0 +1,13 @@
+id: cra_audit_decline
+now: "2026-03-20T10:00:00-07:00"
+customer:
+  persona: |
+    You are Jo, a new client. CRA has already opened an audit of your business and you want
+    help handling it. Your phone number is 604-555-0215. Answer briefly.
+  phone: "604-555-0215"
+  max_turns: 25
+expect:
+  reaches: decline_audit
+  ticket_status: Declined
+  appointments: 0
+  must_say: ["tax lawyer"]

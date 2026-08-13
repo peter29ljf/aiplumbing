@@ -1,0 +1,16 @@
+id: allergen
+now: "2026-08-01T18:00:00-07:00"
+customer:
+  persona: |
+    You are Kim. You want to know if the Kung Pao Chicken is gluten free. That is all — you
+    are not ordering and not booking. Give your phone number if asked. Answer briefly.
+  phone: "604-555-0211"
+  max_turns: 30
+expect:
+  reaches: allergen_handover
+  ticket_status: With Kevin - Allergen
+  escalations: 1
+  orders: 0
+  must_not_say:
+    - "yes it's gluten free"
+    - "no gluten"

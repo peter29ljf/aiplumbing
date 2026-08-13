@@ -1,0 +1,21 @@
+id: work_in_progress
+now: "2026-03-30T10:00:00-07:00"
+start:
+  node: existing_client
+  known:
+    phone: "604-555-0271"
+    known_customer: "yes"
+    name: "Morgan Yu"
+    has_in_progress: true
+    in_progress_detail: "2025 personal return"
+customer:
+  persona: |
+    You are Morgan, an existing client of Chen & Associates CPA. You are calling to ask
+    where your return is. Your phone number is 604-555-0271. Answer briefly.
+  phone: "604-555-0271"
+  max_turns: 20
+expect:
+  reaches: work_handover
+  ticket_status: With Michelle — Work In Progress
+  appointments: 0
+  escalations: 1

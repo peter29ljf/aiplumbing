@@ -1,0 +1,16 @@
+id: no_budget_unstated
+now: "2026-08-07T10:00:00-07:00"
+customer:
+  persona: |
+    You are Kim. You want a trip to Thailand for your family — you, your partner, and two
+    children aged 4 and 7. When asked about budget you say you don't know, it depends what
+    it costs, and you won't give a number. You still want the enquiry sent. You want a full
+    package with tours. Canadian passports. Dates flexible. You live in Vancouver, phone
+    604-555-0177. Answer briefly, give details when asked.
+  phone: "604-555-0177"
+  max_turns: 40
+expect:
+  reaches: handover
+  ticket_status: With Consultant
+  enquiries: 1
+  followups: 1

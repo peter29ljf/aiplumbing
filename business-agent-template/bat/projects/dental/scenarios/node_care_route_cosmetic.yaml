@@ -1,0 +1,21 @@
+id: node.care_route.cosmetic_only
+description: Wants whitening and nothing else. Declined softly, and invited back.
+now: "2026-08-05T10:00:00-07:00"
+start:
+  node: care_route
+  known:
+    phone: "604-555-0412"
+    name: Owen Fraser
+    email: owen@example.com
+    known_customer: "no"
+    issue: wants his teeth whitened before a wedding
+customer:
+  persona: |
+    You are Owen. You want whitening before a wedding in October. Nothing hurts and you do
+    not want a check-up — whitening is the whole reason you got in touch.
+  opens: "Just the whitening, thanks — nothing else is bothering me."
+  phone: "604-555-0412"
+  max_turns: 4
+expect:
+  reaches: decline_cosmetic
+  finishes: false

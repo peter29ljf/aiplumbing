@@ -1,0 +1,16 @@
+id: table_for_ten
+now: "2026-08-01T10:00:00-07:00"
+customer:
+  persona: |
+    You are Sam. You want to book a table for ten people this Friday evening. Give your
+    phone number when asked and the party size. Answer briefly.
+  phone: "604-555-0122"
+  max_turns: 30
+expect:
+  reaches: large_party_handover
+  ticket_status: With Kevin - Large Party
+  escalations: 1
+  bookings: 0
+  must_not_say:
+    - "booked"
+    - "confirmed"

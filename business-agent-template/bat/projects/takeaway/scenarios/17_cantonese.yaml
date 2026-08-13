@@ -1,0 +1,15 @@
+id: cantonese
+now: "2026-08-01T10:00:00-07:00"
+customer:
+  persona: |
+    You are Wing. You want to book a table for four this Saturday evening. Reply in
+    Cantonese throughout. Give your phone number when asked. Pick a sitting when offered.
+    Answer briefly.
+  phone: "604-555-0266"
+  max_turns: 30
+expect:
+  reaches: book_table
+  ticket_status: Table Booked
+  bookings: 1
+  must_say:
+    - "十五分鐘"

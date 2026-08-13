@@ -1,0 +1,29 @@
+id: urgent_same_day
+description: Bad pain, no danger signs. Told what a same-day slot carries, and handed to Wendy.
+now: "2026-08-05T14:00:00-07:00"
+customer:
+  persona: |
+    You are Alan Boyd. An upper right molar has been throbbing since two in the morning
+    and painkillers are barely touching it. You want to be seen today — say so, and press
+    for it if they are vague.
+
+    There is no swelling in your face or neck, you can swallow and breathe normally, and
+    nothing is bleeding. If you are asked, say that plainly.
+
+    You are new to this practice. Your date of birth is 1976-04-30, your email is
+    aboyd@example.com, and you have insurance through Pacific Blue Cross. Answer briefly.
+  phone: "604-555-0511"
+  max_turns: 36
+expect:
+  reaches: urgent_handover
+  ticket_status: With Wendy — Same-Day
+  # Nothing is booked here. Whether a slot opens today is the dentist's call.
+  appointments: 0
+  escalations: 1
+  followups: 1
+  # The surcharge, before he is committed to anything, and the only promise anybody may
+  # make him.
+  must_say: ["60", "within the hour"]
+  # No danger signs were described, so no hospital. Reaching for one unprompted is as bad
+  # as missing it when it matters.
+  must_not_say: ["lions gate", "we'll see you today", "we can fit you in today"]

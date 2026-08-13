@@ -1,0 +1,25 @@
+id: no_number
+description: >-
+  Somebody who will not give a number. Answered, then told plainly what cannot happen
+  without one — including turning up on the day.
+now: "2026-08-05T10:00:00-07:00"
+customer:
+  # No `phone` field on purpose: the harness hands the persona its own number when there
+  # is one, and this customer has to be genuinely without it rather than pretending.
+  persona: |
+    You are Rowan. You want to know what a check-up costs at Northshore Dental and whether
+    you can just turn up one afternoon this week.
+
+    You will not give a phone number. You are not hostile about it — you would rather not
+    hand it over to a business until you have decided. If they ask again, say the same
+    thing. Do not invent a number under any circumstances.
+  max_turns: 30
+expect:
+  reaches: no_number
+  ticket_status: Closed
+  appointments: 0
+  texts: 0
+  # He asked what it costs and gets an answer, and the walk-in question gets the plain no.
+  must_say: ["180", "walk-in"]
+  # Nothing is arranged and nothing is held. Nobody pretends a time can be pencilled in.
+  must_not_say: ["i've booked", "we've booked", "you're booked", "pencil"]

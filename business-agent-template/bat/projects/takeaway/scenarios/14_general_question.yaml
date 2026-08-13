@@ -1,0 +1,14 @@
+id: general_question
+now: "2026-08-01T14:00:00-07:00"
+customer:
+  persona: |
+    You are Pat. Ask what time the restaurant closes on Sunday. Answer briefly.
+  phone: "604-555-0244"
+  max_turns: 30
+expect:
+  reaches: general_question
+  ticket_status: Answered
+  # It has to tell them when the kitchen shuts, in whichever way it says it. Demanding
+  # both spellings made the assertion unsatisfiable the moment the hours tool started
+  # answering in the words a customer uses rather than in 24-hour time.
+  must_say_any: ["9:30", "21:30", "9.30"]

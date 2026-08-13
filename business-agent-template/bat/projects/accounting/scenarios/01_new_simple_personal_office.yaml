@@ -1,0 +1,17 @@
+id: new_simple_personal_office
+now: "2026-03-10T10:00:00-07:00"
+customer:
+  persona: |
+    You are Dana, phoning Chen & Associates CPA for the first time. You need your personal
+    tax return filed with your T4 only — you had just the one job, no rental, no
+    self-employment. You want to come into the office. Your phone number is 604-555-0171,
+    your name Dana Wong, your email dana@example.com. You prefer English. Answer briefly.
+  phone: "604-555-0171"
+  max_turns: 34
+expect:
+  reaches: book
+  ticket_status: Appointment Booked
+  appointments: 1
+  texts: 1
+  must_say: ["120"]
+  must_not_say: ["250"]

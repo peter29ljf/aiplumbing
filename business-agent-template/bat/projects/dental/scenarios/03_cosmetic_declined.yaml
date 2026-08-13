@@ -1,0 +1,23 @@
+id: cosmetic_declined
+description: Wants whitening and nothing else. Declined, softly, and invited in.
+now: "2026-08-05T10:00:00-07:00"
+customer:
+  persona: |
+    You are Priya Raman. You want your teeth whitened before a wedding in September, and
+    you have wondered about veneers on the two front teeth. Nothing hurts, nothing is
+    broken, and there is nothing else bothering you — if asked, say so plainly.
+
+    You are new to this practice. Your date of birth is 1994-01-27, your email is
+    priya.raman@example.com, and you have no dental insurance. Answer briefly.
+  phone: "604-555-0422"
+  max_turns: 34
+expect:
+  reaches: decline_cosmetic
+  ticket_status: Declined
+  appointments: 0
+  texts: 0
+  # Both halves of the practice's sentence: what we are, and that she is welcome anyway.
+  must_say: ["general practice", "check-up"]
+  # The children's referral belongs to the other decline. Nowhere is recommended for
+  # cosmetic work, and no price is put on work we do not do.
+  must_not_say: ["604-555-0142", "recommend"]

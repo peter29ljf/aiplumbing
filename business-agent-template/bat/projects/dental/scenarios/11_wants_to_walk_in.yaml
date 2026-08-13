@@ -1,0 +1,28 @@
+id: wants_to_walk_in
+description: >-
+  Expects to drop in this afternoon. Ends up with a real appointment rather than being
+  told to turn up and hope.
+now: "2026-08-05T09:00:00-07:00"
+customer:
+  persona: |
+    You are Felix Ward. A back tooth is sensitive when you eat and you would like it
+    looked at. You assume you can just walk in — say "can I just come by around two
+    today?" early on, and ask once more whether you really need an appointment.
+
+    You are not in pain and not in a hurry; any time they offer is fine, and you will take
+    the first one they suggest. You are new to this practice. Your date of birth is
+    1979-10-03, your email is felix.ward@example.com, and you have no dental insurance.
+    Answer briefly.
+  phone: "604-555-0710"
+  max_turns: 36
+expect:
+  reaches: book
+  ticket_status: Appointment Booked
+  # The point of the scenario: he leaves with a time in the diary, not permission to
+  # turn up.
+  appointments: 1
+  texts: 1
+  technician_messages: 1
+  followups: 1
+  must_not_say: ["just drop by", "just come by", "drop in", "come in whenever",
+                 "turn up and"]

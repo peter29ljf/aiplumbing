@@ -1,0 +1,113 @@
+# Golden Wok — the only place a figure lives. Read from a tool, never from a rules file.
+
+company:
+  name: "Golden Wok"
+  city: "New Westminster, BC"
+  timezone: "America/Vancouver"
+  currency: "CAD"
+
+language:
+  - English
+  - Cantonese
+  # Reply in the language the customer wrote in.
+
+hours:
+  open: "11:00"
+  close: "21:30"        # kitchen closes 21:00
+  kitchen_close: "21:00"
+
+dining_room:
+  tables: 12
+  seats: 48
+  sitting_minutes: 90
+  last_sitting: "20:00"   # so ninety minutes ends before 21:30 (assumed)
+  hold_minutes: 15        # table held 15 minutes past the booked time, then released
+  deposit: 0
+
+takeaway:
+  pickup_min_minutes: 20
+  pickup_max_minutes: 25
+  delivery_min_minutes: 40
+  delivery_max_minutes: 55
+  today_only: true        # no orders for a future date
+
+delivery:
+  radius_km: 5
+  fee: 4                  # CAD
+  fee_waived_over: 60     # free delivery on orders over CAD 60
+  minimum_order: null     # not set — see open questions
+
+refusals:
+  catering_over: 30       # people. We do not take catering over 30.
+  delivery_outside_km: 5
+  future_orders: true     # takeaway is today only
+
+decisions_a_person_makes:
+  large_party_over: 8     # a party over 8 is Kevin's to confirm
+  allergens: true         # any allergen question goes to the kitchen, never guessed
+
+work_goes_to:
+  name: "Kevin"
+  channel: "Telegram"     # front-of-house phone
+
+after:
+  delivery_check_minutes: 45   # check a delivery arrived
+  table: "nothing"             # they came or they did not; no chasing
+
+# The six lines the agent repeats nearly verbatim. Both languages.
+wording:
+  catering_over_30:
+    en: "We can't take catering for more than 30 people, I'm sorry — it's a size we don't do."
+    yue: "我哋唔接超過三十人嘅外賣到會，好抱歉，呢個規模我哋做唔到。"
+  outside_area:
+    en: "We only deliver within 5 km of the restaurant, so I can't send it that far. I'd be glad to have it ready for pickup instead."
+    yue: "我哋只送餐廳五公里範圍以內，太遠送唔到。不過可以幫你準備好去拎，一樣歡迎。"
+  today_only:
+    en: "Takeaway is today only, I'm afraid — we can't take an order for another day."
+    yue: "外賣只限今日，唔可以接第日嘅單。"
+  allergen:
+    en: "I'm not able to answer that from the menu — the kitchen will confirm it with you before anything is cooked."
+    yue: "菜單上我答唔到呢個，廚房會喺煮之前同你確認。"
+  hold_15:
+    en: "We hold the table for 15 minutes past the booked time, then it's released."
+    yue: "我哋會留張枱十五分鐘，過咗就會放返出嚟。"
+  delivery_free:
+    en: "Delivery is free on this one — you're over the ${over} mark."
+    yue: "呢張單免運費，你過咗 ${over} 蚊。"
+  sold_out:
+    en: "Sorry — {dish} is sold out today. Can I get you something else instead?"
+    yue: "唔好意思，{dish} 今日賣晒喇。要唔要揀第樣？"
+  no_card_number:
+    en: "We don't take card numbers in chat — you pay when you pick up, or at the door."
+    yue: "我哋唔喺訊息入面收信用卡號碼，你嚟攞或者送貨到門口先畀錢。"
+
+# Today's menu. The one place the menu exists. Prices in CAD.
+menu:
+  - name: "Kung Pao Chicken"
+    category: "Mains"
+    price: 16.50
+  - name: "Beef and Broccoli"
+    category: "Mains"
+    price: 16.00
+  - name: "Sweet and Sour Pork"
+    category: "Mains"
+    price: 15.50
+  - name: "Salt and Pepper Squid"
+    category: "Mains"
+    price: 15.00
+  - name: "House Fried Rice"
+    category: "Rice & Noodles"
+    price: 13.00
+  - name: "Singapore Noodles"
+    category: "Rice & Noodles"
+    price: 14.50
+  - name: "Spring Rolls"
+    category: "Starters"
+    price: 8.00
+  - name: "Hot and Sour Soup"
+    category: "Starters"
+    price: 7.50
+
+# Sold out today. Changes hourly; the world keeps this current.
+sold_out_today:
+  - "Sweet and Sour Pork"

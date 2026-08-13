@@ -1,0 +1,12 @@
+id: kitchen_closed
+now: "2026-08-01T21:15:00-07:00"
+customer:
+  persona: |
+    You are Tom. You want to order takeaway for pickup. Give your phone number when asked.
+    Answer briefly.
+  phone: "604-555-0199"
+  max_turns: 30
+expect:
+  reaches: decline_not_today
+  ticket_status: Declined - Not Today
+  orders: 0

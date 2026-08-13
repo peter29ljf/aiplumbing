@@ -1,0 +1,13 @@
+id: insurance_for_expedia_trip
+now: "2026-08-01T10:00:00-07:00"
+customer:
+  persona: |
+    You are Priya. You've already booked a trip to Mexico on Expedia and you just want
+    travel insurance for it. You don't need anything else. Phone 604-555-0133. You live
+    in Burnaby. Answer briefly.
+  phone: "604-555-0133"
+  max_turns: 20
+expect:
+  reaches: decline_insurance
+  ticket_status: Declined — Insurance Only
+  enquiries: 0

@@ -1,4 +1,9 @@
 .env
+.env.backup-*
+# The Google service account. A private key in the repository is a private key in
+# everybody's checkout and in every clone that ever gets made of it.
+.google-service-account.json
+*service-account*.json
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -10,3 +15,19 @@ runs/*/
 runs/live.json
 .claude/
 flow/runs/
+
+# The databases. Customers, tickets and appointments are a deployment's own records, and
+# the console writes one too — pointing it at a real store is how it exercises the half of
+# production most likely to be wrong.
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Harness reports carry whole transcripts. Same reason flow/runs is ignored.
+business-agent-template/bat/projects/*/runs/
+business-agent-template/bat/projects/*/spend.jsonl
+
+# Scratch written per conversation by the Claude Code engines: one directory per
+# conversation holding its skills and its tool schemas. Regenerated every run.
+business-agent-template/bat/projects/*/sessions/

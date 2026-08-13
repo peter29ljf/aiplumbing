@@ -1,0 +1,33 @@
+id: new_patient_booked
+description: New patient, aching tooth, not in a hurry. Picks a time and is booked.
+now: "2026-08-05T10:00:00-07:00"
+customer:
+  persona: |
+    You are Dana Whitfield. A back tooth on the lower left has ached when you bite for
+    about a week. It is annoying rather than bad — you are not in real pain, you sleep
+    fine, and you are happy to take the next sensible appointment rather than being
+    squeezed in today. You are new to this practice.
+
+    Your date of birth is 1988-03-14. Your email is dana.whitfield@example.com. You do
+    have dental insurance, through Pacific Blue Cross. Answer what you are asked, briefly.
+  phone: "604-555-0301"
+  max_turns: 36
+# A day passes, so the check-back on the ticket actually comes due and Wendy is asked.
+after:
+  - { hours: 24 }
+expect:
+  reaches: book
+  ticket_status: Appointment Booked
+  appointments: 1
+  texts: 1
+  technician_messages: 1
+  followups: 1
+  # Asked once, a day later, on the period the booking handed over. A follow-up scheduled
+  # for a period somebody invented does not fall due here.
+  followup_asks: 1
+  # The new-patient fee, because she is not on our books, and the notice period, because
+  # she is being booked and that is when we say it.
+  must_say: ["180", "24 hours"]
+  # No surcharge. She chose a time out of the diary; that it happens to be soon does not
+  # make it an emergency slot the dentist opened.
+  must_not_say: ["surcharge"]

@@ -1,0 +1,14 @@
+id: us_tax_decline
+now: "2026-03-18T10:00:00-07:00"
+customer:
+  persona: |
+    You are Sam, a new client. You need a US 1040 filed because you worked in the US last
+    year. Your phone number is 604-555-0204. Answer briefly.
+  phone: "604-555-0204"
+  max_turns: 25
+expect:
+  reaches: decline_us_tax
+  ticket_status: Declined
+  appointments: 0
+  texts: 1
+  must_say: ["Cross-Border", "604-555-0140"]

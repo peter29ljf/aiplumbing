@@ -1,0 +1,16 @@
+id: rome_trip_schengen_visa
+now: "2026-06-01T10:00:00-07:00"
+customer:
+  persona: |
+    You are Alicia. You and your husband want a trip to Rome, Italy next August. At some
+    point during the intake you ask whether Pacific Compass can handle the Schengen visa
+    for you. You still want the trip. You live in Montreal, phone 514-555-0117. You want
+    flights and hotel, around $6,000 in total, and you both have Canadian passports.
+    Answer briefly, give details when asked.
+  phone: "514-555-0117"
+  max_turns: 40
+expect:
+  reaches: handover
+  ticket_status: With Consultant
+  enquiries: 1
+  must_not_say: ["you'll need a Schengen visa", "we'll handle your visa"]

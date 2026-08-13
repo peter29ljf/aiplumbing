@@ -1,0 +1,33 @@
+id: known_patient_recall
+description: >-
+  A patient of ours wanting an ordinary check-up. She is not asked to introduce herself,
+  and not asked for her date of birth to clear a rule she cleared years ago.
+now: "2026-08-05T10:00:00-07:00"
+seed:
+  customers:
+    - phone: "604-555-0755"
+      name: Joanne Pike
+      email: jo.pike@example.com
+customer:
+  persona: |
+    You are Joanne Pike and you have been going to Northshore Dental for years. You are
+    due a check-up — nothing hurts, nothing is broken, and none of your old treatment is
+    giving you any trouble. If asked whether this is about work they have done before, say
+    no, it is just a check-up.
+
+    Any of the times they offer is fine. Answer briefly.
+  phone: "604-555-0755"
+  max_turns: 34
+expect:
+  reaches: book
+  ticket_status: Appointment Booked
+  tickets: 1
+  appointments: 1
+  texts: 1
+  technician_messages: 1
+  followups: 1
+  # The recall fee, because she is on our books — not the new-patient one.
+  must_say: ["95"]
+  # She is a patient of years. Asking her birthday, or her name, is the practice looking
+  # like it has lost her file.
+  must_not_say: ["date of birth", "180"]

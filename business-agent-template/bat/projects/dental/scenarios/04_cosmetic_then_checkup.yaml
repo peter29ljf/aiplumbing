@@ -1,0 +1,27 @@
+id: cosmetic_then_checkup
+description: >-
+  Turned down for whitening, then takes up the invitation. The soft decline is only worth
+  its wording if the check-up it offers can actually be booked.
+now: "2026-08-05T10:00:00-07:00"
+customer:
+  persona: |
+    You are Toby Grant. You are asking about teeth whitening. Nothing hurts and nothing
+    else is bothering you.
+
+    You are new to this practice. Your date of birth is 1991-08-08, your email is
+    toby.grant@example.com, and you have insurance through Manulife. Answer briefly.
+  phone: "604-555-0455"
+  # What he says once the whitening has been turned down. Scripted, because the persona
+  # stops at DONE and this is the half of the wording that has never been tested.
+  comes_back: "Fair enough — could I come in for a check-up then? It's been a couple of years"
+  max_turns: 44
+expect:
+  # Two conversations, two tickets: the second starts from the top, finds him on file now,
+  # and books him.
+  tickets: 2
+  reaches: book
+  appointments: 1
+  texts: 1
+  technician_messages: 1
+  followups: 1
+  must_say: ["general practice"]

@@ -1,0 +1,13 @@
+id: no_phone_number
+now: "2026-03-31T10:00:00-07:00"
+customer:
+  persona: |
+    You are a caller who wants a simple personal tax return filed but will not give your
+    phone number. You are new. You ask roughly what it would cost. Answer briefly.
+  phone: ""
+  max_turns: 15
+expect:
+  reaches: no_number
+  ticket_status: Closed
+  appointments: 0
+  must_say: ["120"]

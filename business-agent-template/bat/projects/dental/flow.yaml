@@ -1,0 +1,176 @@
+# Northshore Dental, as a graph.
+#
+# Seventeen nodes, seven of them endings. The patient comes to us, so there is no
+# travelling diary and no address to collect — the constraint is a dentist and a chair
+# free at the same time, and that lives in `diary.book` rather than in anybody's prose.
+#
+# Two judgements are never made here: whether something is worth a same-day slot (the
+# dentist's, through Wendy) and whether insurance covers something (reception's). The
+# first is a node. The second is not — it arrives anywhere, so it lives in always.md and
+# on the ticket instead of doubling the graph.
+
+entry: greeting
+
+nodes:
+
+  greeting:
+    goal: >-
+      Greet them, and get one plain sentence about what they came for. That is all — no
+      details, no phone number, no name, no diagnosis.
+    rules: [greeting]
+    tools: [ticket.set_fields, step.finished]
+    sets_status: New Inquiry
+    next: identify
+
+  identify:
+    goal: Get their phone number, find out whether we know them, and what they came about.
+    rules: [crm_lookup]
+    tools: [crm.lookup_by_phone, ticket.set_fields, step.finished]
+    sets_status: Phone Verified
+    branch:
+      new: new_patient
+      existing: treatment_check
+      no_number: no_number
+
+  # No number, so nothing that hangs off one. Not a refusal — they get an answer, and
+  # then the plain fact that nothing can be booked without a number and that we have no
+  # walk-in clinic.
+  no_number:
+    goal: Answer what can be answered, say what cannot be done without a number, and close.
+    rules: [no_number]
+    # `rules.get_fees` because this step has to say what a visit costs and always.md
+    # forbids stating a figure it has not looked up. Without it the step would refuse to
+    # answer the one question it exists for.
+    tools: [rules.get_fees, ticket.set_fields]
+    sets_status: Closed
+
+  new_patient:
+    goal: >-
+      Take their name, date of birth, email and whether they have dental insurance, and
+      open a record.
+    rules: [new_patient]
+    tools: [patient.create, ticket.set_fields, step.finished]
+    sets_status: Patient Identified
+    next: age_check
+
+  treatment_check:
+    goal: Find out whether this is about treatment we have already done for them.
+    rules: [treatment_check]
+    tools: [patient.past_treatments, ticket.set_fields, step.finished]
+    sets_status: Patient Identified
+    branch:
+      our_work: treatment_handover
+      something_new: age_check
+
+  # The decision is the tool's, not the model's: `patient.check_age` is handed a date of
+  # birth and returns whether they are under sixteen. Nobody here does arithmetic on a
+  # birthday, and nobody here decides what sixteen means.
+  age_check:
+    goal: >-
+      Establish who the appointment is for, and their date of birth unless they are an
+      adult already on our books.
+    rules: [age_check]
+    tools: [patient.check_age, ticket.set_fields, step.finished]
+    sets_status: Patient Identified
+    branch:
+      ok: what_for
+      under_16: decline_age
+
+  decline_age:
+    goal: Say we cannot see them, in reception's words, and text them the referral.
+    rules: [decline_age]
+    # The text is not politeness. A phone number read once in a chat is a phone number
+    # lost, and this one is the whole use of the message.
+    tools: [rules.get_decline, sms.send, ticket.set_fields]
+    sets_status: Declined
+
+  # Split from the routing that follows it. Hearing the problem, giving the safety line
+  # and deciding cosmetic-or-not is three jobs, and in a crowded prompt the one that gets
+  # dropped is the one with no tool call forcing it. Here that would be the safety line,
+  # which is the most important sentence in the whole flow.
+  what_for:
+    goal: >-
+      Find out what is wrong or what they want, and give the safety advice if any of the
+      serious signs is described.
+    rules: [what_for, safety]
+    tools: [rules.get_safety_advisory, ticket.set_fields, step.finished]
+    sets_status: Needs Triage
+    next: care_route
+
+  care_route:
+    goal: Read what they came for off the ticket and take the matching way out.
+    rules: [care_route]
+    tools: [step.finished]
+    sets_status: Needs Triage
+    branch:
+      cosmetic_only: decline_cosmetic
+      care: urgency
+
+  # Ends on an invitation, and that invitation is real: if they say yes, the engine opens
+  # a second ticket and they walk the flow again from the top. Scenario 04 is that.
+  decline_cosmetic:
+    goal: Say we do not do cosmetic work, in the practice's words, and invite them in.
+    rules: [decline_cosmetic]
+    tools: [rules.get_decline, ticket.set_fields]
+    sets_status: Declined
+
+  # This step does not decide whether it is an emergency. It records how much pain they
+  # say they are in, in their own words, and the dentist decides.
+  urgency:
+    goal: >-
+      Find out how much pain they are in and how soon they need to be seen, in their
+      words, and give the safety advice if a serious sign comes up here.
+    rules: [urgency, safety]
+    tools: [rules.get_safety_advisory, ticket.set_fields, step.finished]
+    sets_status: Needs Triage
+    branch:
+      urgent: urgent_handover
+      routine: offer_times
+
+  urgent_handover:
+    goal: >-
+      Say what a same-day slot carries, put it in front of Wendy with what the patient
+      said about the pain, and arrange the check-back.
+    rules: [urgent_handover, handover]
+    tools: [rules.get_fees, escalate.raise, schedule.create_followup, ticket.set_fields]
+    sets_status: With Wendy — Same-Day
+
+  offer_times:
+    goal: Put the next free times and what the visit costs in front of them, and ask which suits.
+    rules: [offer_times]
+    tools: [clock.now, diary.find_slots, rules.get_fees, ticket.set_fields, step.finished]
+    sets_status: Awaiting Appointment Selection
+    next: pick_time
+
+  pick_time:
+    goal: Read which of the times they picked.
+    rules: [pick_time]
+    tools: [ticket.set_fields, step.finished]
+    sets_status: Awaiting Appointment Selection
+    branch:
+      chose: book
+      none_suit: hand_scheduling
+
+  book:
+    goal: Put it in the diary, text them, tell Wendy, and arrange the check-back.
+    # No handover rules here. Booking is not a handover — there is no escalate.raise on
+    # this node, and carrying instructions about a tool it does not have is how a step
+    # ends up describing something it never did.
+    rules: [book]
+    tools: [diary.book, sms.send, manager.notify, schedule.create_followup,
+            ticket.set_fields]
+    sets_status: Appointment Booked
+
+  hand_scheduling:
+    goal: Put it in front of Wendy to find them a time by hand, and arrange the check-back.
+    rules: [hand_scheduling, handover]
+    tools: [escalate.raise, schedule.create_followup, ticket.set_fields]
+    sets_status: With Wendy — Scheduling
+
+  treatment_handover:
+    goal: >-
+      Put the question about our own treatment in front of Wendy, with what we did
+      before attached, and arrange the check-back.
+    rules: [treatment_handover, handover]
+    tools: [escalate.raise, schedule.create_followup, ticket.set_fields]
+    sets_status: With Wendy — Treatment Question

@@ -1,0 +1,14 @@
+id: future_order
+now: "2026-08-01T18:00:00-07:00"
+customer:
+  persona: |
+    You are Nina. You want to order takeaway for tomorrow at six. Give your phone number
+    when asked. Answer briefly.
+  phone: "604-555-0188"
+  max_turns: 30
+expect:
+  reaches: decline_not_today
+  ticket_status: Declined - Not Today
+  orders: 0
+  must_say:
+    - "today only"
